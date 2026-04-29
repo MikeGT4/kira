@@ -255,6 +255,14 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
 
     _install_qt_message_handler()
     qt_app = QApplication.instance() or QApplication(sys.argv)
+    # Kira is a tray-only app — pystray's icon is NOT a Qt window, so
+    # closing Settings/About leaves Qt with zero open windows. Qt's
+    # default then fires lastWindowClosed and stops the event loop,
+    # which unwinds _run_windows and ends the process. The tray would
+    # still be visible mid-teardown, but the next F8 would do nothing.
+    # Disable the auto-quit so only the tray's explicit "Quit Kira"
+    # can end the event loop.
+    qt_app.setQuitOnLastWindowClosed(False)
     if _ICON_PATH.exists():
         qt_app.setWindowIcon(QIcon(str(_ICON_PATH)))
     else:
