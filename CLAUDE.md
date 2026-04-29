@@ -46,7 +46,8 @@ text appears at the cursor.
   wheels with CUDA/Qt6 DLLs need to be on a real NTFS path)
 - Launcher: `C:\Users\<user>\kira-venv\Scripts\kira.exe`
 - Autostart: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Kira.lnk`
-- Log: `%LOCALAPPDATA%\Kira\kira.log`
+- Log (Python + Qt + heartbeat): `%LOCALAPPDATA%\Kira\kira.log`
+- Log (native crashes — CUDA/audio/Qt DLL): `%LOCALAPPDATA%\Kira\kira-faulthandler.log`
 - Config: `%APPDATA%\Kira\config.yaml`
 - Whisper model cache: `%USERPROFILE%\.cache\faster-whisper\` (or pinned
   to a local dir via `whisper.model: C:/Users/<user>/models/...`)
@@ -56,6 +57,86 @@ text appears at the cursor.
 - Venv: project-local `.venv/`
 - Log: `~/Library/Logs/kira.log`
 - Config: `~/.config/kira/config.yaml`
+
+## Crash forensics
+
+`pythonw.exe` has no stderr, so without explicit hooks every native
+crash and every daemon-thread exception dies silently. `run()` in
+`kira/main.py` wires up four channels at boot:
+
+- `faulthandler` (writes raw frames to `kira-faulthandler.log` —
+  separate file because it bypasses the logging formatter)
+- `sys.excepthook` → top-level Python exceptions into `kira.log`
+- `threading.excepthook` → daemon-thread exceptions into `kira.log`
+- `qInstallMessageHandler` → Qt warnings/criticals as `kira.qt` logger
+
+Plus a 60-s heartbeat (`heartbeat: uptime=Ns`) so post-mortem can
+floor "when did Kira die?" without correlating user interactions.
+
+**When investigating a crash, always read both log files** — Python
+exceptions land in `kira.log`, native crashes in `kira-faulthandler.log`.
+
+## Tray-app lifecycle
+
+Kira runs as a tray-only app — pystray's icon is **not** a Qt window.
+Qt's default `quitOnLastWindowClosed=True` therefore tears down the
+process whenever a modal dialog (Settings, About, Welcome) closes,
+because Qt sees zero open windows afterwards. `_run_windows()` calls
+`qt_app.setQuitOnLastWindowClosed(False)` right after the
+`QApplication` constructor; only the tray's explicit "Quit Kira" can
+end the event loop.
+
+**If you add a new Qt window**, audit whether it should keep the loop
+alive on its own — don't rely on the flag toggle as the only guard.
+
+## Ollama warmup & keep_alive
+
+Two related mechanisms keep first-press latency near zero:
+
+- `StylerConfig.keep_alive` (default `"24h"`) is passed to every
+  `ollama.chat()` call. Ollama's own default is 5 min, after which
+  the model is unloaded and the next request pays the cold-start
+  cost again.
+- `StylerConfig.warmup_on_start` (default `True`) schedules
+  `Styler.warmup()` on the asyncio loop at app boot — a 1-token chat
+  that forces Ollama to load the model before the user's first F8.
+
+Both are configurable via `config.yaml`; set `warmup_on_start: false`
+on a low-VRAM box if you'd rather pay first-press latency than hold
+the model resident.
+
+## Restart workflow (editable install)
+
+The Windows venv is an `uv`-created editable install — no `pip` is
+available, but a `.pth` file in `site-packages` points at the WSL
+source directory:
+
+```
+C:\Users\<user>\kira-venv\Lib\site-packages\_editable_impl_kira.pth
+  -> \\wsl.localhost\Ubuntu\home\<user>\claude_kira
+```
+
+So source edits take effect on the **next process start** without any
+reinstall. Restart sequence from WSL bash:
+
+```bash
+# Find the running Kira process tree (one kira.exe + two pythonw.exe;
+# the big-memory pythonw.exe is the actual app):
+cd /tmp && powershell.exe -NoProfile -Command \
+  "Get-CimInstance Win32_Process -Filter 'Name=\"pythonw.exe\" OR Name=\"kira.exe\"' \
+   | Select-Object ProcessId,Name,WorkingSetSize"
+
+# Kill the launcher root with /T (children die with it):
+cd /tmp && cmd.exe /c "taskkill /PID <kira.exe-PID> /T /F"
+
+# Detached relaunch (cmd 'start' fails with 'Zugriff verweigert' from
+# WSL bash — Start-Process works):
+cd /tmp && powershell.exe -NoProfile -Command \
+  "Start-Process -FilePath 'C:\\Users\\<user>\\kira-venv\\Scripts\\kira.exe' -WindowStyle Hidden"
+```
+
+Verify success by tailing `kira.log` for `Styler warmup complete` and
+the first `heartbeat: uptime=60s` line.
 
 ## Test policy
 
