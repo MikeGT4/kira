@@ -1,0 +1,70 @@
+Kira -- Voice-to-Text Tool
+Personal-Use License
+Version 0.1, 2026
+
+Copyright (c) 2026 Mike Pollow / digital roots
+
+This software was developed for personal use. By installing or using
+the software, you agree to the following terms:
+
+1. Personal use
+   The software may be used by you and people in your immediate circle.
+   Distribution to third parties or commercial exploitation requires
+   the author's written consent.
+
+2. No warranty
+   The software is provided "as is", without express or implied warranty.
+   The author is not liable for any damage arising from use.
+
+3. Local data processing
+   Kira processes all voice and text data exclusively on your local
+   machine. No data is transmitted to the author's or third-party
+   servers, with the sole exception of the manually triggered update
+   check (GitHub Releases API).
+
+4. Third-party software
+   The installation includes components under their own licenses
+   (Python, faster-whisper, Ollama, Gemma, PyQt6, pystray, and others).
+   Their license terms continue to apply unchanged.
+
+Contact: Mike Pollow
+GitHub:  https://github.com/mikepollow/kira
+
+------------------------------------------------------------------------
+Deutsche Fassung
+------------------------------------------------------------------------
+
+Kira -- Voice-to-Text Tool
+Personal-Use-Lizenz
+Version 0.1, 2026
+
+Copyright (c) 2026 Mike Pollow / digital roots
+
+Diese Software wurde fuer den persoenlichen Gebrauch entwickelt.
+Mit der Installation oder Nutzung erklaerst du dich mit folgenden
+Bedingungen einverstanden:
+
+1. Persoenliche Nutzung
+   Die Software darf von dir und Personen deines unmittelbaren Umfelds
+   genutzt werden. Eine Weitergabe an Dritte oder kommerzielle
+   Verwertung bedarf der schriftlichen Zustimmung des Autors.
+
+2. Keine Garantie
+   Die Software wird "wie sie ist" zur Verfuegung gestellt, ohne
+   ausdrueckliche oder stillschweigende Gewaehrleistung. Der Autor
+   uebernimmt keine Haftung fuer Schaeden, die aus der Nutzung
+   entstehen.
+
+3. Lokale Datenverarbeitung
+   Kira verarbeitet alle Sprach- und Textdaten ausschliesslich lokal
+   auf deinem Computer. Es erfolgt keine Uebertragung an Server des
+   Autors oder Dritter, ausgenommen der manuell ausgeloesten Update-
+   Pruefung (GitHub Releases API).
+
+4. Drittsoftware
+   Die Installation enthaelt Komponenten unter eigenen Lizenzen
+   (Python, faster-whisper, Ollama, Gemma, PyQt6, pystray u.a.).
+   Deren Lizenzbestimmungen gelten unveraendert weiter.
+
+Kontakt: Mike Pollow
+GitHub:  https://github.com/mikepollow/kira

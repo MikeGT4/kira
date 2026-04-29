@@ -1,0 +1,29 @@
+Kira -- Voice-to-Text Tool
+Personal-Use-Lizenz
+Version 0.1, 2026
+
+Diese Software wurde fuer den persoenlichen Gebrauch entwickelt.
+Mit der Installation erklaerst du dich mit folgenden Bedingungen einverstanden:
+
+1. Persoenliche Nutzung
+Die Software darf von dir und Personen deines unmittelbaren Umfelds
+genutzt werden. Eine Weitergabe an Dritte oder kommerzielle Verwertung
+bedarf der schriftlichen Zustimmung des Autors.
+
+2. Keine Garantie
+Die Software wird "wie sie ist" zur Verfuegung gestellt, ohne
+ausdrueckliche oder stillschweigende Gewaehrleistung. Der Autor uebernimmt
+keine Haftung fuer Schaeden, die aus der Nutzung entstehen.
+
+3. Lokale Datenverarbeitung
+Kira verarbeitet alle Sprach- und Textdaten ausschliesslich lokal auf
+deinem Computer. Es erfolgt keine Uebertragung an Server des Autors
+oder Dritter, ausgenommen der manuell ausgeloesten Update-Pruefung
+(GitHub Releases API).
+
+4. Drittsoftware
+Die Installation enthaelt Komponenten unter eigenen Lizenzen
+(Python, faster-whisper, Ollama, Gemma, PyQt6, pystray u.a.).
+Deren Lizenzbestimmungen gelten unveraendert weiter.
+
+Kontakt: Mike Pollow

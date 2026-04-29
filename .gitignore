@@ -1,0 +1,38 @@
+# Python
+.venv/
+.venv-win/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code
+.claude/settings.local.json
+
+# Windows-Port Artefakte
+*.spec
+kira.log
+*.exe
+*.msi
+
+# Logs (dürfen regeneriert werden)
+# Note: tests/fixtures/samples/hello.wav IS committed (deterministic fixture).
+
+# Installer build artifacts (build/ already covers installer/build/ via
+# the wildcard above; _cache/ for downloaded toolchain bits is separate)
+installer/_cache/
+*.iss.bak
+
+# Sicherheitsrelevant — niemals committen
+.env
+*.pem
+*.key
+secrets.yaml

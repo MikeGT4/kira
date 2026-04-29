@@ -1,0 +1,64 @@
+[project]
+name = "kira"
+version = "0.1.0"
+description = "Voice-to-text menubar app — macOS + Windows 11"
+requires-python = ">=3.12"
+dependencies = [
+  "sounddevice>=0.5.0",
+  "numpy>=2.0",
+  "ollama>=0.4",
+  "pyperclip>=1.9",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+  "packaging>=24.0",
+]
+
+[project.optional-dependencies]
+mac = [
+  "mlx-whisper>=0.4.0",
+  "pynput>=1.7",
+  "rumps>=0.4",
+  "pyobjc-framework-Cocoa>=11.0",
+  "pyobjc-framework-Quartz>=11.0",
+  "pyobjc-framework-ApplicationServices>=11.0",
+]
+windows = [
+  "faster-whisper>=1.1",
+  "pystray>=0.19",
+  "Pillow>=10.0",
+  "PyQt6>=6.7",
+  "keyboard>=0.13",
+  "pywin32>=306",
+  "psutil>=5.9",
+  "platformdirs>=4.0",
+  "nvidia-cudnn-cu12>=9.0",
+  "nvidia-cublas-cu12>=12.0",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+  "py2app>=0.28; sys_platform == 'darwin'",
+  "soundfile>=0.12",
+]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: slow integration test, needs model download",
+  "windows_only: test requires Windows platform",
+  "mac_only: test requires macOS platform",
+]
+
+[project.scripts]
+kira-once = "kira.cli:main"
+
+[project.gui-scripts]
+# Tray app — uses pythonw.exe on Windows so no console window opens.
+# kira-once stays as a console script for stdin/stdout debugging.
+kira = "kira.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kira"]
