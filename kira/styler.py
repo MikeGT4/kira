@@ -27,6 +27,46 @@ class Styler:
         self._config = config
         self._client = ollama.AsyncClient()
 
+    async def warmup(self) -> None:
+        """Issue a tiny chat request to force Ollama to load the model now.
+
+        Without this, the very first F8 dictation after app start pays the
+        full cold-start cost (cuBLAS init + weight load — typically 1-2 s
+        for gemma2:2b, much more for 27B-class models). Combined with
+        ``keep_alive`` on the polish path, this keeps the model resident
+        from boot to quit.
+        """
+        model = self._config.styler.model
+        keep_alive = self._config.styler.keep_alive
+        try:
+            await asyncio.wait_for(
+                self._client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": "ok"}],
+                    options={"temperature": 0.0, "num_predict": 1},
+                    keep_alive=keep_alive,
+                ),
+                timeout=60.0,
+            )
+            log.info(
+                "Styler warmup complete (model=%s, keep_alive=%s)",
+                model, keep_alive,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Styler warmup timed out after 60 s (model=%s). "
+                "Model load takes longer than expected — first dictation "
+                "may still be slow. Check `ollama list` for the model.",
+                model,
+            )
+        except Exception as exc:
+            log.warning(
+                "Styler warmup failed (%s). First dictation will pay the "
+                "cold-start cost. Polish still falls back to raw on real "
+                "errors, so this is non-fatal.",
+                exc,
+            )
+
     async def polish(self, text: str, mode: str) -> str:
         if not text.strip():
             return text
@@ -38,6 +78,7 @@ class Styler:
                     model=self._config.styler.model,
                     messages=[{"role": "user", "content": prompt}],
                     options={"temperature": 0.2},
+                    keep_alive=self._config.styler.keep_alive,
                 ),
                 timeout=timeout,
             )

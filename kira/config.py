@@ -53,6 +53,14 @@ class StylerConfig(BaseModel):
     model: str = "gemma2:2b"
     timeout_seconds: float = 3.0
     fallback_to_raw: bool = True
+    # Ollama keep_alive: how long the model stays resident after a request.
+    # Default "24h" prevents the 5-minute idle eviction that adds 1-2 s of
+    # cold-start latency to the first dictation after a pause. Use "-1" to
+    # never unload (uses VRAM permanently); "0" to unload immediately.
+    keep_alive: str = "24h"
+    # Pre-load the model at app startup with a tiny warmup request so the
+    # very first user dictation doesn't pay the cold-start cost either.
+    warmup_on_start: bool = True
 
 
 class InjectorConfig(BaseModel):

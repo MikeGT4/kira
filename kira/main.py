@@ -1,10 +1,12 @@
 """Main entrypoint: platform dispatch, event loop orchestration."""
 from __future__ import annotations
 import asyncio
+import faulthandler
 import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 # --- platform imports ---
@@ -55,6 +57,106 @@ def _configure_logging() -> None:
 
 log = logging.getLogger("kira.main")
 
+# Keep the faulthandler stream alive for the process lifetime — closing it
+# (via GC) would silently disable native crash dumps. Module-level binding
+# pins the file handle until interpreter shutdown.
+_FAULTHANDLER_STREAM = None
+
+
+def _enable_crash_diagnostics() -> None:
+    """Wire up the four hooks Kira needs to actually see a crash.
+
+    Without these, the app dies silently:
+    - native crashes (CUDA/cuDNN, Audio-Driver, Qt DLL): nothing in kira.log
+    - unhandled exceptions on daemon threads (recorder callback, tray
+      thread, asyncio loop thread): swallowed by the default
+      threading.excepthook which writes to stderr — and pythonw.exe has
+      no stderr.
+    - Qt fatal/critical messages (e.g. "QPaintDevice: Cannot destroy …"):
+      go to stderr too unless we install a handler.
+
+    The faulthandler stream is a *separate* file from kira.log because
+    faulthandler writes raw C-level frames bypassing Python's logging
+    machinery — interleaving them into kira.log would corrupt the
+    formatter's output.
+    """
+    global _FAULTHANDLER_STREAM
+    fh_path = LOG_PATH.parent / "kira-faulthandler.log"
+    try:
+        _FAULTHANDLER_STREAM = open(fh_path, "a", buffering=1, encoding="utf-8")
+        faulthandler.enable(file=_FAULTHANDLER_STREAM, all_threads=True)
+    except OSError:
+        log.exception("failed to open faulthandler stream at %s", fh_path)
+
+    def _excepthook(exc_type, exc, tb) -> None:
+        log.error("UNHANDLED top-level exception", exc_info=(exc_type, exc, tb))
+
+    sys.excepthook = _excepthook
+
+    def _thread_excepthook(args) -> None:
+        # SystemExit on a thread is a clean shutdown signal, not a bug.
+        if args.exc_type is SystemExit:
+            return
+        log.error(
+            "UNHANDLED exception in thread %r",
+            args.thread.name if args.thread else "?",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    threading.excepthook = _thread_excepthook
+
+
+def _install_qt_message_handler() -> None:
+    """Route Qt's own log channel into kira.log.
+
+    Qt warnings/criticals about widget lifetime, DPI mismatches, or
+    renderer failures normally print to stderr — invisible under
+    pythonw.exe. Capturing them here makes "Kira just disappeared"
+    failures debuggable post-mortem.
+    """
+    from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+
+    _level_for = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }
+
+    qt_log = logging.getLogger("kira.qt")
+
+    def _handler(msg_type, ctx, msg) -> None:
+        qt_log.log(
+            _level_for.get(msg_type, logging.INFO),
+            "%s [%s:%s in %s]",
+            msg,
+            (ctx.file or "?") if ctx else "?",
+            (ctx.line or 0) if ctx else 0,
+            (ctx.function or "?") if ctx else "?",
+        )
+
+    qInstallMessageHandler(_handler)
+
+
+def _start_heartbeat() -> None:
+    """Log uptime once a minute so 'when did Kira die?' has a floor.
+
+    Daemon thread; won't block process exit. The cost is one log line
+    per minute (~70/hour). Useful when the next silent-crash forensics
+    needs to know "was it alive at 14:47?" without trawling user
+    interactions.
+    """
+    started_at = time.monotonic()
+
+    def _loop() -> None:
+        while True:
+            time.sleep(60)
+            uptime = int(time.monotonic() - started_at)
+            log.info("heartbeat: uptime=%ds", uptime)
+
+    threading.Thread(target=_loop, daemon=True, name="kira-heartbeat").start()
+
 
 def _run_mac(cfg, recorder, transcriber, styler, injector) -> None:
     """Mac: rumps owns the main run-loop."""
@@ -88,6 +190,9 @@ def _run_mac(cfg, recorder, transcriber, styler, injector) -> None:
         daemon=True,
     ).start()
     app.set_loop(loop)
+
+    if cfg.styler.provider == "ollama" and cfg.styler.warmup_on_start:
+        asyncio.run_coroutine_threadsafe(styler.warmup(), loop)
 
     hotkey = HotkeyListener(
         combo=cfg.hotkey.combo,
@@ -148,6 +253,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     from PyQt6.QtGui import QIcon
     from PyQt6.QtWidgets import QApplication
 
+    _install_qt_message_handler()
     qt_app = QApplication.instance() or QApplication(sys.argv)
     if _ICON_PATH.exists():
         qt_app.setWindowIcon(QIcon(str(_ICON_PATH)))
@@ -240,6 +346,13 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     ).start()
     app.set_loop(loop)
 
+    # Pre-load the Ollama model in the background so the user's first F8
+    # doesn't wait for a cold start. Scheduled on the asyncio loop so the
+    # tray icon and hotkey come up immediately — warmup just races along
+    # in parallel and logs when it lands.
+    if cfg.styler.provider == "ollama" and cfg.styler.warmup_on_start:
+        asyncio.run_coroutine_threadsafe(styler.warmup(), loop)
+
     # cfg.hotkey.combo may default to the Mac "fn" key — effective_hotkey
     # maps that to F8 on Windows so listener + UI agree on one string.
     from kira.config import effective_hotkey
@@ -266,6 +379,8 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
 
 def run() -> None:
     _configure_logging()
+    _enable_crash_diagnostics()
+    _start_heartbeat()
     cfg = load_config()
     log.info("Starting Kira (platform=%s)", sys.platform)
 
