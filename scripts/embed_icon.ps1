@@ -1,10 +1,16 @@
-# Embed assets/icon.ico + version metadata into kira.exe and kira-once.exe.
+# Embed assets/icon-branded.ico + version metadata into kira.exe and
+# kira-once.exe.
 #
 # Why this exists: hatch/setuptools generate the entry-point wrappers
 # (kira.exe, kira-once.exe) without an icon resource, so Explorer / the
 # desktop / Alt-Tab show the generic Python icon. Run this AFTER each
 # `pip install` since pip re-creates the wrappers and wipes any embedded
 # icon.
+#
+# icon-branded.ico = source icon.ico + yellow rounded-square background
+# (regenerated via scripts/regenerate_branded_icon.py). The branded
+# variant matches the runtime tray icon and stays visible on dark
+# Windows-11 backgrounds.
 #
 # Tooling: electron/rcedit-x64.exe (MIT-licensed, ~1.3 MB PE binary).
 # Downloaded once into %USERPROFILE%\tools\ on first run.
@@ -21,7 +27,7 @@ $ErrorActionPreference = "Stop"
 
 $Tools  = "$env:USERPROFILE\tools"
 $Rcedit = "$Tools\rcedit-x64.exe"
-$Icon   = Join-Path $RepoUnc "assets\icon.ico"
+$Icon   = Join-Path $RepoUnc "assets\icon-branded.ico"
 
 if (-not (Test-Path $Icon)) {
     Write-Error "Icon not found at $Icon"
