@@ -112,7 +112,12 @@ class Recorder:
         if isinstance(spec, int):
             log.info("Recorder pinned to device id=%d", spec)
             return spec
-        for i, d in enumerate(sd.query_devices()):
+        # Single enumeration: query_devices() can block 50-200 ms on
+        # Windows when ASIO/WASAPI/MME endpoints are scanned under load.
+        # Calling it twice (match-loop + available-list) doubles the worst
+        # case; cache the snapshot to keep the Recorder lock short.
+        devices = list(sd.query_devices())
+        for i, d in enumerate(devices):
             if d["max_input_channels"] > 0 and spec.lower() in d["name"].lower():
                 log.info(
                     "Recorder pinned to device id=%d (%r matched %r)",
@@ -121,7 +126,7 @@ class Recorder:
                 return i
         available = [
             f"{i}:{d['name']}"
-            for i, d in enumerate(sd.query_devices())
+            for i, d in enumerate(devices)
             if d["max_input_channels"] > 0
         ]
         log.warning(
@@ -184,9 +189,9 @@ class Recorder:
             if self._input_device is None:
                 self._input_device = self._resolve_device()
             # Spec gegeben aber nicht auflösbar → keinen Stream öffnen.
-            # Wir wollen NICHT auf System-Default fallen — der explizite
-            # Pin existiert genau aus dem Grund (Mike's User-Anforderung
-            # Variante A vom 2026-04-30).
+            # Wir fallen bewusst NICHT auf System-Default zurück: der
+            # explizite Pin existiert genau um schlechte Whisper-Quality
+            # vom Laptop-Mikro stillschweigend zu vermeiden.
             if self._input_device is None and self._device_spec is not None:
                 return
             stream = sd.InputStream(

@@ -222,3 +222,20 @@ def test_prewarm_with_present_device_opens_stream(monkeypatch):
     r.prewarm()
     assert r._stream is not None
     assert r._input_device == 0
+
+
+def test_prewarm_with_no_device_spec_uses_system_default(monkeypatch):
+    """When no device is configured (None spec), prewarm opens the stream
+    against device=None (system default) — must NOT no-op. Schützt vor
+    Refactors die die _device_spec-Guard versehentlich entfernen."""
+    captured: dict = {}
+
+    def _factory(**kw):
+        captured.update(kw)
+        return _NoOpStream()
+
+    monkeypatch.setattr("kira.recorder.sd.InputStream", _factory)
+    r = Recorder()  # _device_spec=None
+    r.prewarm()
+    assert r._stream is not None
+    assert captured["device"] is None
