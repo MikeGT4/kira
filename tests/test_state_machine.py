@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from kira.app import KiraApp, State
 from kira.config import Config
-from kira.recorder import Recorder
+from kira.recorder import Recorder, DeviceUnavailable
 
 
 def test_initial_state_is_idle():
@@ -98,25 +98,26 @@ def test_empty_polish_does_not_inject():
     assert injector.last == "<unset>"
 
 
-class _BrokenRecorder:
+class _BrokenRecorder(Recorder):
     """Recorder-Stub, der bei start() DeviceUnavailable wirft —
-    simuliert das Mike-2026-04-30-Szenario (Mikro ausgeschaltet)."""
+    simuliert das Crash-Loop-Szenario vom 2026-04-30 morgens, als
+    das ROG-Theta-USB-Headset beim Boot noch nicht im Audio-Stack
+    enumeriert war.
+
+    Erbt von Recorder damit KiraApp.__init__'s strikter
+    `recorder: Recorder`-Type-Hint zufrieden ist; der Konstruktor
+    macht kein Audio-Setup (nur Attribut-Initialisierung), das
+    überschriebene start() umgeht den echten sd.InputStream-Pfad."""
+
     def __init__(self):
-        from kira.recorder import DeviceUnavailable
-        self._exc_class = DeviceUnavailable
+        super().__init__()
         self.start_calls = 0
 
     def start(self):
         self.start_calls += 1
-        raise self._exc_class("audio.input_device='ROG Theta' not available right now")
-
-    def stop(self):
-        return np.zeros(0, dtype=np.float32)
-
-    def prewarm(self): pass
-    def close(self): pass
-    @property
-    def is_recording(self): return False
+        raise DeviceUnavailable(
+            "audio.input_device='ROG Theta' not available right now"
+        )
 
 
 def test_hotkey_press_with_unavailable_device_sets_error_state():

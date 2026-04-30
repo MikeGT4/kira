@@ -161,8 +161,15 @@ class KiraApp:
         finally:
             # Hold ERROR briefly so the tray icon actually shows yellow long
             # enough to notice; otherwise IDLE overwrote it within a frame.
+            # Guard im Timer verhindert dass ein parallel-laufender
+            # Hotkey-Pfad (oder zukünftiger State-Setter) der State
+            # zwischenzeitlich änderte, vom Auto-Reset überschrieben
+            # wird — gleiche Logik wie in on_hotkey_press's Auto-Reset.
             if self._state == State.ERROR:
-                threading.Timer(3.0, lambda: self._set_state(State.IDLE)).start()
+                threading.Timer(
+                    3.0, lambda: self._set_state(State.IDLE)
+                    if self._state == State.ERROR else None
+                ).start()
             else:
                 self._set_state(State.IDLE)
 
