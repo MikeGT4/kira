@@ -166,6 +166,13 @@ class Recorder:
         """Open the input stream eagerly so the pre-roll buffer fills
         immediately. Call once after construction, before the first F8.
 
+        Tolerates absent device: if the configured device spec can't be
+        resolved against sd.query_devices() right now (e.g. USB headset
+        not enumerated yet, hardware mute), prewarm becomes a no-op.
+        The next start() will retry the resolution; if it still fails
+        there, start() raises DeviceUnavailable for KiraApp to surface
+        as State.ERROR.
+
         Without this the first start() opens the stream lazily, and the
         50-200 ms it takes sounddevice to initialise are lost from the
         recording — even with the pre-roll buffer, because the buffer
@@ -173,6 +180,14 @@ class Recorder:
         """
         with self._lock:
             if self._stream is not None:
+                return
+            if self._input_device is None:
+                self._input_device = self._resolve_device()
+            # Spec gegeben aber nicht auflösbar → keinen Stream öffnen.
+            # Wir wollen NICHT auf System-Default fallen — der explizite
+            # Pin existiert genau aus dem Grund (Mike's User-Anforderung
+            # Variante A vom 2026-04-30).
+            if self._input_device is None and self._device_spec is not None:
                 return
             stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,

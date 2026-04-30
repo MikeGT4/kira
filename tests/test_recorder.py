@@ -192,3 +192,33 @@ def test_resolve_device_logs_available_inputs_on_miss(monkeypatch, caplog):
     assert "ROG Theta" in msg
     assert "Realtek HD Audio" in msg
     assert "Output Only" not in msg  # output-only must not be listed
+
+
+def test_prewarm_with_missing_device_is_noop(monkeypatch):
+    """prewarm() must NOT open a stream when the configured device is
+    absent — and must NOT raise. The next start() retries the resolve."""
+    fake_devices = [{"name": "Realtek HD Audio", "max_input_channels": 2}]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    constructed: list[_NoOpStream] = []
+    monkeypatch.setattr(
+        "kira.recorder.sd.InputStream",
+        lambda **kw: (lambda s: constructed.append(s) or s)(_NoOpStream()),
+    )
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()  # darf nicht werfen
+    assert r._stream is None
+    assert len(constructed) == 0
+
+
+def test_prewarm_with_present_device_opens_stream(monkeypatch):
+    """Sanity: prewarm() öffnet den Stream wenn das Device da ist —
+    der Happy-Path bleibt unverändert."""
+    fake_devices = [
+        {"name": "Mikrofon (ROG Theta Ultimate 7.)", "max_input_channels": 1},
+    ]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _NoOpStream())
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert r._stream is not None
+    assert r._input_device == 0
