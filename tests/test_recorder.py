@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from kira.recorder import Recorder
+from kira.recorder import Recorder, DeviceUnavailable
 
 
 def test_recorder_construction():
@@ -298,3 +298,30 @@ def test_start_does_not_set_recording_when_input_stream_raises(monkeypatch):
         r.start()
     assert r._recording is False
     assert r._stream is None
+
+
+def test_resolve_device_returns_none_when_query_devices_raises(monkeypatch):
+    """sd.query_devices() can throw PortAudioError if the Windows audio
+    service crashed, was restarted, or a device is mid-disconnect during
+    a USB hot-plug race. Resolve must treat this as 'not currently
+    available' and return None — otherwise the exception propagates
+    through prewarm()/start() and lands in the hotkey thread without
+    being caught as DeviceUnavailable."""
+    def _bad_query():
+        raise RuntimeError("PortAudio enumeration failed")
+    monkeypatch.setattr("kira.recorder.sd.query_devices", _bad_query)
+    r = Recorder(input_device="ROG Theta")
+    assert r._resolve_device() is None
+
+
+def test_start_raises_device_unavailable_when_query_devices_raises(monkeypatch):
+    """Integration: PortAudio failure during enumeration must surface
+    as DeviceUnavailable from start(), not as a raw runtime exception
+    that would kill the hotkey thread."""
+    def _bad_query():
+        raise RuntimeError("PortAudio enumeration failed")
+    monkeypatch.setattr("kira.recorder.sd.query_devices", _bad_query)
+    r = Recorder(input_device="ROG Theta")
+    with pytest.raises(DeviceUnavailable):
+        r.start()
+    assert r._recording is False

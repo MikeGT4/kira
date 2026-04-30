@@ -116,7 +116,22 @@ class Recorder:
         # Windows when ASIO/WASAPI/MME endpoints are scanned under load.
         # Calling it twice (match-loop + available-list) doubles the worst
         # case; cache the snapshot to keep the Recorder lock short.
-        devices = list(sd.query_devices())
+        #
+        # Defensive try/except: query_devices() itself can throw
+        # (PortAudioError, OSError) when the Windows audio service is
+        # mid-disconnect — USB hot-plug races with MMNotificationClient,
+        # service restart, etc. Treat that as 'not currently available'
+        # so the exception doesn't propagate out of prewarm()/start()
+        # past on_hotkey_press's DeviceUnavailable-only catch and kill
+        # the hotkey thread.
+        try:
+            devices = list(sd.query_devices())
+        except Exception:
+            log.exception(
+                "sd.query_devices() failed during resolve "
+                "(audio service mid-disconnect?); treating as unavailable",
+            )
+            return None
         for i, d in enumerate(devices):
             if d["max_input_channels"] > 0 and spec.lower() in d["name"].lower():
                 log.info(
