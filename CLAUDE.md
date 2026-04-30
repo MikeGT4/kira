@@ -120,11 +120,12 @@ So source edits take effect on the **next process start** without any
 reinstall. Restart sequence from WSL bash:
 
 ```bash
-# Find the running Kira process tree (one kira.exe + two pythonw.exe;
-# the big-memory pythonw.exe is the actual app):
+# Find the running Kira launcher PID. CommandLine-Filter statt Name-
+# Filter, sonst trifft man auf Multi-Python-Boxen alle pythonw.exe-
+# Prozesse — das CommandLine matcht nur kira-spezifische:
 cd /tmp && powershell.exe -NoProfile -Command \
-  "Get-CimInstance Win32_Process -Filter 'Name=\"pythonw.exe\" OR Name=\"kira.exe\"' \
-   | Select-Object ProcessId,Name,WorkingSetSize"
+  "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*kira-venv*kira*' } \
+   | Select-Object ProcessId,Name,@{n='MB';e={[math]::Round(\$_.WorkingSetSize/1MB,1)}}"
 
 # Kill the launcher root with /T (children die with it):
 cd /tmp && cmd.exe /c "taskkill /PID <kira.exe-PID> /T /F"
@@ -138,6 +139,62 @@ cd /tmp && powershell.exe -NoProfile -Command \
 Verify success by tailing `kira.log` for `Styler warmup complete` and
 the first `heartbeat: uptime=60s` line.
 
+## Audio device tolerance
+
+`Recorder.__init__` doesn't resolve the configured `audio.input_device`
+spec eagerly — it stores the spec and lets `prewarm()` resolve lazily.
+If the device isn't currently enumerated (USB headset off, hardware
+mute, audio service mid-disconnect), `_resolve_device()` returns `None`,
+`prewarm()` becomes a no-op, and the app starts normally.
+
+The first F8 press hits `start()`'s retry path: it resets the cached
+`_input_device`, re-runs `prewarm()`, and if the device is *still*
+absent raises `DeviceUnavailable`. `KiraApp.on_hotkey_press` catches
+that and surfaces `State.ERROR` (yellow tray icon for 3 s,
+auto-reset to IDLE).
+
+Robust against three failure modes:
+- Substring miss (`'ROG Theta'` not in any device name)
+- `sd.query_devices()` itself throws (PortAudioError during USB hot-plug
+  race) — caught, treated as "not available"
+- `sd.InputStream(...)` throws between resolve and open (TOCTOU) —
+  `_recording` flag stays `False` so the state machine doesn't hang
+
+When debugging `Hotkey press but input device unavailable` warnings:
+the same log line includes the list of currently-visible input devices,
+so you can see whether the substring spec is wrong or the device is
+genuinely off.
+
+## Branded icon workflow
+
+Two ICO files in `assets/`:
+
+- `icon.ico` — source-of-truth, schwarzes Logo auf transparentem Hintergrund.
+  Wird vom Tray-Runtime-Code als Logo-Quelle gelesen.
+- `icon-branded.ico` — Build-Artefakt: gelbes Rounded-Square als Hintergrund
+  + das Logo aus `icon.ico` zentriert. Wird in `kira.exe` / `kira-once.exe`
+  embedded und in den Inno-Installer gebundelt.
+
+Wenn das Source-Logo getauscht wird (`assets/icon.ico` durch eine andere
+PNG/ICO ersetzen), in dieser Reihenfolge:
+
+```powershell
+# 1. Branded-Variante neu generieren (gelb-bg + logo, multi-size 16..256)
+py -3.12 scripts\regenerate_branded_icon.py
+
+# 2. EXE-Wrapper neu mit dem branded ICO embedden (stoppt Kira selbst)
+powershell -ExecutionPolicy Bypass -File scripts\embed_icon.ps1
+
+# 3. Kira manuell relaunch (s. Restart workflow oben)
+```
+
+Tray-Icon-Generation läuft zur Laufzeit aus `icon.ico` heraus mit
+demselben Look. Modul-Level-Caches in `kira/ui/tray_win.py`
+(`_LOGO_CACHE`, `_ICON_CACHE`) eliminieren UNC-IO nach dem ersten
+Render — wichtig weil `assets/` auf dem WSL-Tree liegt und jedes
+`Image.open()` sonst `\\wsl.localhost\…` mehrfach pro F8-Zyklus
+trifft.
+
 ## Test policy
 
 - Windows tests (`tests/test_*_win.py`) skip on non-Windows via
@@ -147,7 +204,7 @@ the first `heartbeat: uptime=60s` line.
   modules at the top. Run the Windows test subset from WSL with:
 
   ```bash
-  cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\claude_kira && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest tests/test_transcriber_fw.py tests/test_hotkey_win.py tests/test_injector_win.py tests/test_context_win.py tests/test_permissions_win.py tests/test_config.py -v && popd'
+  cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\claude_kira && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest tests/test_transcriber_fw.py tests/test_hotkey_win.py tests/test_injector_win.py tests/test_context_win.py tests/test_permissions_win.py tests/test_config.py tests/test_recorder.py tests/test_state_machine.py tests/test_tray_icon.py -v && popd'
   ```
 
 ## WSL shell quoting reminder
