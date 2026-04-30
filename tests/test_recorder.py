@@ -149,3 +149,46 @@ def test_start_after_prewarm_does_not_open_second_stream(monkeypatch):
     r.prewarm()
     r.start()
     assert len(constructed) == 1
+
+
+def test_constructor_with_missing_device_does_not_raise(monkeypatch):
+    """Recorder init must tolerate a configured device that isn't currently
+    enumerated (e.g. USB headset switched off at boot). Was the trigger for
+    the morning-of-2026-04-30 crash loop."""
+    fake_devices = [
+        {"name": "Realtek HD Audio", "max_input_channels": 2},
+        {"name": "Mikrofon (Andere)", "max_input_channels": 1},
+    ]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    r = Recorder(input_device="ROG Theta")
+    assert r._device_spec == "ROG Theta"
+    assert r._input_device is None
+    assert r._stream is None
+
+
+def test_resolve_device_returns_none_on_miss(monkeypatch):
+    """The substring miss path must return None instead of raising
+    ValueError — callers decide what to do (defer, retry, or raise
+    DeviceUnavailable)."""
+    fake_devices = [{"name": "Realtek HD Audio", "max_input_channels": 2}]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    r = Recorder(input_device="ROG Theta")
+    assert r._resolve_device() is None
+
+
+def test_resolve_device_logs_available_inputs_on_miss(monkeypatch, caplog):
+    """On miss, the warning must include the configured spec and the list
+    of currently-available inputs so kira.log shows what PortAudio sees."""
+    import logging
+    fake_devices = [
+        {"name": "Realtek HD Audio", "max_input_channels": 2},
+        {"name": "Output Only", "max_input_channels": 0},  # output-only filtered
+    ]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    with caplog.at_level(logging.WARNING, logger="kira.recorder"):
+        r = Recorder(input_device="ROG Theta")
+        r._resolve_device()
+    msg = caplog.text
+    assert "ROG Theta" in msg
+    assert "Realtek HD Audio" in msg
+    assert "Output Only" not in msg  # output-only must not be listed

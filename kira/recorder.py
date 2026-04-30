@@ -62,6 +62,17 @@ def _dump_wav(audio: np.ndarray) -> Path | None:
         return None
 
 
+class DeviceUnavailable(RuntimeError):
+    """Configured input device couldn't be resolved at record time.
+
+    Raised by Recorder.start() when the configured device spec doesn't
+    match any currently-available sounddevice device. Caller should
+    catch this and surface it via the State.ERROR path; subsequent
+    start() calls will try again (the user may have plugged the mic
+    back in or toggled its hardware switch).
+    """
+
+
 class Recorder:
     """Non-blocking audio recorder with a pre-roll ring buffer."""
 
@@ -78,33 +89,46 @@ class Recorder:
         self._recording = False
         self._on_level: Callable[[float], None] | None = None
         self._input_gain = float(input_gain)
-        self._input_device = self._resolve_device(input_device)
+        # Spec wird gespeichert, nicht resolved — das passiert in prewarm()
+        # und (falls dort gescheitert) erneut in start(). Konstruktor ist
+        # damit auch dann sicher, wenn das Mikro beim Boot noch nicht
+        # enumeriert ist (USB-Audio braucht oft Sekunden nach Resume).
+        self._device_spec = input_device
+        self._input_device: int | None = None
 
-    @staticmethod
-    def _resolve_device(spec: int | str | None) -> int | None:
-        """Translate a config value into a sounddevice device index.
+    def _resolve_device(self) -> int | None:
+        """Resolve self._device_spec against sd.query_devices().
 
-        - None       -> None (let sounddevice pick the OS default)
-        - int        -> use as-is
-        - str        -> case-insensitive substring match against device name;
-                        first match wins, IndexError if no match found.
-        Logs the resolved device so Mike can verify in kira.log.
+        Returns None if no match (was: raised ValueError). Callers must
+        treat None as 'device not currently available' and decide what
+        to do — prewarm() defers, start() raises DeviceUnavailable.
+
+        Logs available input devices on a miss so kira.log shows what
+        PortAudio sees right now.
         """
+        spec = self._device_spec
         if spec is None:
             return None
         if isinstance(spec, int):
             log.info("Recorder pinned to device id=%d", spec)
             return spec
-        # substring match
         for i, d in enumerate(sd.query_devices()):
             if d["max_input_channels"] > 0 and spec.lower() in d["name"].lower():
-                log.info("Recorder pinned to device id=%d (%r matched %r)",
-                         i, spec, d["name"])
+                log.info(
+                    "Recorder pinned to device id=%d (%r matched %r)",
+                    i, spec, d["name"],
+                )
                 return i
-        raise ValueError(
-            f"audio.input_device={spec!r} matched no input device. "
-            f"Run `python scripts/audio_diagnose.py` to list candidates."
+        available = [
+            f"{i}:{d['name']}"
+            for i, d in enumerate(sd.query_devices())
+            if d["max_input_channels"] > 0
+        ]
+        log.warning(
+            "audio.input_device=%r matched no input device. Available: %s",
+            spec, available,
         )
+        return None
 
     def set_level_callback(self, cb: Callable[[float], None] | None) -> None:
         """Register a callback invoked with RMS level (float) for each audio block."""
