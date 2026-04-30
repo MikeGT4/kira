@@ -45,28 +45,51 @@ def _make_rounded_square(
     return img
 
 
-def _load_or_generate_icon(state: State) -> Image.Image:
-    """Schwarzes Kira-Logo auf gelbem Rounded-Square plus State-Overlay.
+# Module-level caches: assets/ lebt im WSL-Tree, der Process läuft auf
+# Windows — jeder Image.open() landet als UNC-IO bei \\wsl.localhost\,
+# das ist 3-15 ms pro Call (vs. <1 ms lokal NTFS). Über einen normalen
+# F8-Zyklus laufen ~5 State-Changes; ohne Cache wäre das 15-75 ms reine
+# Disk-IO. Wir laden das Logo einmal beim ersten Bedarf (lazy, damit
+# Test-Imports ohne icon.ico nicht crashen) und memoizen die fertig
+# komponierten Icons pro State.
+_LOGO_CACHE: Image.Image | None = None
+_LOGO_CACHE_FAILED = False
+_ICON_CACHE: dict[State, Image.Image] = {}
 
-    Sichtbar in beiden Windows-11-Tray-Themes (Light/Dark). Der Dot
-    rechts unten markiert RECORDING (rot) und ERROR (rotorange) — beide
-    Farben sind auf dem gelben Hintergrund kontrastreich.
+
+def _get_logo() -> Image.Image | None:
+    """Lazy-load + cache `assets/icon.ico` als RGBA. None falls Datei fehlt
+    oder das Laden scheitert — Caller fällt dann auf Logo-Stand-In zurück."""
+    global _LOGO_CACHE, _LOGO_CACHE_FAILED
+    if _LOGO_CACHE is not None or _LOGO_CACHE_FAILED:
+        return _LOGO_CACHE
+    ico = ASSETS / "icon.ico"
+    if not ico.exists():
+        _LOGO_CACHE_FAILED = True
+        return None
+    try:
+        _LOGO_CACHE = Image.open(ico).convert("RGBA")
+    except Exception:
+        log.exception("failed to load icon.ico, falling back to placeholder")
+        _LOGO_CACHE_FAILED = True
+    return _LOGO_CACHE
+
+
+def _build_icon(state: State) -> Image.Image:
+    """Render the branded icon for a given state from scratch.
+
+    Use _load_or_generate_icon() instead when calling from production
+    code — that one memoizes the result per state.
     """
     bg = _make_rounded_square(ICON_SIZE, ICON_BG_COLOR, ICON_BG_RADIUS)
-
-    ico = ASSETS / "icon.ico"
-    if ico.exists():
-        try:
-            logo = Image.open(ico).convert("RGBA")
-            inner = ICON_SIZE - 2 * ICON_PADDING
-            logo = logo.resize((inner, inner), Image.Resampling.LANCZOS)
-            bg.alpha_composite(logo, (ICON_PADDING, ICON_PADDING))
-        except Exception:
-            log.exception("failed to load icon.ico, using plain rounded square")
+    logo = _get_logo()
+    if logo is not None:
+        inner = ICON_SIZE - 2 * ICON_PADDING
+        scaled_logo = logo.resize((inner, inner), Image.Resampling.LANCZOS)
+        bg.alpha_composite(scaled_logo, (ICON_PADDING, ICON_PADDING))
     else:
-        # Fallback wenn icon.ico fehlt: schwarzer Kreis als Logo-Stand-In.
-        d = ImageDraw.Draw(bg)
-        d.ellipse(
+        # Fallback wenn icon.ico fehlt / laden scheitert: schwarzer Kreis.
+        ImageDraw.Draw(bg).ellipse(
             (ICON_PADDING + 2, ICON_PADDING + 2,
              ICON_SIZE - ICON_PADDING - 3, ICON_SIZE - ICON_PADDING - 3),
             fill=(0, 0, 0, 255),
@@ -76,8 +99,23 @@ def _load_or_generate_icon(state: State) -> Image.Image:
         _overlay_dot(bg, (220, 30, 30, 255))      # kräftiges Rot
     elif state == State.ERROR:
         _overlay_dot(bg, (255, 80, 0, 255))       # Rotorange — Kontrast vs Gelb-BG
-
     return bg
+
+
+def _load_or_generate_icon(state: State) -> Image.Image:
+    """Schwarzes Kira-Logo auf gelbem Rounded-Square plus State-Overlay.
+
+    Cached pro State — der erste Aufruf rendert, alle weiteren geben
+    dasselbe Image-Objekt zurück. Sichtbar in beiden Windows-11-Tray-
+    Themes (Light/Dark). Der Dot rechts unten markiert RECORDING (rot)
+    und ERROR (rotorange) — beide auf dem gelben Hintergrund kontrastreich.
+    """
+    cached = _ICON_CACHE.get(state)
+    if cached is not None:
+        return cached
+    icon = _build_icon(state)
+    _ICON_CACHE[state] = icon
+    return icon
 
 
 class KiraTray:
