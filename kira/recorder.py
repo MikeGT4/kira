@@ -206,15 +206,38 @@ class Recorder:
         stream.start()
 
     def start(self) -> None:
+        """Begin recording. Re-resolves device if not already streaming.
+
+        Raises DeviceUnavailable if the configured device spec still
+        doesn't match anything in sd.query_devices(). The exception is
+        the App's signal to surface State.ERROR without entering the
+        transcription pipeline. Subsequent start() calls retry — useful
+        when the user toggled the mic's hardware switch or plugged the
+        USB cable back in between F8 presses.
+        """
         with self._lock:
             self._buffer = list(self._preroll)
             self._preroll.clear()
             self._preroll_samples = 0
             self._recording = True
-        # Lazy fallback for paths that didn't call prewarm() (mostly tests).
-        # In main.py prewarm() runs at startup so this branch is a no-op there.
         if self._stream is None:
+            # Re-resolve: vorheriger prewarm()-Versuch hat None geliefert
+            # und das in self._input_device festgehalten. Resetten, damit
+            # prewarm() die Suche frisch macht (Mikro könnte zwischen
+            # zwei F8-Presses eingeschaltet worden sein).
+            #
+            # prewarm() acquired den Lock selbst — wir rufen es deshalb
+            # AUSSERHALB unseres Lock-Blocks; threading.Lock ist non-
+            # reentrant, ein Nested-Acquire würde deadlocken.
+            self._input_device = None
             self.prewarm()
+            if self._stream is None:
+                with self._lock:
+                    self._recording = False
+                raise DeviceUnavailable(
+                    f"audio.input_device={self._device_spec!r} "
+                    f"not available right now"
+                )
 
     def stop(self) -> np.ndarray:
         """Stop recording and return mono float32 audio array.

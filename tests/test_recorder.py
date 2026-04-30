@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from kira.recorder import Recorder
 
@@ -239,3 +240,40 @@ def test_prewarm_with_no_device_spec_uses_system_default(monkeypatch):
     r.prewarm()
     assert r._stream is not None
     assert captured["device"] is None
+
+
+def test_start_with_missing_device_raises_device_unavailable(monkeypatch):
+    """start() ohne offenen Stream + Device immer noch absent →
+    DeviceUnavailable. Recording-Flag muss zurückgesetzt sein, damit
+    die State-Machine nicht hängenbleibt."""
+    from kira.recorder import DeviceUnavailable
+    fake_devices = [{"name": "Realtek HD Audio", "max_input_channels": 2}]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _NoOpStream())
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()  # Miss, deferred
+    assert r._stream is None
+    with pytest.raises(DeviceUnavailable) as exc_info:
+        r.start()
+    assert "ROG Theta" in str(exc_info.value)
+    assert r._recording is False  # Flag zurückgesetzt
+
+
+def test_start_resolves_device_after_arrival(monkeypatch):
+    """Mikro war bei prewarm() noch nicht da, beim ersten start() aber
+    schon — Stream muss dann öffnen und Aufnahme normal laufen."""
+    state = {"devices": [{"name": "Realtek HD Audio", "max_input_channels": 2}]}
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: state["devices"])
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _NoOpStream())
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert r._stream is None  # Miss
+
+    # Mikro wird zwischen prewarm() und start() eingeschaltet
+    state["devices"] = [
+        {"name": "Mikrofon (ROG Theta Ultimate 7.)", "max_input_channels": 1},
+    ]
+    r.start()
+    assert r._stream is not None
+    assert r._recording is True
+    assert r._input_device == 0
