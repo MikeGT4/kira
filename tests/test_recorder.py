@@ -277,3 +277,24 @@ def test_start_resolves_device_after_arrival(monkeypatch):
     assert r._stream is not None
     assert r._recording is True
     assert r._input_device == 0
+
+
+def test_start_does_not_set_recording_when_input_stream_raises(monkeypatch):
+    """TOCTOU-Schutz: Wenn sd.InputStream(...) zwischen query_devices()
+    und Stream-Open eine Exception wirft (z.B. weil das Device just
+    weggegangen ist), darf _recording NICHT auf True bleiben — sonst
+    hängt die State-Machine in RECORDING ohne tatsächlich aufzunehmen."""
+    fake_devices = [
+        {"name": "Mikrofon (ROG Theta Ultimate 7.)", "max_input_channels": 1},
+    ]
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: fake_devices)
+
+    def _explode(**kw):
+        raise OSError("Device disappeared between resolve and open")
+
+    monkeypatch.setattr("kira.recorder.sd.InputStream", _explode)
+    r = Recorder(input_device="ROG Theta")
+    with pytest.raises(OSError):
+        r.start()
+    assert r._recording is False
+    assert r._stream is None

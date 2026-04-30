@@ -214,12 +214,14 @@ class Recorder:
         transcription pipeline. Subsequent start() calls retry — useful
         when the user toggled the mic's hardware switch or plugged the
         USB cable back in between F8 presses.
+
+        Pre-Roll-Setup wird ERST NACH erfolgreichem Stream-Check
+        committed — sonst wäre _recording=True während des 50-200 ms
+        blockierenden query_devices()-Re-Resolve sichtbar, und eine
+        Exception aus sd.InputStream(...) (z.B. TOCTOU wenn Device
+        zwischen query_devices und InputStream weggeht) würde den
+        Recording-Flag dauerhaft auf True kleben lassen.
         """
-        with self._lock:
-            self._buffer = list(self._preroll)
-            self._preroll.clear()
-            self._preroll_samples = 0
-            self._recording = True
         if self._stream is None:
             # Re-resolve: vorheriger prewarm()-Versuch hat None geliefert
             # und das in self._input_device festgehalten. Resetten, damit
@@ -227,17 +229,20 @@ class Recorder:
             # zwei F8-Presses eingeschaltet worden sein).
             #
             # prewarm() acquired den Lock selbst — wir rufen es deshalb
-            # AUSSERHALB unseres Lock-Blocks; threading.Lock ist non-
-            # reentrant, ein Nested-Acquire würde deadlocken.
+            # AUSSERHALB jedes eigenen Lock-Blocks; threading.Lock ist
+            # non-reentrant, ein Nested-Acquire würde deadlocken.
             self._input_device = None
             self.prewarm()
             if self._stream is None:
-                with self._lock:
-                    self._recording = False
                 raise DeviceUnavailable(
                     f"audio.input_device={self._device_spec!r} "
                     f"not available right now"
                 )
+        with self._lock:
+            self._buffer = list(self._preroll)
+            self._preroll.clear()
+            self._preroll_samples = 0
+            self._recording = True
 
     def stop(self) -> np.ndarray:
         """Stop recording and return mono float32 audio array.
