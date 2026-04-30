@@ -15,6 +15,15 @@ log = logging.getLogger(__name__)
 
 ASSETS = Path(__file__).parent.parent.parent / "assets"
 
+# Branded tray icon: schwarzes Logo auf gelbem Rounded-Square. Der
+# transparente Vorgänger war im Windows-11-Dark-Mode-Tray nahezu
+# unsichtbar (schwarz auf schwarz). Gelb ist hell genug für Light- UND
+# Dark-Mode und matcht den State.ERROR-Akzent farblich.
+ICON_SIZE = 64
+ICON_BG_COLOR = (255, 196, 0, 255)   # warmes Gelb (#FFC400)
+ICON_BG_RADIUS = 12                  # Rounded-Corner-Radius in Pixel
+ICON_PADDING = 6                     # Innenabstand für das Logo
+
 
 def _overlay_dot(img: Image.Image, rgba: tuple[int, int, int, int]) -> None:
     d = ImageDraw.Draw(img)
@@ -23,31 +32,52 @@ def _overlay_dot(img: Image.Image, rgba: tuple[int, int, int, int]) -> None:
     d.ellipse((w - r*2, h - r*2, w, h), fill=rgba)
 
 
+def _make_rounded_square(
+    size: int,
+    color: tuple[int, int, int, int],
+    radius: int,
+) -> Image.Image:
+    """RGBA-Quadrat mit abgerundeten Ecken in der angegebenen Farbe."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(img).rounded_rectangle(
+        (0, 0, size - 1, size - 1), radius=radius, fill=color,
+    )
+    return img
+
+
 def _load_or_generate_icon(state: State) -> Image.Image:
-    """Prefer the ICO in assets/; fall back to a colored circle."""
+    """Schwarzes Kira-Logo auf gelbem Rounded-Square plus State-Overlay.
+
+    Sichtbar in beiden Windows-11-Tray-Themes (Light/Dark). Der Dot
+    rechts unten markiert RECORDING (rot) und ERROR (rotorange) — beide
+    Farben sind auf dem gelben Hintergrund kontrastreich.
+    """
+    bg = _make_rounded_square(ICON_SIZE, ICON_BG_COLOR, ICON_BG_RADIUS)
+
     ico = ASSETS / "icon.ico"
     if ico.exists():
         try:
-            img = Image.open(ico).convert("RGBA")
-            if state == State.RECORDING:
-                _overlay_dot(img, (255, 64, 64, 255))
-            elif state == State.ERROR:
-                _overlay_dot(img, (255, 200, 0, 255))
-            return img
+            logo = Image.open(ico).convert("RGBA")
+            inner = ICON_SIZE - 2 * ICON_PADDING
+            logo = logo.resize((inner, inner), Image.Resampling.LANCZOS)
+            bg.alpha_composite(logo, (ICON_PADDING, ICON_PADDING))
         except Exception:
-            log.exception("failed to load icon.ico, falling back")
+            log.exception("failed to load icon.ico, using plain rounded square")
+    else:
+        # Fallback wenn icon.ico fehlt: schwarzer Kreis als Logo-Stand-In.
+        d = ImageDraw.Draw(bg)
+        d.ellipse(
+            (ICON_PADDING + 2, ICON_PADDING + 2,
+             ICON_SIZE - ICON_PADDING - 3, ICON_SIZE - ICON_PADDING - 3),
+            fill=(0, 0, 0, 255),
+        )
 
-    color = {
-        State.IDLE: (120, 120, 120, 255),
-        State.RECORDING: (240, 80, 80, 255),
-        State.TRANSCRIBING: (80, 160, 240, 255),
-        State.STYLING: (80, 160, 240, 255),
-        State.INJECTING: (80, 160, 240, 255),
-        State.ERROR: (240, 200, 0, 255),
-    }.get(state, (120, 120, 120, 255))
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse((4, 4, 60, 60), fill=color)
-    return img
+    if state == State.RECORDING:
+        _overlay_dot(bg, (220, 30, 30, 255))      # kräftiges Rot
+    elif state == State.ERROR:
+        _overlay_dot(bg, (255, 80, 0, 255))       # Rotorange — Kontrast vs Gelb-BG
+
+    return bg
 
 
 class KiraTray:
