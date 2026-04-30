@@ -1,4 +1,5 @@
 import asyncio
+import numpy as np
 import pytest
 from kira.app import KiraApp, State
 from kira.config import Config
@@ -95,3 +96,87 @@ def test_empty_polish_does_not_inject():
     assert app.state == State.IDLE
     # injector must NOT have been called with empty string
     assert injector.last == "<unset>"
+
+
+class _BrokenRecorder:
+    """Recorder-Stub, der bei start() DeviceUnavailable wirft —
+    simuliert das Mike-2026-04-30-Szenario (Mikro ausgeschaltet)."""
+    def __init__(self):
+        from kira.recorder import DeviceUnavailable
+        self._exc_class = DeviceUnavailable
+        self.start_calls = 0
+
+    def start(self):
+        self.start_calls += 1
+        raise self._exc_class("audio.input_device='ROG Theta' not available right now")
+
+    def stop(self):
+        return np.zeros(0, dtype=np.float32)
+
+    def prewarm(self): pass
+    def close(self): pass
+    @property
+    def is_recording(self): return False
+
+
+def test_hotkey_press_with_unavailable_device_sets_error_state():
+    """F8 mit absentem Mikro → State.ERROR, Pipeline nicht angelaufen.
+    Trigger: Crash-Loop am 2026-04-30 morgens, weil ROG Theta beim
+    Boot noch nicht enumeriert war."""
+    cfg = Config()
+    injector = _RecordingInjector()
+    broken = _BrokenRecorder()
+    app = KiraApp(
+        config=cfg,
+        recorder=broken,
+        transcriber=KiraApp.for_test()._transcriber,
+        styler=KiraApp.for_test()._styler,
+        injector=injector,
+    )
+    app.on_hotkey_press()
+    assert app.state == State.ERROR
+    assert broken.start_calls == 1
+    # Pipeline darf nicht gelaufen sein:
+    assert injector.last == "<unset>"
+
+
+def test_hotkey_release_after_device_error_is_ignored():
+    """Nach DeviceUnavailable bei press: state ist ERROR, ein folgendes
+    release darf den State nicht durcheinanderbringen — release() prüft
+    state == RECORDING, ERROR ist das nicht, also no-op."""
+    cfg = Config()
+    injector = _RecordingInjector()
+    app = KiraApp(
+        config=cfg,
+        recorder=_BrokenRecorder(),
+        transcriber=KiraApp.for_test()._transcriber,
+        styler=KiraApp.for_test()._styler,
+        injector=injector,
+    )
+    app.on_hotkey_press()
+    assert app.state == State.ERROR
+    app.on_hotkey_release(duration_ms=500)
+    # State darf nicht zu RECORDING/IDLE wechseln durch den Release.
+    assert app.state == State.ERROR
+    assert injector.last == "<unset>"
+
+
+def test_hotkey_press_ignored_while_in_error_state():
+    """Während des 3-s-ERROR-Holds darf ein zweites F8 nicht erneut
+    Recorder.start() aufrufen — wir warten auf den Auto-Reset zu IDLE.
+    Verhindert eine Endlos-Schleife wenn der User F8 panisch drückt."""
+    cfg = Config()
+    broken = _BrokenRecorder()
+    app = KiraApp(
+        config=cfg,
+        recorder=broken,
+        transcriber=KiraApp.for_test()._transcriber,
+        styler=KiraApp.for_test()._styler,
+        injector=_RecordingInjector(),
+    )
+    app.on_hotkey_press()
+    assert broken.start_calls == 1
+    assert app.state == State.ERROR
+    # Zweiter Press während ERROR: ignoriert (state != IDLE)
+    app.on_hotkey_press()
+    assert broken.start_calls == 1  # KEIN zweiter start()-Call

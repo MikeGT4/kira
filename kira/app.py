@@ -14,7 +14,7 @@ from enum import Enum, auto
 from typing import Callable
 import numpy as np
 from kira.config import Config
-from kira.recorder import Recorder
+from kira.recorder import Recorder, DeviceUnavailable
 
 if sys.platform == "win32":
     from kira.transcriber_fw import TranscriptionResult
@@ -87,7 +87,21 @@ class KiraApp:
         if self._state != State.IDLE:
             return
         self._press_time = time.monotonic()
-        self._recorder.start()
+        try:
+            self._recorder.start()
+        except DeviceUnavailable as e:
+            log.warning("Hotkey press but input device unavailable: %s", e)
+            self._press_time = None
+            self._set_state(State.ERROR)
+            # Auto-Reset nach 3 s analog zum Pipeline-Error-Pfad
+            # (_run_pipeline finally-Block) — ohne Reset bliebe state
+            # auf ERROR und das nächste F8 würde durch
+            # `if self._state != State.IDLE: return` ignoriert werden.
+            threading.Timer(
+                3.0, lambda: self._set_state(State.IDLE)
+                if self._state == State.ERROR else None
+            ).start()
+            return
         self._set_state(State.RECORDING)
 
     def on_hotkey_release(self, duration_ms: int | None = None) -> None:
