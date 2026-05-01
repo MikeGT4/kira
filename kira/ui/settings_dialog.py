@@ -15,6 +15,8 @@ import logging
 import subprocess
 from pathlib import Path
 
+from PIL import Image
+from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
@@ -28,6 +30,34 @@ from kira.config_writer import update_scalars
 
 log = logging.getLogger(__name__)
 _ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+
+
+def _load_branded_pixmap(size: int) -> QPixmap | None:
+    """Load the largest frame from icon-branded.ico and downscale via
+    Pillow's LANCZOS to ``size``. QPixmap's native ICO loader picks an
+    arbitrary (often 16x16) frame and upscales it to whatever size we
+    request — that's what produced the blurry header logo. Pillow lets
+    us pick the 256x256 frame explicitly, then downscale once with a
+    proper resampling filter, so the result stays crisp at 48 px.
+    """
+    src = _ASSETS / "icon-branded.ico"
+    if not src.exists():
+        return None
+    try:
+        img = Image.open(src)
+        ico = getattr(img, "ico", None)
+        if ico is not None:
+            sizes = sorted(ico.sizes(), key=lambda s: s[0] * s[1])
+            if sizes:
+                img.size = sizes[-1]  # type: ignore[misc]
+                img.load()
+        img = img.convert("RGBA").resize(
+            (size, size), Image.Resampling.LANCZOS,
+        )
+        return QPixmap.fromImage(ImageQt(img))
+    except Exception:
+        log.exception("failed to load icon-branded.ico for header")
+        return None
 
 
 class _PullWorker(QObject):
@@ -128,13 +158,8 @@ class SettingsDialog(QDialog):
         row.setSpacing(12)
 
         kira_label = QLabel()
-        branded = _ASSETS / "icon-branded.ico"
-        if branded.exists():
-            kira_pix = QPixmap(str(branded)).scaled(
-                48, 48,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        kira_pix = _load_branded_pixmap(48)
+        if kira_pix is not None:
             kira_label.setPixmap(kira_pix)
         row.addWidget(kira_label)
 

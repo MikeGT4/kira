@@ -1,24 +1,55 @@
-"""Modal About dialog with the branded Kira splash + runtime stack info.
+"""Modal About dialog with the branded header + runtime stack info.
 
-Triggered from the tray menu's 'About Kira'. Replaces the bare logo +
-version layout with the full kira-splash header followed by a concise
-stack-info form (model, polish-LLM, hotkey, mic) so users can see what
-their install is actually running without opening the YAML config.
+Triggered from the tray menu's 'About Kira'. Header layout matches
+SettingsDialog (yellow Kira-branded glyph left, title centred,
+digitalroots wordmark right) so the dialog reads as part of the same
+app family. The earlier kira-splash.png header was dropped because its
+in-image '© 2026 by Digitalroots' footer text didn't match house
+spelling.
 """
 from __future__ import annotations
+import logging
 from pathlib import Path
 
+from PIL import Image
+from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from kira import UPDATE_REPO, __version__
 from kira.config import effective_hotkey
 
-
+log = logging.getLogger(__name__)
 _ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+
+
+def _load_branded_pixmap(size: int) -> QPixmap | None:
+    """Largest-frame ICO loader (Pillow → QPixmap). QPixmap's native ICO
+    plugin defaults to a small frame and upscales — that left the
+    branded glyph blurry at 48 px until we explicitly picked the 256
+    frame and downscaled once."""
+    src = _ASSETS / "icon-branded.ico"
+    if not src.exists():
+        return None
+    try:
+        img = Image.open(src)
+        ico = getattr(img, "ico", None)
+        if ico is not None:
+            sizes = sorted(ico.sizes(), key=lambda s: s[0] * s[1])
+            if sizes:
+                img.size = sizes[-1]  # type: ignore[misc]
+                img.load()
+        img = img.convert("RGBA").resize(
+            (size, size), Image.Resampling.LANCZOS,
+        )
+        return QPixmap.fromImage(ImageQt(img))
+    except Exception:
+        log.exception("failed to load icon-branded.ico for About header")
+        return None
 
 
 def _safe_load_config():
@@ -47,22 +78,10 @@ class AboutDialog(QDialog):
         apply_light_theme(self)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(12)
 
-        # Branded splash header — flush to the dialog edges.
-        splash_label = QLabel()
-        splash_path = _ASSETS / "kira-splash.png"
-        if splash_path.exists():
-            pix = QPixmap(str(splash_path)).scaledToWidth(
-                600, Qt.TransformationMode.SmoothTransformation
-            )
-            splash_label.setPixmap(pix)
-        else:
-            # Graceful fallback: plain title block if asset is missing.
-            splash_label.setText("<h1 style='margin:32px;'>Kira</h1>")
-        splash_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        outer.addWidget(splash_label)
+        outer.addWidget(self._build_header())
 
         # Stack-info form, indented from the dialog edges.
         cfg = _safe_load_config()
@@ -74,7 +93,7 @@ class AboutDialog(QDialog):
         )
 
         form_block = QVBoxLayout()
-        form_block.setContentsMargins(40, 18, 40, 6)
+        form_block.setContentsMargins(20, 4, 20, 6)
         form_block.setSpacing(6)
 
         form = QFormLayout()
@@ -126,3 +145,49 @@ class AboutDialog(QDialog):
         close_btn.setDefault(True)
         btn_row.addWidget(close_btn)
         outer.addLayout(btn_row)
+
+    def _build_header(self) -> QWidget:
+        # Same Kira-glyph + title + digitalroots layout as SettingsDialog,
+        # so both tray-menu dialogs share one visual identity.
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 4)
+        row.setSpacing(12)
+
+        kira_label = QLabel()
+        kira_pix = _load_branded_pixmap(48)
+        if kira_pix is not None:
+            kira_label.setPixmap(kira_pix)
+        row.addWidget(kira_label)
+
+        row.addStretch()
+
+        title = QLabel("Über Kira")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        row.addWidget(title)
+
+        row.addStretch()
+
+        dr_label = QLabel()
+        dr_logo = _ASSETS / "digitalroots-logo.png"
+        if dr_logo.exists():
+            dr_pix = QPixmap(str(dr_logo)).scaledToHeight(
+                26, Qt.TransformationMode.SmoothTransformation,
+            )
+            dr_label.setPixmap(dr_pix)
+        row.addWidget(dr_label)
+
+        wrapper = QWidget()
+        wrap = QVBoxLayout(wrapper)
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(8)
+        wrap.addWidget(host)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("color: #d8d8d8;")
+        wrap.addWidget(sep)
+        return wrapper
