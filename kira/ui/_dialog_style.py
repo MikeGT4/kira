@@ -9,7 +9,7 @@ light without per-widget styling — important for SettingsDialog whose
 QComboBox / QSpinBox would render badly under a tight QSS override.
 """
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 
 def _light_palette() -> QPalette:
@@ -75,3 +75,34 @@ _QSS = (
 def apply_light_theme(dialog: QDialog) -> None:
     dialog.setPalette(_light_palette())
     dialog.setStyleSheet(_QSS)
+
+
+# Light-themed QMessageBox replacement for the static
+# QMessageBox.information / .warning / .critical helpers, which spawn an
+# unparented box that inherits Win11's dark palette and renders the body
+# text invisible-on-dark. We construct manually so apply_light_theme
+# flips palette + QSS before the modal runs.
+def _show_message(
+    parent: QWidget | None,
+    icon: QMessageBox.Icon,
+    title: str,
+    text: str,
+) -> int:
+    box = QMessageBox(parent)
+    box.setIcon(icon)
+    box.setWindowTitle(title)
+    box.setText(text)
+    apply_light_theme(box)
+    return int(box.exec())
+
+
+def light_information(parent: QWidget | None, title: str, text: str) -> int:
+    return _show_message(parent, QMessageBox.Icon.Information, title, text)
+
+
+def light_warning(parent: QWidget | None, title: str, text: str) -> int:
+    return _show_message(parent, QMessageBox.Icon.Warning, title, text)
+
+
+def light_critical(parent: QWidget | None, title: str, text: str) -> int:
+    return _show_message(parent, QMessageBox.Icon.Critical, title, text)

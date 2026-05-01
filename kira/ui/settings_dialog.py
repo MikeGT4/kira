@@ -21,8 +21,15 @@ from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressDialog,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressDialog,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
+)
+
+from kira.ui._dialog_style import (
+    apply_light_theme,
+    light_critical,
+    light_information,
+    light_warning,
 )
 
 from kira.config import default_config_path, load_config
@@ -127,7 +134,6 @@ class SettingsDialog(QDialog):
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumWidth(560)
         self.setModal(True)
-        from kira.ui._dialog_style import apply_light_theme
         apply_light_theme(self)
 
         self._cfg = load_config()
@@ -347,7 +353,7 @@ class SettingsDialog(QDialog):
             updated = update_scalars(current, updates)
             self._cfg_path.write_text(updated, encoding="utf-8")
         except KeyError as e:
-            QMessageBox.warning(
+            light_warning(
                 self, "Kira",
                 f"Config hat unbekanntes Schema ({e}).\n\n"
                 "Bitte einmalig 'Rohconfig öffnen…' und sicherstellen, "
@@ -357,10 +363,10 @@ class SettingsDialog(QDialog):
             return
         except Exception as e:
             log.exception("settings save failed")
-            QMessageBox.critical(self, "Kira", f"Speichern fehlgeschlagen: {e}")
+            light_critical(self, "Kira", f"Speichern fehlgeschlagen: {e}")
             return
 
-        QMessageBox.information(
+        light_information(
             self, "Kira",
             "Einstellungen gespeichert.\n\n"
             "Die meisten Änderungen wirken nach Kira-Neustart "
@@ -371,7 +377,7 @@ class SettingsDialog(QDialog):
     def _update_polish_model(self) -> None:
         model_name = self._styler_model.text().strip()
         if not model_name:
-            QMessageBox.warning(self, "Kira", "Bitte erst ein Polish-Modell eintragen.")
+            light_warning(self, "Kira", "Bitte erst ein Polish-Modell eintragen.")
             return
 
         progress = QProgressDialog(
@@ -405,9 +411,9 @@ class SettingsDialog(QDialog):
             thread.quit()
             thread.wait()
             if success:
-                QMessageBox.information(self, "Kira", message)
+                light_information(self, "Kira", message)
             else:
-                QMessageBox.critical(self, "Kira", message)
+                light_critical(self, "Kira", message)
 
         worker.progress.connect(on_progress)
         worker.finished.connect(on_finished)
