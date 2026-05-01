@@ -386,6 +386,10 @@ class SettingsDialog(QDialog):
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setWindowTitle("Kira — Modell-Update")
         progress.setMinimumDuration(0)
+        # QProgressDialog is a QDialog subclass — apply_light_theme flips
+        # palette + QSS so the label/cancel button stay readable in
+        # Win11 dark mode while the pull streams.
+        apply_light_theme(progress)
         progress.show()
 
         thread = QThread(self)
