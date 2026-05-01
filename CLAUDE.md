@@ -19,6 +19,7 @@ text appears at the cursor.
 - **Platform-specific files live on exactly one branch.** Don't port
   these between branches: `kira/hotkey.py` (Mac-only), `kira/hotkey_win.py`
   (Win-only), `kira/ui/menubar.py` (Mac), `kira/ui/tray_win.py` (Win),
+  `kira/ui/_dialog_style.py` (Win — PyQt6 light-theme helper),
   `scripts/build_app.sh` (Mac), `scripts/install_*.ps1` (Win),
   `scripts/install_wsl_ollama.sh` (Win).
 - **Shared modules that are platform-aware** (`kira/main.py`,
@@ -88,6 +89,39 @@ end the event loop.
 
 **If you add a new Qt window**, audit whether it should keep the loop
 alive on its own — don't rely on the flag toggle as the only guard.
+
+## Dialog light theme
+
+Win11's dark mode propagates into PyQt6 as a system-wide dark palette,
+which broke two things: the digital-roots logo (black artwork on a
+transparent canvas) became invisible against the dark dialog
+background, and Win11's Fluent button style rendered the buttons as
+transparent rectangles whose text was white-on-light once we forced
+the BG light. `kira/ui/_dialog_style.py` centralises the override:
+
+- `apply_light_theme(dialog)` sets a light `QPalette` AND a QSS
+  stylesheet covering `QLabel`, `QCheckBox`, `QPushButton`, `QLineEdit`,
+  `QSpinBox`, `QDoubleSpinBox`, `QComboBox`. Both are needed: palette
+  alone is ignored by Fluent for several widgets; QSS alone breaks the
+  parts the palette did handle. Settings/Welcome/SetupHint/About all
+  call `apply_light_theme(self)` immediately after `super().__init__()`.
+- `light_information / light_warning / light_critical` replace the
+  static `QMessageBox.information/.warning/.critical`. Those statics
+  spawn an unparented box that re-inherits Win11's dark palette, so
+  the body text rendered invisible-on-dark right after `Speichern`.
+- `QProgressDialog` is a `QDialog` subclass, so `apply_light_theme(progress)`
+  works on it too — done for the Polish-Modell update pull.
+
+Branded header (yellow 煌 glyph left, title centre, digitalroots
+right) lives in parallel in `settings_dialog._build_header()` and
+`about_dialog._build_header()`. Pillow loads the largest frame from
+`assets/icon-branded.ico` and downscales once with LANCZOS —
+`QPixmap`'s native ICO loader otherwise picks an arbitrary (often
+16 px) frame and upscales, producing a blurry header glyph.
+
+The pre-Qt single-instance `MessageBoxW` in `kira/main.py` is
+intentionally NOT routed through `_dialog_style` — it fires before any
+QApplication exists, so we have nothing to render through.
 
 ## Ollama warmup & keep_alive
 
@@ -189,11 +223,58 @@ powershell -ExecutionPolicy Bypass -File scripts\embed_icon.ps1
 ```
 
 Tray-Icon-Generation läuft zur Laufzeit aus `icon.ico` heraus mit
-demselben Look. Modul-Level-Caches in `kira/ui/tray_win.py`
-(`_LOGO_CACHE`, `_ICON_CACHE`) eliminieren UNC-IO nach dem ersten
-Render — wichtig weil `assets/` auf dem WSL-Tree liegt und jedes
-`Image.open()` sonst `\\wsl.localhost\…` mehrfach pro F8-Zyklus
-trifft.
+demselben Look. `ICON_PADDING = 10` (~16 % Innenabstand) — bei
+weniger Padding schrumpft der gelbe Rand auf der 16×16-Tray-Größe auf
+~1 px und das Icon liest sich als schwarz-auf-schwarz im Win11-Dark-
+Tray. Modul-Level-Caches in `kira/ui/tray_win.py` (`_LOGO_CACHE`,
+`_ICON_CACHE`) eliminieren UNC-IO nach dem ersten Render — wichtig
+weil `assets/` auf dem WSL-Tree liegt und jedes `Image.open()` sonst
+`\\wsl.localhost\…` mehrfach pro F8-Zyklus trifft.
+
+## Tray identity (Win11 notification area)
+
+Pystray's default Win32 class name is
+`'%s%dSystemTrayIcon' % (name, id(self))` — `id(self)` is randomised
+per process. Win11's notification-area settings key "Show always" on
+(window class, window title), so a fresh class on each launch
+silently dropped the user's visibility choice every restart. Plus
+pystray creates the window with `lpWindowName=None`, so Win11 falls
+back to the process FileDescription (`pythonw.exe` → "Python") for
+the display name.
+
+`_KiraPystrayIcon` in `kira/ui/tray_win.py` patches both:
+
+- `_register_class()` overrides the class name to a fixed
+  `KiraDigitalrootsTrayIcon`.
+- `WM_SETTEXT` / `WM_GETTEXT` / `WM_GETTEXTLENGTH` are wired through
+  `DefWindowProc` via `_message_handlers`. Pystray's default
+  `_dispatcher` returns `0` for any message not in the handler dict,
+  which silently swallows `WM_SETTEXT` — `SetWindowTextW` *appears* to
+  succeed but the title never gets stored. Without these passthroughs
+  the patch looks fine in `kira.log` ("Tray window labelled 'Kira'")
+  while `GetWindowTextW` still returns empty.
+- A small daemon thread polls `icon._hwnd` and runs
+  `SetWindowTextW(hwnd, 'Kira')` once. `_hwnd` is set inside pystray's
+  own `_run` thread, so the patch can't happen synchronously after
+  `pystray.Icon(...)`.
+
+Verify from the Win-venv Python:
+```python
+import ctypes
+hwnd = ctypes.windll.user32.FindWindowW("KiraDigitalrootsTrayIcon", None)
+buf = ctypes.create_unicode_buffer(64)
+ctypes.windll.user32.GetWindowTextW(hwnd, buf, 64)
+print(hex(hwnd), buf.value)  # → 0x... 'Kira'
+```
+
+If the class atom is left registered after a crash (Kira didn't reach
+`_unregister_class`), the next launch's `RegisterClassEx` returns 0 and
+the tray fails to start. Reboot fixes it; or `UnregisterClassW` from
+the old process context.
+
+The tray menu's `Einstellungen…` entry is marked `default=True` so
+left- and double-click on the tray icon open Settings directly instead
+of just dropping the context menu.
 
 ## Test policy
 
