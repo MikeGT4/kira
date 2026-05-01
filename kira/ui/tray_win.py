@@ -22,7 +22,13 @@ ASSETS = Path(__file__).parent.parent.parent / "assets"
 ICON_SIZE = 64
 ICON_BG_COLOR = (255, 196, 0, 255)   # warmes Gelb (#FFC400)
 ICON_BG_RADIUS = 12                  # Rounded-Corner-Radius in Pixel
-ICON_PADDING = 6                     # Innenabstand für das Logo
+# Innenabstand fuer das Logo. Windows skaliert das 64x64 Image im
+# Notification Area weiter runter (16x16 / 22x22). Bei <10% Padding
+# verschwindet der gelbe Rand bei dieser Skalierung praktisch komplett
+# (1.6 -> 1px gerundet) und der User sieht nur noch das schwarze Logo.
+# 10px (~16%) hinterlassen auch im 16x16-Tray noch einen 2-3px breiten
+# gelben Rahmen, der das Icon vom dunklen Win11-Tray-Hintergrund trennt.
+ICON_PADDING = 10
 
 
 def _overlay_dot(img: Image.Image, rgba: tuple[int, int, int, int]) -> None:
@@ -141,10 +147,16 @@ class KiraTray:
         self._icon: pystray.Icon | None = None
 
     def _build_menu(self) -> pystray.Menu:
+        # default=True wires the entry to Windows-tray double-click /
+        # left-click ("default activate"); rechtsklick zeigt das ganze
+        # Menu wie gehabt. Settings ist die Default-Action, weil das der
+        # häufigste Konfig-Touchpoint ist (Mic, Polish-Modell, Hotkey).
         return pystray.Menu(
             pystray.MenuItem(self._status_label, None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Einstellungen…", self._open_settings),
+            pystray.MenuItem(
+                "Einstellungen…", self._open_settings, default=True,
+            ),
             pystray.MenuItem("Open Log…", self._open_log),
             pystray.MenuItem("Updates suchen…", self._check_for_updates),
             pystray.Menu.SEPARATOR,
