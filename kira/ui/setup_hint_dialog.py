@@ -26,6 +26,8 @@ class SetupHintDialog(QDialog):
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setFixedSize(560, 500)
         self.setModal(True)
+        from kira.ui._dialog_style import apply_light_theme
+        apply_light_theme(self)
         self.user_clicked_open_mic_settings = False
 
         layout = QVBoxLayout(self)

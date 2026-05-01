@@ -40,6 +40,8 @@ class WelcomeDialog(QDialog):
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setFixedSize(620, 540)
         self.setModal(True)
+        from kira.ui._dialog_style import apply_light_theme
+        apply_light_theme(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 28, 28, 28)
