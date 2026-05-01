@@ -1,6 +1,5 @@
 """pystray-based tray icon for Windows. Mirrors Mac KiraMenubar API."""
 from __future__ import annotations
-import ctypes
 import logging
 import os
 import subprocess
@@ -237,14 +236,20 @@ class KiraTray:
         # Keep the menu entry so users see the feature is planned; show a
         # plain hint until v0.2 ships manifest-based multi-asset pulls with
         # signature verification.
-        ctypes.windll.user32.MessageBoxW(
-            0,
+        # Routed through qt_marshal so the dialog inherits Kira's light
+        # theme — the previous Win32 MessageBoxW rendered black-on-black
+        # in Win11 dark mode.
+        self._marshal_to_qt(self._show_update_hint, "update hint")
+
+    @staticmethod
+    def _show_update_hint() -> None:
+        from kira.ui._dialog_style import light_information
+        light_information(
+            None, "Kira",
             "Updates werden ab v0.2 direkt aus Kira geladen.\n\n"
             "Bis dahin: neues Setup-Bundle vom Verteilungspfad herunterladen "
             "und Setup.exe ausführen — der bestehende Installer erkennt "
             "vorhandene Installationen automatisch und aktualisiert sie.",
-            "Kira",
-            0x40,  # MB_ICONINFORMATION
         )
 
     def _quit(self, _icon, _item) -> None:
