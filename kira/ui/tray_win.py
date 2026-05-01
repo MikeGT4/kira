@@ -1,16 +1,108 @@
 """pystray-based tray icon for Windows. Mirrors Mac KiraMenubar API."""
 from __future__ import annotations
+import ctypes
 import logging
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 import pystray
 from PIL import Image, ImageDraw
+from pystray._util import win32 as _ps_win32
+from pystray._win32 import Icon as _PystrayWin32Icon, _dispatcher
 from kira.app import State
 
 log = logging.getLogger(__name__)
+
+
+# Stable identity for Win11's notification-area settings. Pystray's
+# default class name interpolates id(self), which is randomised every
+# launch — Win11 keys 'show always' on (window class, window title), so
+# the user's choice gets dropped on every restart and the icon shows up
+# as 'Python' (pythonw.exe FileDescription). With a stable class +
+# explicit title Win11 sees the same Kira tray icon across launches.
+_KIRA_TRAY_CLASS = "KiraDigitalrootsTrayIcon"
+_KIRA_TRAY_TITLE = "Kira"
+
+
+_WM_SETTEXT = 0x000C
+_WM_GETTEXT = 0x000D
+_WM_GETTEXTLENGTH = 0x000E
+
+
+class _KiraPystrayIcon(_PystrayWin32Icon):
+    """pystray.Icon subclass with a stable Win32 class name + working
+    window-title persistence.
+
+    pystray's _dispatcher returns 0 for any message not in
+    self._message_handlers, which means WM_SETTEXT never reaches
+    DefWindowProc — our SetWindowTextW(hwnd, 'Kira') call appeared to
+    succeed but the title stayed empty. We wire WM_SETTEXT /
+    WM_GETTEXT / WM_GETTEXTLENGTH straight through to DefWindowProc so
+    the title is actually stored on the window.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        def _passthrough(msg):
+            def _handler(wParam, lParam):
+                # self._hwnd is set in _run() before any user message
+                # arrives, so it's available by the time SetWindowText
+                # bounces through here.
+                return _ps_win32.DefWindowProc(self._hwnd, msg, wParam, lParam)
+            return _handler
+
+        for msg in (_WM_SETTEXT, _WM_GETTEXT, _WM_GETTEXTLENGTH):
+            self._message_handlers[msg] = _passthrough(msg)
+
+    def _register_class(self):
+        return _ps_win32.RegisterClassEx(_ps_win32.WNDCLASSEX(
+            cbSize=ctypes.sizeof(_ps_win32.WNDCLASSEX),
+            style=0,
+            lpfnWndProc=_dispatcher,
+            cbClsExtra=0,
+            cbWndExtra=0,
+            hInstance=_ps_win32.GetModuleHandle(None),
+            hIcon=None,
+            hCursor=None,
+            hbrBackground=_ps_win32.COLOR_WINDOW + 1,
+            lpszMenuName=None,
+            lpszClassName=_KIRA_TRAY_CLASS,
+            hIconSm=None,
+        ))
+
+
+def _set_tray_window_title(icon_holder: "KiraTray", timeout_s: float = 5.0) -> None:
+    """Poll until the pystray window exists, then label it 'Kira'.
+
+    pystray creates the hidden notification window on its own daemon
+    thread inside _run(), so we can't simply call SetWindowText
+    synchronously after Icon(...) construction. We loop briefly until
+    `_hwnd` is set and patch it once. SetWindowText on a stable class
+    is what makes Win11's notification-area panel show 'Kira' instead
+    of falling back to the python.exe FileDescription.
+    """
+    SetWindowTextW = ctypes.windll.user32.SetWindowTextW
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        icon = icon_holder._icon
+        if icon is not None:
+            hwnd = getattr(icon, "_hwnd", None)
+            if hwnd:
+                SetWindowTextW(hwnd, _KIRA_TRAY_TITLE)
+                log.info(
+                    "Tray window labelled %r (class=%s, hwnd=0x%x)",
+                    _KIRA_TRAY_TITLE, _KIRA_TRAY_CLASS, hwnd,
+                )
+                return
+        time.sleep(0.05)
+    log.warning(
+        "Tray window did not appear within %.1fs — title not patched",
+        timeout_s,
+    )
 
 ASSETS = Path(__file__).parent.parent.parent / "assets"
 
@@ -262,7 +354,7 @@ class KiraTray:
 
     def run(self) -> None:
         """Blocks. Must be started in a non-main thread (Qt owns the main loop)."""
-        self._icon = pystray.Icon(
+        self._icon = _KiraPystrayIcon(
             "kira",
             icon=_load_or_generate_icon(State.IDLE),
             title="Kira",
@@ -271,7 +363,16 @@ class KiraTray:
         self._icon.run()
 
     def run_detached(self) -> threading.Thread:
-        """Convenience: start run() in a background daemon thread."""
+        """Convenience: start run() in a background daemon thread.
+
+        Spawns a tiny helper that polls for the pystray window and
+        patches its title to 'Kira' so Win11's notification-area
+        settings show the right name (see _set_tray_window_title).
+        """
         t = threading.Thread(target=self.run, daemon=True, name="kira-tray")
         t.start()
+        threading.Thread(
+            target=lambda: _set_tray_window_title(self),
+            daemon=True, name="kira-tray-title",
+        ).start()
         return t
