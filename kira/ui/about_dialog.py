@@ -69,7 +69,7 @@ class AboutDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Über Kira")
-        icon_path = _ASSETS / "icon.ico"
+        icon_path = _ASSETS / "icon-branded.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setFixedSize(600, 640)
@@ -128,7 +128,7 @@ class AboutDialog(QDialog):
             f"<a href='https://github.com/{UPDATE_REPO}'>"
             f"github.com/{UPDATE_REPO}</a>"
             f"<br><span style='color:#888; font-size:11px;'>"
-            f"© 2026 Mike Pollow · digital roots — Personal-Use-Lizenz"
+            f"© 2026 Mike Pollow · DigitalRoots — Personal-Use-Lizenz"
             f"</span></div>"
         )
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -95,6 +95,11 @@ class Recorder:
         # enumeriert ist (USB-Audio braucht oft Sekunden nach Resume).
         self._device_spec = input_device
         self._input_device: int | None = None
+        # Set by _callback when PortAudio reports input_underflow/overflow.
+        # USB-Mic-Hot-Unplug shows up as input_underflow on the next callback —
+        # we cycle the stream on the next start() so a dead PortAudio handle
+        # can't crash the C audio thread on the recording after.
+        self._stream_dirty = False
 
     def _resolve_device(self) -> int | None:
         """Resolve self._device_spec against sd.query_devices().
@@ -156,7 +161,18 @@ class Recorder:
 
     def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
         if status:
-            log.debug("sounddevice status: %s", status)
+            # USB hot-unplug surfaces as input_underflow on the very next
+            # callback. Was DEBUG (silenced at default INFO level) — upgraded
+            # to WARNING so post-mortem can correlate "kein Audio mehr" with
+            # an actual PortAudio signal.
+            log.warning("sounddevice callback status: %s", status)
+            # Nur input_underflow flagt den Stream dirty — overflow ist
+            # häufig ein transient Spike direkt nach Stream-Start (PortAudio
+            # kalibriert Buffer-Größen) und würde sonst beim nächsten F8
+            # den Pre-Roll-Buffer wegblasen. Underflow heißt das Device
+            # liefert nichts mehr — typisch für Hot-Unplug.
+            if status.input_underflow:
+                self._stream_dirty = True
         if self._input_gain != 1.0:
             audio = np.clip(indata * self._input_gain, -1.0, 1.0).astype(np.float32)
         else:
@@ -220,6 +236,69 @@ class Recorder:
             self._stream = stream
         stream.start()
 
+    def _is_device_still_present(self) -> bool:
+        """True wenn das ge-pinnte Device noch in sd.query_devices() steht.
+
+        Wir prüfen den heute gespeicherten _input_device-Index gegen die
+        aktuelle PortAudio-Enumeration. Bei USB-Mic-Hot-Unplug schrumpft
+        die Liste oder das vorherige Device hat 0 Input-Channels (ASIO
+        re-enumeriert manchmal in-place statt Slot freizugeben).
+
+        Wenn kein konkretes Device gepinnt ist (_device_spec=None →
+        System-Default), gibt es nichts zu re-prüfen — der Stream wird
+        gegen den OS-Default gefahren und PortAudio routet automatisch
+        um. In dem Fall ist "device present" trivially True.
+        """
+        if self._device_spec is None:
+            return True
+        if self._input_device is None:
+            return False
+        try:
+            devices = list(sd.query_devices())
+        except Exception:
+            log.warning(
+                "sd.query_devices() failed during health-check; "
+                "treating pinned device as gone",
+            )
+            return False
+        if self._input_device >= len(devices):
+            return False
+        return devices[self._input_device].get("max_input_channels", 0) > 0
+
+    def _cycle_stream_if_unhealthy(self) -> bool:
+        """Schließe alten Stream wenn dirty/inaktiv/Device weg. Return True wenn cycelt.
+
+        Der Hot-Unplug-Pfad: Mike zieht den ROG Theta ab → der nächste
+        sounddevice-Callback kommt mit status.input_underflow → wir setzen
+        _stream_dirty. Beim nächsten F8 (start()) cycelt diese Methode
+        den toten Stream UND setzt _input_device zurück, sodass prewarm()
+        neu resolven kann. Ohne den Cycle hätten wir den native Crash:
+        PortAudio's C-Thread feuert weiter Callbacks gegen ein totes
+        Device-Handle, irgendwann abort()'d die DLL und pythonw.exe
+        verschwindet ohne Python-Trace und ohne faulthandler-Eintrag.
+        """
+        with self._lock:
+            stream = self._stream
+            dirty = self._stream_dirty
+        if stream is None:
+            return False
+        try:
+            active = bool(stream.active)
+        except Exception:
+            active = False
+        device_present = self._is_device_still_present()
+        if not dirty and active and device_present:
+            return False
+        log.warning(
+            "Cycling input stream (dirty=%s active=%s device_present=%s) "
+            "— likely mic hot-unplug. Will re-resolve device on next start().",
+            dirty, active, device_present,
+        )
+        self.close()
+        self._input_device = None
+        self._stream_dirty = False
+        return True
+
     def start(self) -> None:
         """Begin recording. Re-resolves device if not already streaming.
 
@@ -237,6 +316,12 @@ class Recorder:
         zwischen query_devices und InputStream weggeht) würde den
         Recording-Flag dauerhaft auf True kleben lassen.
         """
+        # Hot-unplug-Recovery: wenn der existing stream tot/dirty ist
+        # (USB-Mic abgesteckt während prewarm()-Stream lief), recyceln
+        # bevor wir ein Recording-Flag setzen — sonst ginge der Buffer
+        # leer in die Pipeline, oder schlimmer, der nächste C-Callback
+        # crasht den Process nativ.
+        self._cycle_stream_if_unhealthy()
         if self._stream is None:
             # Re-resolve: vorheriger prewarm()-Versuch hat None geliefert
             # und das in self._input_device festgehalten. Resetten, damit

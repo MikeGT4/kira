@@ -212,7 +212,7 @@ _APP_USER_MODEL_ID = "Digitalroots.Kira.1"
 # hold the old mutex will release it on their own quit, so renaming is safe.
 _SINGLE_INSTANCE_MUTEX = "Local\\Digitalroots.Kira.SingleInstance"
 _ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
-_ICON_PATH = _ASSETS_DIR / "icon.ico"
+_ICON_PATH = _ASSETS_DIR / "icon-branded.ico"
 
 
 def _set_windows_app_identity() -> None:

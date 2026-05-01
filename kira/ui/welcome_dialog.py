@@ -35,7 +35,7 @@ class WelcomeDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Willkommen bei Kira")
-        icon_path = _ASSETS / "icon.ico"
+        icon_path = _ASSETS / "icon-branded.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setFixedSize(620, 540)

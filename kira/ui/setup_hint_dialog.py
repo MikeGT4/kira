@@ -21,7 +21,7 @@ class SetupHintDialog(QDialog):
     def __init__(self, mic_ok: bool, ollama_ok: bool) -> None:
         super().__init__()
         self.setWindowTitle("Kira Setup")
-        icon_path = _ASSETS / "icon.ico"
+        icon_path = _ASSETS / "icon-branded.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setFixedSize(560, 500)
@@ -75,7 +75,7 @@ class SetupHintDialog(QDialog):
 
         layout.addStretch()
 
-        legal = QLabel("© 2026 Mike Pollow / digital roots")
+        legal = QLabel("© 2026 Mike Pollow / DigitalRoots")
         legal_font = QFont()
         legal_font.setPointSize(8)
         legal.setFont(legal_font)

@@ -93,6 +93,11 @@ def test_start_prepends_preroll_to_recording_buffer(monkeypatch):
 
 
 class _NoOpStream:
+    # active=True so der Hot-Unplug-Health-Check den Stream nicht fälschlich
+    # cycelt — ohne diese Property fiel _cycle_stream_if_unhealthy() in den
+    # try/except-Pfad ("active=False") und schloss den Mock-Stream noch
+    # bevor start() den Recording-Flag setzen konnte.
+    active = True
     def start(self): pass
     def stop(self): pass
     def close(self): pass
@@ -325,3 +330,178 @@ def test_start_raises_device_unavailable_when_query_devices_raises(monkeypatch):
     with pytest.raises(DeviceUnavailable):
         r.start()
     assert r._recording is False
+
+
+# Hot-unplug-Recovery: PortAudio-Status-Frames + Stream-Cycle-Tests.
+
+class _ActiveStream(_NoOpStream):
+    """Mock-Stream der wie sd.InputStream eine .active-Property hat."""
+    active = True
+
+
+class _DeadStream(_NoOpStream):
+    """Mock-Stream der nicht mehr aktiv ist (PortAudio hat ihn gestoppt)."""
+    active = False
+
+
+def test_callback_status_sets_dirty_flag_on_underflow():
+    """USB-Mic-Hot-Unplug zeigt sich als status.input_underflow im
+    nächsten PortAudio-Callback. Der Recorder muss das festhalten,
+    sonst weiß der nächste start() nicht dass der Stream tot ist."""
+    r = Recorder()
+
+    class _Status:
+        input_underflow = True
+        input_overflow = False
+        def __bool__(self): return True
+
+    samples = np.zeros((100, 1), dtype=np.float32)
+    r._callback(samples, 100, None, _Status())
+    assert r._stream_dirty is True
+
+
+def test_callback_overflow_does_not_set_dirty():
+    """input_overflow ist häufig ein transient Spike direkt nach
+    Stream-Start (PortAudio kalibriert Buffer-Größen). Würden wir den
+    Stream darauf cyclen, würde JEDER F8 nach Boot den Pre-Roll-Buffer
+    wegblasen und die ersten 50–200 ms gehen verloren."""
+    r = Recorder()
+
+    class _Status:
+        input_underflow = False
+        input_overflow = True
+        def __bool__(self): return True
+
+    samples = np.zeros((100, 1), dtype=np.float32)
+    r._callback(samples, 100, None, _Status())
+    assert r._stream_dirty is False
+
+
+def test_callback_no_status_keeps_clean_flag():
+    """Sanity: bei status=None (Normalbetrieb) bleibt der Stream clean."""
+    r = Recorder()
+    samples = np.zeros((100, 1), dtype=np.float32)
+    r._callback(samples, 100, None, None)
+    assert r._stream_dirty is False
+
+
+def test_is_device_still_present_when_pinned_id_gone(monkeypatch):
+    """Wenn das Device das wir per ID gepinnt haben aus
+    sd.query_devices() verschwindet (USB ausgesteckt), muss die
+    Health-Check-Methode False zurückgeben."""
+    r = Recorder(input_device="ROG Theta")
+    r._input_device = 1  # gepinnt auf Index 1
+    monkeypatch.setattr(
+        "kira.recorder.sd.query_devices",
+        lambda: [{"name": "Realtek", "max_input_channels": 2}],  # nur Index 0
+    )
+    assert r._is_device_still_present() is False
+
+
+def test_is_device_still_present_when_pinned_id_lost_input_channels(monkeypatch):
+    """ASIO/MME re-enumeriert manchmal ohne Slot freizugeben — der Index
+    bleibt, aber max_input_channels wird 0. Health-Check muss das als
+    'weg' werten, sonst öffnet der nächste prewarm() einen Output-only-
+    Stream und PortAudio crasht."""
+    r = Recorder(input_device="ROG Theta")
+    r._input_device = 0
+    monkeypatch.setattr(
+        "kira.recorder.sd.query_devices",
+        lambda: [{"name": "ROG Theta", "max_input_channels": 0}],
+    )
+    assert r._is_device_still_present() is False
+
+
+def test_is_device_still_present_returns_true_when_present(monkeypatch):
+    """Sanity: Happy-Path — Device ist da, gibt True."""
+    r = Recorder(input_device="ROG Theta")
+    r._input_device = 0
+    monkeypatch.setattr(
+        "kira.recorder.sd.query_devices",
+        lambda: [{"name": "ROG Theta", "max_input_channels": 1}],
+    )
+    assert r._is_device_still_present() is True
+
+
+def test_cycle_stream_closes_when_dirty(monkeypatch):
+    """Wenn der Callback dirty-flag gesetzt hat (input_underflow nach
+    Hot-Unplug), muss _cycle_stream_if_unhealthy() den Stream schließen
+    und _input_device zurücksetzen, damit der nächste start() neu
+    resolved."""
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _ActiveStream())
+    monkeypatch.setattr(
+        "kira.recorder.sd.query_devices",
+        lambda: [{"name": "ROG Theta", "max_input_channels": 1}],
+    )
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert r._stream is not None
+    r._stream_dirty = True
+    cycled = r._cycle_stream_if_unhealthy()
+    assert cycled is True
+    assert r._stream is None
+    assert r._input_device is None
+    assert r._stream_dirty is False
+
+
+def test_cycle_stream_closes_when_device_gone(monkeypatch):
+    """Hot-Unplug ohne dirty-flag (z.B. weil noch kein Callback gefeuert
+    hat seit dem Disconnect) — Stream ist active, Device aber weg.
+    _cycle_stream_if_unhealthy() muss trotzdem schließen."""
+    devices = {"current": [{"name": "ROG Theta", "max_input_channels": 1}]}
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _ActiveStream())
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: devices["current"])
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert r._stream is not None
+    devices["current"] = []  # Mike steckt das USB-Kabel ab
+    cycled = r._cycle_stream_if_unhealthy()
+    assert cycled is True
+    assert r._stream is None
+    assert r._input_device is None
+
+
+def test_cycle_stream_keeps_healthy_stream(monkeypatch):
+    """Sanity: solange Stream active ist und Device da, NICHT cyclen.
+    Sonst würden wir bei jedem F8 den Stream unnötig zumachen und neu
+    öffnen — und damit den Pre-Roll-Buffer leerräumen, was die ersten
+    50–200 ms jeder Aufnahme verlieren würde."""
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _ActiveStream())
+    monkeypatch.setattr(
+        "kira.recorder.sd.query_devices",
+        lambda: [{"name": "ROG Theta", "max_input_channels": 1}],
+    )
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert r._stream is not None
+    cycled = r._cycle_stream_if_unhealthy()
+    assert cycled is False
+    assert r._stream is not None
+
+
+def test_start_recovers_after_hot_unplug(monkeypatch):
+    """End-to-end: prewarm öffnet Stream, Mike zieht USB-Kabel,
+    nächster Callback setzt dirty-flag, Mike steckt wieder ein,
+    nächstes F8 (start()) cycelt den Stream und öffnet neu — KEINE
+    DeviceUnavailable, KEINE Process-Kollision, normales Recording."""
+    streams: list[_ActiveStream] = []
+    devices = {"current": [{"name": "ROG Theta", "max_input_channels": 1}]}
+
+    def _factory(**kw):
+        s = _ActiveStream()
+        streams.append(s)
+        return s
+
+    monkeypatch.setattr("kira.recorder.sd.InputStream", _factory)
+    monkeypatch.setattr("kira.recorder.sd.query_devices", lambda: devices["current"])
+    r = Recorder(input_device="ROG Theta")
+    r.prewarm()
+    assert len(streams) == 1
+    # Hot-unplug-Sequenz: dirty flag wird gesetzt durch späteren callback
+    r._stream_dirty = True
+    # Mike steckt wieder ein → Device ist wieder enumeriert
+    devices["current"] = [{"name": "ROG Theta", "max_input_channels": 1}]
+    r.start()
+    assert len(streams) == 2  # neuer Stream wurde geöffnet
+    assert r._stream is streams[1]
+    assert r._recording is True
