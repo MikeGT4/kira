@@ -39,9 +39,25 @@ def _light_palette() -> QPalette:
 # mattered. QPushButton needs a full restyle (Fluent renders Win11 buttons
 # as transparent rectangles by default). Form controls aren't covered —
 # SettingsDialog's QComboBox/QSpinBox keep their native look on purpose.
+_INPUT_QSS = (
+    " color: #222;"
+    " background: #ffffff;"
+    " border: 1px solid #c0c0c0;"
+    " padding: 4px 6px;"
+    " border-radius: 3px;"
+    " selection-background-color: #1976d2;"
+    " selection-color: #ffffff;"
+)
+
+
 _QSS = (
     "QLabel { color: #222; background: transparent; }"
     "QCheckBox { color: #222; background: transparent; }"
+    f"QLineEdit {{{_INPUT_QSS}}}"
+    f"QSpinBox, QDoubleSpinBox {{{_INPUT_QSS}}}"
+    f"QComboBox {{{_INPUT_QSS}}}"
+    "QComboBox QAbstractItemView { color: #222; background: #ffffff;"
+    " selection-background-color: #1976d2; selection-color: #ffffff; }"
     "QPushButton {"
     " background: #ffffff;"
     " border: 1px solid #c0c0c0;"
