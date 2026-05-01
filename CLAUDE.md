@@ -199,15 +199,62 @@ the same log line includes the list of currently-visible input devices,
 so you can see whether the substring spec is wrong or the device is
 genuinely off.
 
+### Hot-unplug recovery (mid-stream USB disconnect)
+
+The above handles "device absent at boot/start." A separate failure
+class is "stream was open, then the user pulls the USB cable":
+`prewarm()` ran successfully, `self._stream` is non-None, but the
+underlying PortAudio handle is now bound to a vanished device. The
+next sounddevice callback either reports `status.input_underflow` (the
+soft-fail mode) or the C audio thread dereferences a dead handle and
+the process disappears with no Python trace and no faulthandler entry
+(the hard-fail mode that ate the 17:48 session on 2026-05-01).
+
+Mitigations live in `kira/recorder.py`:
+
+- `_callback` upgrades a non-empty `status` from DEBUG to WARNING so
+  `kira.log` actually records the underflow signal. On
+  `status.input_underflow` it sets `self._stream_dirty = True`.
+  `input_overflow` is logged but does NOT flag dirty — it fires
+  spuriously right after stream-open while PortAudio sizes its
+  buffers, and cycling on every overflow would discard the pre-roll
+  on each F8.
+- `_is_device_still_present()` re-runs `sd.query_devices()` and checks
+  whether the pinned `_input_device` index still resolves to a device
+  with `max_input_channels > 0`. ASIO/MME re-enumerate in-place
+  occasionally without freeing the slot, so the channel count is the
+  authoritative signal, not just the index existing.
+- `_cycle_stream_if_unhealthy()` runs at the top of `start()`. If the
+  stream is dirty, inactive, or the device is gone, it `close()`s the
+  stale stream and resets `_input_device = None`. The rest of `start()`
+  then falls through to the existing re-resolve / DeviceUnavailable
+  path. With `_device_spec is None` (system default, no pinning),
+  `_is_device_still_present()` short-circuits to True — there's nothing
+  to re-resolve and the stream is healthy as long as it's active.
+
+If a user reports "Kira stirbt still nach Mikro abziehen": the new
+WARNING line `sounddevice callback status: input underflow` should
+appear in `kira.log` shortly before any unhealthy behaviour. Followed
+by `Cycling input stream (dirty=True ...)` on the next F8 press if the
+flag-based path triggered before a native crash could.
+
 ## Branded icon workflow
 
 Two ICO files in `assets/`:
 
 - `icon.ico` — source-of-truth, schwarzes Logo auf transparentem Hintergrund.
-  Wird vom Tray-Runtime-Code als Logo-Quelle gelesen.
+  Wird vom Tray-Runtime-Code als Logo-Quelle gelesen (der gelbe Tray-Background
+  wird zur Laufzeit aus diesem Glyph plus `ICON_PADDING` generiert).
 - `icon-branded.ico` — Build-Artefakt: gelbes Rounded-Square als Hintergrund
-  + das Logo aus `icon.ico` zentriert. Wird in `kira.exe` / `kira-once.exe`
-  embedded und in den Inno-Installer gebundelt.
+  + das Logo aus `icon.ico` zentriert. Drei Verwendungen:
+  1. Embedded in `kira.exe` / `kira-once.exe` (über `embed_icon.ps1`),
+     so dass Datei-Explorer / Alt-Tab / Taskbar das gelbe Icon zeigen.
+  2. Im Inno-Installer (`installer/kira.iss`) gebundelt + Setup-Icon.
+  3. Als `setWindowIcon(...)` in jedem Qt-Dialog (`AboutDialog`,
+     `SettingsDialog`, `WelcomeDialog`, `SetupHintDialog`) und als
+     `qt_app.setWindowIcon(...)` global in `_run_windows()`. Vorher
+     zeigten die Dialog-Title-Bars das schwarze `icon.ico`, was im
+     Win11-Dark-Title-Bar-Stil als schwarz-auf-dunkelgrau verschwand.
 
 Wenn das Source-Logo getauscht wird (`assets/icon.ico` durch eine andere
 PNG/ICO ersetzen), in dieser Reihenfolge:
