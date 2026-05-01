@@ -16,10 +16,10 @@ import subprocess
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressDialog,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressDialog,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -97,6 +97,8 @@ class SettingsDialog(QDialog):
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumWidth(560)
         self.setModal(True)
+        from kira.ui._dialog_style import apply_light_theme
+        apply_light_theme(self)
 
         self._cfg = load_config()
         self._cfg_path = default_config_path()
@@ -107,12 +109,67 @@ class SettingsDialog(QDialog):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(12)
 
+        outer.addWidget(self._build_header())
         outer.addWidget(self._build_form())
         outer.addWidget(self._build_hint())
         outer.addLayout(self._build_raw_button_row())
         outer.addWidget(self._build_button_box())
 
     # ----- builders ------------------------------------------------------
+
+    def _build_header(self) -> QWidget:
+        # Kira-branded-Icon links (gelber Rounded-Square + 煌), Title mittig,
+        # digitalroots-Logo rechts. Spiegelt das Branding aus den anderen
+        # Dialogen wider, aber etwas kompakter — Settings ist ein Werkzeug-
+        # Dialog, kein Empfangsschirm, also schmaler Header (~52 px).
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 4)
+        row.setSpacing(12)
+
+        kira_label = QLabel()
+        branded = _ASSETS / "icon-branded.ico"
+        if branded.exists():
+            kira_pix = QPixmap(str(branded)).scaled(
+                48, 48,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            kira_label.setPixmap(kira_pix)
+        row.addWidget(kira_label)
+
+        row.addStretch()
+
+        title = QLabel("Kira-Einstellungen")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        row.addWidget(title)
+
+        row.addStretch()
+
+        dr_label = QLabel()
+        dr_logo = _ASSETS / "digitalroots-logo.png"
+        if dr_logo.exists():
+            dr_pix = QPixmap(str(dr_logo)).scaledToHeight(
+                26, Qt.TransformationMode.SmoothTransformation,
+            )
+            dr_label.setPixmap(dr_pix)
+        row.addWidget(dr_label)
+
+        # dünne Trennlinie unter dem Header
+        wrapper = QWidget()
+        wrap = QVBoxLayout(wrapper)
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(8)
+        wrap.addWidget(host)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("color: #d8d8d8;")
+        wrap.addWidget(sep)
+        return wrapper
 
     def _build_form(self) -> QWidget:
         host = QWidget()
