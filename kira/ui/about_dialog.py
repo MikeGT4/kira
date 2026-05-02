@@ -128,7 +128,7 @@ class AboutDialog(QDialog):
             f"<a href='https://github.com/{UPDATE_REPO}'>"
             f"github.com/{UPDATE_REPO}</a>"
             f"<br><span style='color:#888; font-size:11px;'>"
-            f"© 2026 Mike Pollow · DigitalRoots — Personal-Use-Lizenz"
+            f"© 2026 Mike Pollow · digitalroots — Personal-Use-Lizenz"
             f"</span></div>"
         )
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)

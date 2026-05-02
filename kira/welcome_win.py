@@ -1,10 +1,12 @@
 """First-run / setup-hint check: mic permission + Ollama reachability.
 
-The reachability check uses a few retries (instead of a single 2-second
-probe) because WSL2 Ubuntu can take 5-15 s to wake the Ollama service after
-a fresh login, and the previous one-shot probe popped a misleading hint
-on every reboot. The retries also help when Ollama is installed natively
-and its service hasn't fully started yet at login time.
+The reachability check retries with a generous total budget because a
+cold Windows boot races Kira's autostart against WSL2 Ubuntu spinning
+up. On Mike's box (2026-05-02 cold boot) Ollama wasn't reachable until
+~27 s after Kira launched, which is well past the original 12 s budget
+and tripped the SetupHintDialog every reboot even though Ollama was
+about to come up. Probe aborts as soon as Ollama answers, so warm
+restarts pay no penalty.
 
 When something's missing we show a Qt SetupHintDialog (logo + copyright),
 not a Win32 MessageBox.
@@ -21,9 +23,11 @@ from kira.permissions_win import check_all, open_microphone_settings
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434"
-_RETRY_ATTEMPTS = 4
+# 20 × 3 s sleep + 20 × 1.5 s probe = up to ~90 s wall-clock when Ollama
+# is genuinely unreachable. Warm boot returns on the first probe (~50 ms).
+_RETRY_ATTEMPTS = 20
 _RETRY_DELAY_S = 3.0
-_REQUEST_TIMEOUT_S = 2.0
+_REQUEST_TIMEOUT_S = 1.5
 
 
 def _ollama_reachable_once(timeout: float = _REQUEST_TIMEOUT_S) -> bool:

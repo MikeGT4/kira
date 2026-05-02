@@ -63,7 +63,7 @@ foreach ($exe in @("kira.exe", "kira-once.exe")) {
         --set-icon $Icon `
         --set-version-string "FileDescription" "Kira voice-to-text" `
         --set-version-string "ProductName" "Kira" `
-        --set-version-string "CompanyName" "DigitalRoots" `
+        --set-version-string "CompanyName" "digitalroots" `
         --set-version-string "OriginalFilename" $exe
     if ($LASTEXITCODE -ne 0) {
         Write-Error "rcedit failed on $exe"
