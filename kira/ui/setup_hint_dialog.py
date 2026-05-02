@@ -75,7 +75,7 @@ class SetupHintDialog(QDialog):
 
         layout.addStretch()
 
-        legal = QLabel("© 2026 Mike Pollow / DigitalRoots")
+        legal = QLabel("© 2026 Mike Pollow / digitalroots")
         legal_font = QFont()
         legal_font.setPointSize(8)
         legal.setFont(legal_font)
