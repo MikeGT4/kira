@@ -62,20 +62,27 @@ def _ollama_has_model(model: str) -> bool:
         return False
 
 
-def run_if_needed() -> bool:
-    """Show setup-hint dialog when mic or Ollama isn't ready.
+def probe_setup_status() -> tuple[bool, bool]:
+    """UI-free probe of mic permission + Ollama reachability.
 
-    Returns True so startup proceeds in any case — the dialog is
-    informational; the user can fix the issue post-launch and Kira
-    falls back to raw Whisper text if Ollama stays unreachable.
+    Returns ``(mic_ok, ollama_ok)``. Up to ~90 s wall-clock on a cold
+    WSL2 boot (20 retries x 4.5 s). Designed to be called from a
+    background thread so the up-front Ollama wait doesn't block the
+    Qt event loop / tray / hotkey from coming up.
     """
     status = check_all()
-    mic_ok = status.microphone
-    ollama_ok = _ollama_reachable()
+    return status.microphone, _ollama_reachable()
 
+
+def show_setup_hint_if_needed(mic_ok: bool, ollama_ok: bool) -> None:
+    """Show the SetupHintDialog when something's missing.
+
+    MUST run on the Qt main thread — constructs a QDialog and calls
+    .exec(). Cross-thread invocation should go through
+    ``MainThreadMarshal.run_on_main_thread``.
+    """
     if mic_ok and ollama_ok:
-        return True
-
+        return
     log.info("Setup hint: mic_ok=%s ollama_ok=%s", mic_ok, ollama_ok)
     from kira.ui.setup_hint_dialog import SetupHintDialog
 
@@ -85,6 +92,19 @@ def run_if_needed() -> bool:
 
     if dlg.user_clicked_open_mic_settings:
         open_microphone_settings()
+
+
+def run_if_needed() -> bool:
+    """Synchronous probe + dialog — kept for the macOS path.
+
+    Returns True so startup proceeds in any case; the dialog is
+    informational and Kira falls back to raw Whisper text if Ollama
+    stays unreachable. The Windows path now calls
+    ``probe_setup_status`` and ``show_setup_hint_if_needed`` separately
+    so the slow Ollama probe can run off-main and not freeze the splash.
+    """
+    mic_ok, ollama_ok = probe_setup_status()
+    show_setup_hint_if_needed(mic_ok, ollama_ok)
     return True
 
 

@@ -59,7 +59,7 @@ class _KiraPystrayIcon(_PystrayWin32Icon):
             self._message_handlers[msg] = _passthrough(msg)
 
     def _register_class(self):
-        return _ps_win32.RegisterClassEx(_ps_win32.WNDCLASSEX(
+        wndclass = _ps_win32.WNDCLASSEX(
             cbSize=ctypes.sizeof(_ps_win32.WNDCLASSEX),
             style=0,
             lpfnWndProc=_dispatcher,
@@ -72,7 +72,32 @@ class _KiraPystrayIcon(_PystrayWin32Icon):
             lpszMenuName=None,
             lpszClassName=_KIRA_TRAY_CLASS,
             hIconSm=None,
-        ))
+        )
+        atom = _ps_win32.RegisterClassEx(wndclass)
+        if atom == 0:
+            # Class atom from a previous Kira process that died before
+            # _unregister_class() could run (native CUDA crash, audio
+            # callback abort, faulthandler exit). Without recovery, every
+            # subsequent launch leaves the tray-daemon-thread silently
+            # dead — Qt main loop runs, hotkey works, but the user sees
+            # no tray icon and reads it as "Kira hängt beim Hochfahren".
+            # Reboot used to be the only fix.
+            try:
+                ctypes.windll.user32.UnregisterClassW(
+                    _KIRA_TRAY_CLASS, _ps_win32.GetModuleHandle(None),
+                )
+                atom = _ps_win32.RegisterClassEx(wndclass)
+                if atom != 0:
+                    log.info(
+                        "Recovered stale tray window class %r from previous "
+                        "Kira process — registration succeeded on retry",
+                        _KIRA_TRAY_CLASS,
+                    )
+            except Exception:
+                log.exception(
+                    "tray window-class recovery failed (atom=%s)", atom,
+                )
+        return atom
 
 
 def _set_tray_window_title(icon_holder: "KiraTray", timeout_s: float = 5.0) -> None:

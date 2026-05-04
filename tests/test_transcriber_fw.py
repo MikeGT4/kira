@@ -233,6 +233,43 @@ def test_hallucination_match_is_case_insensitive(monkeypatch, fake_config):
     assert result.text == ""
 
 
+def test_warmup_loads_model_eagerly(monkeypatch, fake_config):
+    """warmup() forces _ensure_model() so the first transcribe() doesn't pay
+    the ~5 s CUDA cold-start cost. Without this, kira.log shows a multi-
+    second gap between 'Loading faster-whisper model' and 'Processing audio'
+    on every first F8 after launch."""
+    from kira.transcriber_fw import Transcriber
+
+    load_count = {"n": 0}
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw):
+            load_count["n"] += 1
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    t = Transcriber(fake_config)
+    assert load_count["n"] == 0, "construction must stay lazy"
+    t.warmup()
+    assert load_count["n"] == 1, "warmup must trigger model load"
+    t.warmup()
+    assert load_count["n"] == 1, "second warmup must reuse cached model"
+
+
+def test_warmup_swallows_exceptions(monkeypatch, fake_config):
+    """warmup() runs on a daemon thread at boot — it MUST NOT raise. CUDA
+    OOM, missing model files, GPU driver mid-restart all need to log and
+    return so Kira keeps starting."""
+    from kira.transcriber_fw import Transcriber
+
+    class FailingWhisperModel:
+        def __init__(self, *a, **kw):
+            raise RuntimeError("simulated CUDA OOM during boot")
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FailingWhisperModel)
+    t = Transcriber(fake_config)
+    t.warmup()  # must not raise
+
+
 def test_ensure_model_is_thread_safe(monkeypatch, fake_config):
     """Concurrent calls to transcribe() must construct WhisperModel exactly once."""
     import threading
