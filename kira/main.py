@@ -24,7 +24,12 @@ elif sys.platform == "win32":
     from kira.injector_win import Injector
     from kira.context_win import detect_mode
     from kira.permissions_win import check_all
-    from kira.welcome_win import run_if_needed, ensure_ollama_model
+    from kira.welcome_win import (
+        run_if_needed,
+        ensure_ollama_model,
+        probe_setup_status,
+        show_setup_hint_if_needed,
+    )
     from kira.ui.tray_win import KiraTray as KiraMenubar
     from kira.ui.hud_qt import PopupHUD
     from kira.transcriber_fw import Transcriber
@@ -276,28 +281,22 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
 
     # First-run welcome — only shows once per user. After Loslegen with the
     # 'don't show again' checkbox ticked (default on), %APPDATA%\Kira\.welcomed
-    # is written and subsequent launches skip this entirely. Modal so the
-    # tray icon and hotkey don't spin up before the user has read it.
+    # is written and subsequent launches skip this entirely. Modal but local-
+    # only (no network), so it doesn't risk freezing the splash for minutes.
     from kira.ui.welcome_dialog import WelcomeDialog, is_first_run
     if is_first_run():
         log.info("First run detected — showing welcome dialog")
         run_modal = getattr(WelcomeDialog(), "exec")
         run_modal()
 
-    # Setup hint (mic + Ollama). Runs after Qt is up so the dialog uses the
-    # digital-roots logo instead of a Win32 MessageBox. Blocks up to ~12 s
-    # while retrying the Ollama probe — covers WSL2 cold-boot races and
-    # native-Ollama services that haven't fully started at login.
-    try:
-        if not run_if_needed():
-            log.warning("Setup incomplete; some features may not work")
-        if not ensure_ollama_model(cfg.styler.model):
-            log.warning(
-                "Ollama model %s not ready — polish will fall back to raw",
-                cfg.styler.model,
-            )
-    except Exception:
-        log.exception("welcome check failed; continuing")
+    # Setup-Hint (mic + Ollama) MOVED to a background thread further down.
+    # Old flow: synchronous _ollama_reachable() blocked the main thread for
+    # up to 90 s on a cold WSL2 boot (20 retries x 4.5 s), the splash froze
+    # ("Reagiert nicht" in Win11), and tray + hotkey didn't come up until
+    # after the probe finished. Mike's 2026-05-04 cold-boot session reproduced
+    # this exactly: 60 s heartbeat then nothing, killed by user. New flow
+    # starts tray + hotkey FIRST, then probes in the background and
+    # surfaces the dialog via qt_marshal if anything's missing.
 
     popup = PopupHUD() if cfg.ui.popup else None
 
@@ -361,6 +360,18 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     if cfg.styler.provider == "ollama" and cfg.styler.warmup_on_start:
         asyncio.run_coroutine_threadsafe(styler.warmup(), loop)
 
+    # Whisper sister-warmup: WhisperModel(...) on CUDA pays a ~5 s cold-
+    # start cost (cuBLAS init + cuDNN load + float16 weights to VRAM) on
+    # the first transcribe() call. Without this thread the user's first
+    # F8 after launch freezes the audio stream for 5 s — visible in
+    # kira.log as a multi-second gap between "Loading faster-whisper
+    # model" and "Processing audio". Threading.Thread (not asyncio
+    # executor) because the model load is CPU/GPU-bound, not IO-bound.
+    threading.Thread(
+        target=transcriber.warmup,
+        daemon=True, name="kira-whisper-warmup",
+    ).start()
+
     # cfg.hotkey.combo may default to the Mac "fn" key — effective_hotkey
     # maps that to F8 on Windows so listener + UI agree on one string.
     from kira.config import effective_hotkey
@@ -379,6 +390,32 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         splash.close()
 
     log.info("Kira ready — hotkey %s (Windows)", combo)
+
+    # Setup probe (mic permission + Ollama reachability + model presence)
+    # runs in the background AFTER tray/hotkey are live. The previous
+    # synchronous version blocked the main thread for up to 90 s on cold
+    # WSL2 boots, freezing the splash and delaying F8 readiness. The
+    # SetupHintDialog is marshalled onto the Qt main thread because it
+    # constructs QWidgets, which Qt asserts must happen on the GUI thread.
+    def _check_setup() -> None:
+        try:
+            mic_ok, ollama_ok = probe_setup_status()
+            if not (mic_ok and ollama_ok):
+                qt_marshal.run_on_main_thread(
+                    lambda: show_setup_hint_if_needed(mic_ok, ollama_ok)
+                )
+            if ollama_ok and not ensure_ollama_model(cfg.styler.model):
+                log.warning(
+                    "Ollama model %s not ready — polish will fall back to raw",
+                    cfg.styler.model,
+                )
+        except Exception:
+            log.exception("background setup check failed; continuing")
+
+    threading.Thread(
+        target=_check_setup, daemon=True, name="kira-setup-check",
+    ).start()
+
     # Enter Qt event loop (blocks main thread until quit).
     # Indirect getattr form sidesteps the repo-level security hook.
     _qt_main = getattr(qt_app, "exec")

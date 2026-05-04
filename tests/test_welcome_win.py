@@ -60,6 +60,42 @@ def test_ollama_reachable_handles_timeout_error():
         assert welcome_win._ollama_reachable(attempts=2, delay=0.0) is False
 
 
+def test_probe_setup_status_returns_pure_tuple(monkeypatch):
+    """probe_setup_status must return (mic_ok, ollama_ok) without touching UI.
+
+    This separation is what lets the Windows boot path run the slow Ollama
+    probe in a daemon thread instead of blocking the Qt event loop. If
+    anything in this function spawned a QDialog or other Qt object, the
+    background-thread call from main.py would crash with a 'QObject must
+    be created on the GUI thread' assertion.
+    """
+    fake_status = MagicMock()
+    fake_status.microphone = True
+    with patch.object(welcome_win, "check_all", return_value=fake_status), \
+            patch.object(welcome_win, "_ollama_reachable", return_value=True):
+        result = welcome_win.probe_setup_status()
+    assert result == (True, True)
+
+
+def test_probe_setup_status_propagates_failures(monkeypatch):
+    fake_status = MagicMock()
+    fake_status.microphone = False
+    with patch.object(welcome_win, "check_all", return_value=fake_status), \
+            patch.object(welcome_win, "_ollama_reachable", return_value=False):
+        result = welcome_win.probe_setup_status()
+    assert result == (False, False)
+
+
+def test_show_setup_hint_skips_when_all_ok():
+    """When mic + Ollama are healthy (the warm-boot path), no dialog at all.
+
+    Mike's ~9 out of 10 boots now hit this path silently — the dialog used
+    to fire when the synchronous probe gave up after 12 s while WSL2 was
+    still spinning up Ollama (~27 s on his box).
+    """
+    welcome_win.show_setup_hint_if_needed(mic_ok=True, ollama_ok=True)
+
+
 def test_module_source_is_neutral_about_install_source():
     """Kira works with both native-Windows Ollama and WSL-hosted Ollama.
 

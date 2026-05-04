@@ -131,6 +131,31 @@ class Transcriber:
                 )
             return self._model
 
+    def warmup(self) -> None:
+        """Pre-load the Whisper model so the first F8 doesn't pay cold-start.
+
+        Without this the first transcribe() call after launch synchronously
+        loads CTranslate2 + cuBLAS + cuDNN DLLs and the float16 weights onto
+        CUDA — about 5 s on Mike's box (visible in kira.log as the gap
+        between "Loading faster-whisper model" and "Processing audio").
+
+        Safe from any thread: _ensure_model() takes _model_lock and CUDA
+        contexts in CTranslate2 are managed internally, not bound to the
+        caller thread. The asyncio loop's first transcribe call later
+        will reuse the already-loaded model.
+        """
+        try:
+            self._ensure_model()
+            log.info(
+                "Transcriber warmup complete (model=%s)", self._model_name,
+            )
+        except Exception:
+            log.warning(
+                "Transcriber warmup failed — first F8 will pay the "
+                "cold-start cost. Non-fatal.",
+                exc_info=True,
+            )
+
     def transcribe(self, audio: np.ndarray) -> TranscriptionResult:
         if audio.size == 0:
             return TranscriptionResult(text="", language="")
