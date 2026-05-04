@@ -123,21 +123,55 @@ The pre-Qt single-instance `MessageBoxW` in `kira/main.py` is
 intentionally NOT routed through `_dialog_style` — it fires before any
 QApplication exists, so we have nothing to render through.
 
-## Ollama warmup & keep_alive
+## Boot sequence + parallel warmup
 
-Two related mechanisms keep first-press latency near zero:
+`_run_windows()` in `kira/main.py` is structured so the tray + hotkey
+come up in <1 s, then the slow checks race in the background:
 
-- `StylerConfig.keep_alive` (default `"24h"`) is passed to every
-  `ollama.chat()` call. Ollama's own default is 5 min, after which
-  the model is unloaded and the next request pays the cold-start
-  cost again.
-- `StylerConfig.warmup_on_start` (default `True`) schedules
-  `Styler.warmup()` on the asyncio loop at app boot — a 1-token chat
-  that forces Ollama to load the model before the user's first F8.
+1. Splash + first-run welcome (local-only, fast)
+2. KiraTray construction + asyncio loop thread
+3. **Background warmups in parallel:**
+   - `styler.warmup()` on the asyncio loop (1-token Ollama chat,
+     forces gemma3:12b into VRAM, ~7 s)
+   - `transcriber.warmup()` on a daemon thread (CTranslate2 +
+     cuBLAS + cuDNN load, float16 weights to VRAM, ~5 s)
+4. `hotkey.start()` + `tray.run_detached()` — F8 is now armed
+5. `splash.close()` and the Qt event loop starts
+6. **Background setup probe** (mic permission + Ollama reachability +
+   model presence) on its own daemon thread; if anything's missing,
+   the SetupHintDialog is marshalled onto the Qt main thread via
+   `MainThreadMarshal.run_on_main_thread`
 
-Both are configurable via `config.yaml`; set `warmup_on_start: false`
-on a low-VRAM box if you'd rather pay first-press latency than hold
-the model resident.
+Old flow before 2026-05-04 ran step 6 synchronously (modal block on
+the main thread BEFORE step 4). On a cold WSL2 boot
+`_ollama_reachable()` needed up to 90 s of retries — splash froze
+("Reagiert nicht" in Win11), tray + hotkey didn't appear, and Mike
+killed the process thinking it was stuck. Symptom in `kira.log`:
+`Starting Kira` then `Recorder pinned`, then a 60 s `heartbeat` with
+no `HotkeyListener running` in between. The fix is purely sequencing —
+`_ollama_reachable` itself keeps the long retry budget for the
+rare-but-real case where Ollama genuinely takes ~30 s on a cold boot.
+
+**Whisper had no warmup before this change.**
+`Transcriber._ensure_model()` loads lazily inside the asyncio loop's
+first `transcribe()` call — visible in `kira.log` as a multi-second
+gap between `Loading faster-whisper model` and `Processing audio`.
+Without `warmup()` running at boot, every first F8 after launch ate
+that ~5 s. CUDA contexts in CTranslate2 are managed internally (not
+bound to the calling thread), so loading on a daemon thread and
+reusing from the asyncio loop is safe.
+
+### Ollama keep_alive
+
+`StylerConfig.keep_alive` (default `"24h"`) is passed to every
+`ollama.chat()` call. Ollama's own default is 5 min, after which
+the model is unloaded and the next request pays cold-start again.
+Combined with `Styler.warmup()` this keeps gemma3:12b resident from
+boot to quit.
+
+`StylerConfig.warmup_on_start` (default `True`) gates the boot-time
+warmup. Set to `false` in `config.yaml` on a low-VRAM box if you'd
+rather pay first-press latency than hold the model resident.
 
 ## Restart workflow (editable install)
 
@@ -314,10 +348,16 @@ ctypes.windll.user32.GetWindowTextW(hwnd, buf, 64)
 print(hex(hwnd), buf.value)  # → 0x... 'Kira'
 ```
 
-If the class atom is left registered after a crash (Kira didn't reach
-`_unregister_class`), the next launch's `RegisterClassEx` returns 0 and
-the tray fails to start. Reboot fixes it; or `UnregisterClassW` from
-the old process context.
+If the class atom is left registered after a native crash (Kira
+didn't reach `_unregister_class`), the next launch's
+`RegisterClassEx` returns 0 and pystray's daemon thread silently
+dies — Qt main loop runs, hotkey works, but no tray icon ever
+appears. From the user's side this looks like "Boot hängt komplett"
+because they're waiting for the tray indicator. `_register_class`
+recovers automatically: on `RegisterClassEx == 0` it calls
+`UnregisterClassW(_KIRA_TRAY_CLASS, hInstance)` and retries once,
+logging `Recovered stale tray window class …`. Reboot is no longer
+required.
 
 The tray menu's `Einstellungen…` entry is marked `default=True` so
 left- and double-click on the tray icon open Settings directly instead
@@ -363,16 +403,59 @@ The Windows venv was created with this fallback form.
 
 The Windows installer (`installer/kira.iss`, Inno Setup 6) bundles an
 embedded Python 3.12, pinned wheels, the Whisper model files, the
-Ollama setup, and a Gemma model — total ~13 GB compressed across one
-2 MB stub + several `.bin` splits (Inno DiskSpanning).
+Ollama setup, and a Gemma model — total ~13 GB compressed as one
+2 MB `.exe` stub + 7 `.bin` splits (Inno DiskSpanning,
+`DiskSliceSize=2147483647` → 1.998 GiB per slice).
 
 Build orchestrator: `scripts/build_installer.ps1`. Pre-flights for
-Inno Setup, WSL Ollama, and the local Whisper model. Output lands in
-`%USERPROFILE%\OneDrive\Desktop\Kira\`.
+Inno Setup, WSL Ollama, and the local Whisper model. Build output
+currently lands in `C:\Users\mike\OneDrive\Digitalroots\Kira\` (the
+script's hardcoded `$OutputDir` says `Desktop\Kira` — Mike moves the
+files manually after the build for OneDrive sync; if that gets
+automated, fix the script and this note).
 
-GitHub release-asset limit is 2 GB per file vs. 8 split files —
-distribute the bundle via OneDrive / direct share, not GitHub Releases,
-until `kira.updater` learns manifest-based multi-asset pulls.
+### Distribution via GitHub Releases (since v0.1.0)
+
+GitHub's per-asset limit is 2 GiB and Inno's 1.998 GiB slices fit
+under it with ~0.002 GiB to spare. The whole bundle goes up as 8
+release assets, the user downloads them all into the same folder
+and double-clicks the `.exe` — Inno picks up the splits by name.
+
+```bash
+# from the WSL shell with `gh` authenticated as MikeGT4:
+gh release create v0.1.0 \
+  --title "Kira v0.1.0 — Windows 11 Installer" \
+  --notes-file <release-notes.md> \
+  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.1.0.exe \
+  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.1.0-{1..7}.bin
+```
+
+Tag-Strategie: tags point at the source commit that matched the
+build, NOT always at HEAD. v0.1.0 → `c7f6748` (initial release
+commit, Apr 29) because the bundle was actually built from a
+pre-Git snapshot earlier that day. Subsequent fixes on
+`windows-port` HEAD (boot-hang, USB hot-unplug, branded icons)
+will land in v0.1.1 as a rebuilt bundle. Make this explicit in
+the release notes so users know what's *not* in the binary they
+just downloaded.
+
+Upload speed observed on Mike's box: ~1.3 MB/s over 60 min for the
+full ~13 GB. `gh release create` parallelises asset uploads; the
+GitHub API only lists assets after their individual upload finishes,
+so don't read "1 of 8 visible after 30 min" as "stuck" — it's just
+that one asset crossed the line first while the others race.
+
+### Why GitHub Releases instead of the old OneDrive share
+
+The previous `2 GB per file` reading of GitHub's limit was wrong —
+the actual limit is `2 GiB` and Inno already produces sub-GiB slices.
+With GitHub-hosted assets the user clicks one URL, gets bandwidth
+quota that doesn't depend on Mike's home upload, and there's a
+canonical install instruction in the release notes (no Slack/Email
+back-and-forth). `kira.updater`'s manifest-based multi-asset pull
+is still on the v0.2 roadmap; until it lands, the in-app
+"Updates suchen…" entry stays a hint dialog (see
+`KiraTray._show_update_hint`).
 
 ## License
 
