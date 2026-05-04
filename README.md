@@ -22,13 +22,18 @@ Voice-to-text tray app for **Windows 11** with NVIDIA GPU. Hold a hotkey, speak,
 
 ## End-user install
 
-Download the latest `Kira-Setup-vX.Y.Z.exe` from the distribution share (the bundle is split across 8 × 2 GB files, exceeds GitHub's release-asset limit, so it lives outside the repo).
+Download von der [Releases-Seite](https://github.com/MikeGT4/kira/releases/latest):
 
-1. Doppelklick auf die `.exe`.
-2. Falls Windows Defender SmartScreen warnt: „Weitere Informationen" → „Trotzdem ausführen". (Kira ist nicht code-signed.)
-3. Wizard durchklicken (Welcome → Lizenz → Pfad → Optionen → Installieren → Fertig).
-4. Nach „Fertig" startet Kira automatisch in der Tray-Leiste — gelb-orangenes Icon mit dem Kira-Logo.
-5. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
+1. **Alle 8 Assets** in **denselben** Ordner herunterladen (~13 GB, leerer Ordner mit 25 GB freiem Speicher empfohlen):
+   - `Kira-Setup-v0.1.0.exe` (Setup-Wizard, 2 MB)
+   - `Kira-Setup-v0.1.0-1.bin` … `-7.bin` (sieben 2 GB-Splits, Inno Setup verlangt sie alle nebeneinander)
+2. Doppelklick auf die `.exe`. Inno findet die `.bin`-Slices automatisch.
+3. Falls Windows Defender SmartScreen warnt: „Weitere Informationen" → „Trotzdem ausführen". (Kira ist nicht code-signed.)
+4. Wizard durchklicken (Welcome → Lizenz → Pfad → Optionen → Installieren → Fertig).
+5. Nach „Fertig" startet Kira automatisch in der Tray-Leiste — gelb-orangenes Icon mit dem Kira-Logo.
+6. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
+
+> **Tipp:** Auf der Release-Seite sieht „Assets" zusammengeklappt aus — auf den Pfeil klicken, dann siehst du alle 8 Files. Nicht nur die `.exe` ziehen, sonst meldet der Wizard „Disk slice not found" nach den ersten paar MB.
 
 ### Voraussetzungen
 
