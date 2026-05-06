@@ -254,6 +254,16 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     """Windows: Qt owns the main loop, pystray runs in a daemon thread."""
     _set_windows_app_identity()
 
+    # WSL2 doesn't auto-start at Win-login. On boxes where the polish
+    # backend lives in WSL (Mike's setup), autostart races WSL2 cold-boot
+    # every reboot — the setup probe times out at 90 s and the
+    # SetupHintDialog used to fire every morning. Fire wsl.exe non-
+    # blocking now so WSL spins up in parallel with Kira's own splash
+    # + tray init; by the time _check_setup probes (~5 s later) Ollama
+    # is usually reachable. No-op on boxes without WSL installed.
+    from kira._wsl_warmup import kick_wsl_distro
+    kick_wsl_distro()
+
     from PyQt6.QtCore import QTimer
     from PyQt6.QtGui import QIcon
     from PyQt6.QtWidgets import QApplication
@@ -399,16 +409,42 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     # constructs QWidgets, which Qt asserts must happen on the GUI thread.
     def _check_setup() -> None:
         try:
+            from kira.welcome_win import _ollama_reachable_once
             mic_ok, ollama_ok = probe_setup_status()
-            if not (mic_ok and ollama_ok):
+            # Mic-permission failures need user action — always surface.
+            # Ollama-only failures are handled silently below.
+            if not mic_ok:
                 qt_marshal.run_on_main_thread(
                     lambda: show_setup_hint_if_needed(mic_ok, ollama_ok)
                 )
-            if ollama_ok and not ensure_ollama_model(cfg.styler.model):
-                log.warning(
-                    "Ollama model %s not ready — polish will fall back to raw",
-                    cfg.styler.model,
-                )
+            if ollama_ok:
+                if not ensure_ollama_model(cfg.styler.model):
+                    log.warning(
+                        "Ollama model %s not ready — polish will fall back to raw",
+                        cfg.styler.model,
+                    )
+                return
+            # Initial 90 s probe missed Ollama — keep polling quietly so
+            # we can pre-load the model when the backend (e.g. WSL2 +
+            # ollama.service) eventually finishes coming up. No dialog:
+            # polish falls back to raw Whisper text on errors, and the
+            # dialog at every cold boot would only nag.
+            log.info(
+                "Ollama unreachable in initial probe; background re-probe started"
+            )
+            for i in range(20):  # 20 × 30 s = 10 min total
+                time.sleep(30)
+                if _ollama_reachable_once():
+                    log.info("Ollama reachable on retry #%d", i + 1)
+                    if not ensure_ollama_model(cfg.styler.model):
+                        log.warning(
+                            "Ollama model %s not ready — polish will fall back to raw",
+                            cfg.styler.model,
+                        )
+                    return
+            log.info(
+                "Ollama still unreachable after 10 min; polish will use raw fallback"
+            )
         except Exception:
             log.exception("background setup check failed; continuing")
 

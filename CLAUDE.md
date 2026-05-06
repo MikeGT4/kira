@@ -137,20 +137,46 @@ come up in <1 s, then the slow checks race in the background:
      cuBLAS + cuDNN load, float16 weights to VRAM, ~5 s)
 4. `hotkey.start()` + `tray.run_detached()` — F8 is now armed
 5. `splash.close()` and the Qt event loop starts
-6. **Background setup probe** (mic permission + Ollama reachability +
-   model presence) on its own daemon thread; if anything's missing,
-   the SetupHintDialog is marshalled onto the Qt main thread via
-   `MainThreadMarshal.run_on_main_thread`
+6. **WSL2 warm-up kick** (`kira/_wsl_warmup.py::kick_wsl_distro`) —
+   non-blocking `wsl.exe --exec /bin/true`. Forces the WSL2 VM to boot
+   in parallel with the rest of Kira's init so backend services
+   (e.g. systemd-managed `ollama.service` on Mike's box) come up in
+   time for the setup probe. No-op on boxes without WSL installed
+   (FileNotFoundError swallowed).
+7. **Background setup probe** (mic permission + Ollama reachability +
+   model presence) on its own daemon thread.
+   - **Mic missing** → SetupHintDialog marshalled onto the Qt main
+     thread via `MainThreadMarshal.run_on_main_thread`.
+   - **Ollama missing (mic OK)** → no dialog. Polish falls back to
+     raw Whisper text on errors anyway, and re-firing the dialog at
+     every cold boot only nags. Instead, the daemon keeps probing
+     every 30 s for 10 min so `ensure_ollama_model` runs once the
+     backend finishes booting.
+   - **Both missing** → SetupHintDialog (mic forces user action, so
+     surface both items at once).
 
-Old flow before 2026-05-04 ran step 6 synchronously (modal block on
+Old flow before 2026-05-04 ran step 7 synchronously (modal block on
 the main thread BEFORE step 4). On a cold WSL2 boot
 `_ollama_reachable()` needed up to 90 s of retries — splash froze
 ("Reagiert nicht" in Win11), tray + hotkey didn't appear, and Mike
 killed the process thinking it was stuck. Symptom in `kira.log`:
 `Starting Kira` then `Recorder pinned`, then a 60 s `heartbeat` with
-no `HotkeyListener running` in between. The fix is purely sequencing —
-`_ollama_reachable` itself keeps the long retry budget for the
-rare-but-real case where Ollama genuinely takes ~30 s on a cold boot.
+no `HotkeyListener running` in between. The fix was purely sequencing —
+move the probe to the background. `_ollama_reachable` itself keeps
+the long retry budget for the rare case where Ollama is slower than
+the WSL kick can pre-empt.
+
+The follow-up on 2026-05-06 added the `kick_wsl_distro()` step + the
+mic-only dialog policy: WSL2 doesn't auto-start at Win-login, so
+Kira's autostart raced WSL2 cold-boot every reboot — the 90 s probe
+budget timed out and the SetupHintDialog fired every morning even
+though Ollama was about to come up minutes later (visible in
+`kira.log` as `Setup hint: mic_ok=True ollama_ok=False` followed by
+a successful `HTTP 200 OK` on the user's first F8 ~30 min later).
+Pre-pinging WSL closes the race for the warm path; the dialog
+suppression is defense-in-depth for the rare case where the kick
+doesn't help (genuinely-broken Ollama, the user reads the
+forensic log line anyway).
 
 **Whisper had no warmup before this change.**
 `Transcriber._ensure_model()` loads lazily inside the asyncio loop's

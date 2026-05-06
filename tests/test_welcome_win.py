@@ -87,13 +87,44 @@ def test_probe_setup_status_propagates_failures(monkeypatch):
 
 
 def test_show_setup_hint_skips_when_all_ok():
-    """When mic + Ollama are healthy (the warm-boot path), no dialog at all.
+    """When mic + Ollama are healthy (the warm-boot path), no dialog at all."""
+    with patch("kira.ui.setup_hint_dialog.SetupHintDialog") as Dlg:
+        welcome_win.show_setup_hint_if_needed(mic_ok=True, ollama_ok=True)
+    Dlg.assert_not_called()
 
-    Mike's ~9 out of 10 boots now hit this path silently — the dialog used
-    to fire when the synchronous probe gave up after 12 s while WSL2 was
-    still spinning up Ollama (~27 s on his box).
+
+def test_show_setup_hint_suppresses_ollama_only_failure():
+    """When only Ollama is missing (mic OK), no dialog.
+
+    The polish backend's cold-start race (autostart hits before the
+    backend service is ready) was tripping the dialog at every reboot
+    even though Ollama was about to come up on its own. Polish falls
+    back to raw Whisper text on errors, so the dialog would only nag
+    without fixing anything; main.py keeps probing in the background
+    so the model still gets pre-loaded once Ollama is reachable.
     """
-    welcome_win.show_setup_hint_if_needed(mic_ok=True, ollama_ok=True)
+    with patch("kira.ui.setup_hint_dialog.SetupHintDialog") as Dlg:
+        welcome_win.show_setup_hint_if_needed(mic_ok=True, ollama_ok=False)
+    Dlg.assert_not_called()
+
+
+def test_show_setup_hint_dialogs_when_mic_missing():
+    """Mic-permission failures need user action — dialog must surface."""
+    with patch("kira.ui.setup_hint_dialog.SetupHintDialog") as Dlg, \
+            patch.object(welcome_win, "open_microphone_settings"):
+        Dlg.return_value.user_clicked_open_mic_settings = False
+        welcome_win.show_setup_hint_if_needed(mic_ok=False, ollama_ok=True)
+    Dlg.assert_called_once_with(mic_ok=False, ollama_ok=True)
+
+
+def test_show_setup_hint_dialogs_when_both_missing():
+    """If mic AND Ollama are missing, the user has to fix mic anyway —
+    surface the dialog so they see both items at once."""
+    with patch("kira.ui.setup_hint_dialog.SetupHintDialog") as Dlg, \
+            patch.object(welcome_win, "open_microphone_settings"):
+        Dlg.return_value.user_clicked_open_mic_settings = False
+        welcome_win.show_setup_hint_if_needed(mic_ok=False, ollama_ok=False)
+    Dlg.assert_called_once_with(mic_ok=False, ollama_ok=False)
 
 
 def test_module_source_is_neutral_about_install_source():
