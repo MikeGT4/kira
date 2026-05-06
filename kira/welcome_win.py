@@ -78,10 +78,24 @@ def show_setup_hint_if_needed(mic_ok: bool, ollama_ok: bool) -> None:
     """Show the SetupHintDialog when something's missing.
 
     MUST run on the Qt main thread — constructs a QDialog and calls
-    .exec(). Cross-thread invocation should go through
+    its modal entry. Cross-thread invocation should go through
     ``MainThreadMarshal.run_on_main_thread``.
+
+    Mic-permission failures need real user action — the dialog always
+    surfaces. Ollama-only failures (mic OK, Ollama unreachable) are
+    usually a transient backend cold-start race, and the styler falls
+    back to raw Whisper text on errors, so the dialog would only nag
+    without fixing anything. main.py keeps probing in the background
+    so the polish model still gets pre-loaded once Ollama eventually
+    comes up.
     """
     if mic_ok and ollama_ok:
+        return
+    if mic_ok and not ollama_ok:
+        log.info(
+            "Setup hint suppressed: mic_ok=True, ollama_ok=False "
+            "(backend likely still booting; polish will fall back to raw)"
+        )
         return
     log.info("Setup hint: mic_ok=%s ollama_ok=%s", mic_ok, ollama_ok)
     from kira.ui.setup_hint_dialog import SetupHintDialog
