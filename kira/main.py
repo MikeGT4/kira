@@ -283,16 +283,36 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     else:
         log.warning("icon not found at %s — taskbar will use default", _ICON_PATH)
 
-    # Boot splash with the digital-roots logo — closed once the tray is up.
-    # Closes before Qt's main event loop starts so the splash doesn't linger.
+    # Boot splash with the digital-roots logo — sequentiell vor dem Welcome.
+    # Vorher liefen Splash + Welcome PARALLEL: Splash (frameless, OnTop)
+    # und Welcome (modal) ueberlagerten sich auf 4K-Displays haesslich,
+    # User klickte Splash weg (kein Effekt -> Welcome blieb sichtbar mit
+    # Splash dahinter) oder Welcome weg (Splash-Pixmap erschien drunter
+    # und sah aus wie ein zweites Welcome). Mike's Bug-Report:
+    # "willkommensscreen war immer sofort weg" + "kam beim Wegklicken
+    # wieder" — beides Folge dieses Layer-Konflikts.
+    # Fix: Splash 2 Sek allein zeigen, dann schliessen, DANN Welcome.
     from kira.ui.splash import make_splash
     splash = make_splash()
-    qt_app.processEvents()  # paint the splash before any blocking init
+    if splash is not None:
+        from PyQt6.QtCore import QElapsedTimer
+        timer = QElapsedTimer()
+        timer.start()
+        # processEvents-Loop fuer 2 s — splash bleibt sichtbar, Qt kann
+        # paint/repaint events verarbeiten. time.sleep waere blockierender,
+        # der Splash wuerde nicht repaintet beim Maus-Hovering darueber.
+        while timer.elapsed() < 2000:
+            qt_app.processEvents()
+            time.sleep(0.05)
+        splash.close()
+        qt_app.processEvents()
+        splash = None  # damit der spaetere splash.close()-Block no-op ist
 
-    # First-run welcome — only shows once per user. After Loslegen with the
-    # 'don't show again' checkbox ticked (default on), %APPDATA%\Kira\.welcomed
-    # is written and subsequent launches skip this entirely. Modal but local-
-    # only (no network), so it doesn't risk freezing the splash for minutes.
+    # First-run welcome — only shows once per user-version. After Loslegen
+    # with the 'don't show again' checkbox ticked (default on),
+    # %APPDATA%\Kira\.welcomed wird mit __version__ geschrieben.
+    # is_first_run() vergleicht Marker-Version vs current — bei Major/
+    # Minor-Update zeigt sich der Dialog erneut ("Was ist neu").
     from kira.ui.welcome_dialog import WelcomeDialog, is_first_run
     if is_first_run():
         log.info("First run detected — showing welcome dialog")

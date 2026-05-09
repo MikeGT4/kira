@@ -116,14 +116,17 @@ Polish-Prompts. Eingebaute Modi:
 (Filler-Filter only),
 <code>translate_en</code> (Deutsch→Englisch),
 <code>email_formal</code> (Sie-Form, Praxis-Stil).</p>
-<p>Eigennamen werden oft falsch transkribiert (z.B. „im Mediku" statt
-„im medicum"). In Settings → „Rohconfig oeffnen..." kannst du eine
-Replacement-Map setzen:</p>
+<p>Eigennamen, Markennamen und Fachbegriffe werden oft falsch transkribiert
+(„what's app" statt „WhatsApp", „chat g pt" statt „ChatGPT",
+„java skript" statt „JavaScript"). In Settings →
+„Rohconfig oeffnen..." kannst du eine Replacement-Map setzen, die
+Whisper-Output VOR dem Polish korrigiert:</p>
 <pre style='background:#f4f4f4; padding:8px; border-radius:4px; font-size:10px;'>
 whisper:
   replacements:
-    "im mediku": "im medicum"
-    "frau schmid": "Frau Schmidt"
+    "what's app": "WhatsApp"
+    "chat g pt": "ChatGPT"
+    "java skript": "JavaScript"
 </pre>
 
 <h3>5. Updates</h3>
@@ -220,9 +223,34 @@ class WelcomeDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setWidget(body_widget)
+        # Scrollbar IMMER zeigen — Default ist AsNeeded, aber der Win11-
+        # Default-Scrollbar ist hellgrau auf hellem Card-BG quasi
+        # unsichtbar. AlwaysOn + explicit QScrollBar-Stylesheet macht
+        # ihn klar erkennbar (12 px breit, dunkler Handle).
+        scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn,
+        )
         scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; } "
+            "QScrollArea { background: transparent; border: none; }"
             "QLabel { padding: 0 4px; }"
+            "QScrollBar:vertical {"
+            "  background: #f0f0f0;"
+            "  width: 12px;"
+            "  margin: 0;"
+            "  border: 1px solid #d8d8d8;"
+            "  border-radius: 6px;"
+            "}"
+            "QScrollBar::handle:vertical {"
+            "  background: #b0b0b0;"
+            "  min-height: 30px;"
+            "  border-radius: 5px;"
+            "}"
+            "QScrollBar::handle:vertical:hover {"
+            "  background: #909090;"
+            "}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0;"
+            "}"
         )
         layout.addWidget(scroll, stretch=1)
 
