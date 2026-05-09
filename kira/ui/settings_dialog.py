@@ -455,11 +455,11 @@ class SettingsDialog(QDialog):
         repo_lbl.setStyleSheet("font-size: 11px;")
         card.add_row("Quelle", repo_lbl)
 
-        # Anleitung + Update als zwei Buttons rechts in einer Row.
-        # Anleitung oeffnet WelcomeDialog im as_help-Modus (kein Marker-
-        # Write, "Schliessen" statt "Loslegen"). Update-Button: Multi-
-        # Asset-Bundle-Pull mit SHA256-Verify (wenn SHA256SUMS.txt im
-        # Release ist). Auto-Quit nach Setup-Launch via QApplication.quit().
+        # Drei Buttons rechts in einer Row: Anleitung / GPU pruefen /
+        # Updates suchen. Anleitung oeffnet WelcomeDialog im as_help-Modus.
+        # GPU-Check schaetzt VRAM-Bedarf von aktuellem Whisper + Polish
+        # gegen die installierte Karte. Update-Button: Multi-Asset-Bundle-
+        # Pull mit SHA256-Verify; Auto-Quit nach Setup-Launch.
         button_row = QHBoxLayout()
         button_row.addStretch()
         help_btn = QPushButton("Anleitung...")
@@ -469,6 +469,14 @@ class SettingsDialog(QDialog):
         )
         help_btn.clicked.connect(self._open_help_from_settings)
         button_row.addWidget(help_btn)
+        gpu_btn = QPushButton("GPU pruefen")
+        gpu_btn.setToolTip(
+            "Pruef ob die installierte GPU genug VRAM hat fuer Whisper\n"
+            "+ aktuelles Polish-LLM. Zeigt Karten-Name, VRAM-Total,\n"
+            "geschaetzten Bedarf und Headroom-Reserve."
+        )
+        gpu_btn.clicked.connect(self._run_gpu_check)
+        button_row.addWidget(gpu_btn)
         update_btn = QPushButton("Updates suchen...")
         update_btn.setToolTip(
             "Holt die neueste Version von github.com/MikeGT4/kira,\n"
@@ -512,6 +520,31 @@ class SettingsDialog(QDialog):
         dlg = WelcomeDialog(as_help=True)
         dlg.setParent(self, dlg.windowFlags())
         getattr(dlg, "exec")()
+
+    def _run_gpu_check(self) -> None:
+        """Schaetz VRAM-Bedarf von aktuellem Whisper + Polish-Modell gegen
+        die installierte Karte. Status (ok/tight/insufficient/no_gpu)
+        bestimmt Dialog-Severity (info/warning/critical/warning).
+
+        Whisper-Model + Polish-Model werden aus den AKTUELLEN Form-Werten
+        gelesen (nicht vom geladenen self._cfg) — so kann der User in der
+        Settings-UI ein anderes Polish-Modell tippen und sofort den Check
+        gegen DAS Modell laufen lassen."""
+        from kira.gpu_check import assess
+        polish_text = self._styler_model.text().strip() or self._cfg.styler.model
+        result = assess(
+            whisper_model=self._cfg.whisper.model,
+            polish_model=polish_text,
+        )
+        title = "Kira - GPU-Check"
+        if result.status == "ok":
+            light_information(self, title, result.message)
+        elif result.status == "tight":
+            light_warning(self, title, result.message)
+        elif result.status == "insufficient":
+            light_critical(self, title, result.message)
+        else:  # no_gpu
+            light_warning(self, title, result.message)
 
     def _build_hint(self) -> QLabel:
         hint = QLabel(
