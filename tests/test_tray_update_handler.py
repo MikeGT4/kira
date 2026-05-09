@@ -1,16 +1,14 @@
 """Tests for KiraTray._check_for_updates handler.
 
-The in-app updater is intentionally disabled in v0.1.x because the installer
-ships as a multi-file Inno bundle (1 stub + 7 .bin splits) and kira.updater
-only knows single-asset pulls — wiring it up would download a useless 2 MB
-stub and produce a broken install. The handler now shows an informational
-hint until v0.2 lands manifest-based multi-asset updates with signature
-verification. Tests here only assert the no-op + hint behaviour; the
-update-check logic itself is covered by test_updater.py.
+v0.2: ehemaliger Hint-Pfad ersetzt durch echten Update-Workflow.
+Der Tray-Handler routet via _marshal_to_qt zur Qt-Mainthread und
+ruft dort run_update_flow aus _update_runner. Diese Tests pruefen
+nur die Tray-Wireup-Logik; der eigentliche Workflow (download,
+verify, launch) lebt in test_updater.py + ggf. UI-tests.
 """
 from __future__ import annotations
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -27,38 +25,57 @@ def tray():
     return t
 
 
-def test_handler_shows_v02_hint_messagebox(tray):
-    with patch("kira.ui.tray_win.ctypes") as mock_ctypes:
-        tray._check_for_updates(None, None)
-    mock_ctypes.windll.user32.MessageBoxW.assert_called_once()
-    args = mock_ctypes.windll.user32.MessageBoxW.call_args.args
-    body = args[1]
-    # Must mention v0.2 so the user understands this is a known-disabled feature.
-    assert "v0.2" in body
-    # MB_ICONINFORMATION (0x40), not warning — it's an expected state, not an error.
-    assert args[3] == 0x40
+def test_check_for_updates_marshals_to_qt(tray):
+    """Pystray-Callback laeuft auf einem Daemon-Thread - der Handler MUSS
+    via _marshal_to_qt auf die Qt-Mainthread, sonst constructed das Update-
+    Dialog auf dem falschen Thread und Qt assertet."""
+    tray._marshal_to_qt = MagicMock()
+    tray._check_for_updates(None, None)
+    tray._marshal_to_qt.assert_called_once()
+    # zweites Arg ist der Label-String — sollte beschreibend sein:
+    label = tray._marshal_to_qt.call_args.args[1]
+    assert "update" in label.lower()
 
 
-def test_handler_does_not_quit_kira(tray):
-    """The disabled handler must not trigger on_quit — earlier code did
-    quit Kira after launching the installer; the no-op variant must not."""
-    with patch("kira.ui.tray_win.ctypes"):
-        tray._check_for_updates(None, None)
-    assert tray._quit_calls == []
+def test_run_update_flow_marshalled_calls_underlying_runner():
+    """Der Static-Helper ruft run_update_flow mit den richtigen Args."""
+    from kira.ui.tray_win import KiraTray
+
+    quit_marker = MagicMock()
+    with patch("kira.ui._update_runner.run_update_flow") as mock_run:
+        KiraTray._run_update_flow_marshalled(quit_marker)
+    mock_run.assert_called_once()
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["parent"] is None
+    assert kwargs["on_quit_request"] is quit_marker
 
 
-def test_handler_does_not_touch_subprocess(tray):
-    """No installer should be spawned — the multi-file path is broken and
-    silent privilege-escalating Popen is exactly what we removed."""
-    with patch("kira.ui.tray_win.ctypes"), \
-         patch("kira.ui.tray_win.subprocess.Popen") as mock_popen:
-        tray._check_for_updates(None, None)
-    mock_popen.assert_not_called()
+def test_check_for_updates_passes_quit_callback_through(tray):
+    """Der durchgereichte Quit-Callback MUSS der von __init__ gesetzte
+    on_quit sein — sonst kann das Update-Setup das Programmverzeichnis
+    nicht ueberschreiben (Single-Instance-Mutex blockiert)."""
+    captured = {}
+
+    def fake_marshal(func, _label):
+        # _marshal_to_qt nimmt einen Lambda/Callable; wir rufen sie
+        # synchron um zu sehen was reingeht.
+        captured["called"] = True
+        # Patchen run_update_flow innerhalb dem Lambda-Aufruf
+        with patch("kira.ui._update_runner.run_update_flow") as mock_run:
+            func()
+            captured["kwargs"] = mock_run.call_args.kwargs
+
+    tray._marshal_to_qt = fake_marshal
+    tray._check_for_updates(None, None)
+    assert captured.get("called") is True
+    # quit_callback IST der on_quit den wir tray.__init__ gegeben haben
+    assert captured["kwargs"]["on_quit_request"] is tray._on_quit
+    assert captured["kwargs"]["parent"] is None
 
 
 def test_menu_includes_check_for_updates_item(tray):
-    """Menu entry stays visible so users see the feature is planned —
-    only the handler behaviour is disabled."""
+    """Menue-Eintrag muss bestehen bleiben — der existing User-flow ist
+    rechtsklick-Tray -> 'Updates suchen...'."""
     menu = tray._build_menu()
     labels = [getattr(item, "text", None) for item in menu.items]
     assert "Updates suchen…" in labels

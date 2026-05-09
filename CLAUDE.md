@@ -4,6 +4,12 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
+**Version:** v0.2.0 in Dev (commit `bd4cf78`, `windows-port`, 2026-05-09).
+v0.1.0 ist die letzte released Version auf GitHub Releases. v0.2 fuegt
+Custom Dictionary (`whisper.replacements`), AI-Modes (per-Mode Override),
+F9 AI-Editing-Commands (Selection rewriteset), File-Transcription via Tray
+und einen Win11-Section-Card-Settings-Dialog hinzu. Siehe `CHANGELOG.md`.
+
 ## Branch strategy
 
 - **`main`** — macOS build. Apple MLX-Whisper, rumps, PyObjC. Imports

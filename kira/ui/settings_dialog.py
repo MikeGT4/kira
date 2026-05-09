@@ -32,6 +32,7 @@ from kira.ui._dialog_style import (
     light_warning,
 )
 
+from kira import __version__, UPDATE_REPO
 from kira.config import default_config_path, load_config
 from kira.config_writer import update_scalars
 
@@ -112,6 +113,11 @@ class _SectionCard(QWidget):
         (not bold) — bold is reserved for the section header to keep the
         visual hierarchy clear."""
         self._form.addRow(label, widget_or_layout)
+
+    def add_widget(self, widget) -> None:
+        """Add a full-width row ohne Label (z.B. fuer Status-Hinweise
+        oder buttons die ueber die ganze Card-Breite gehen sollen)."""
+        self._form.addRow(widget)
 
 
 def _load_branded_pixmap(size: int) -> QPixmap | None:
@@ -288,6 +294,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(self._build_section_polish())
         layout.addWidget(self._build_section_hotkeys())
         layout.addWidget(self._build_section_injector())
+        layout.addWidget(self._build_section_about())
         return host
 
     def _build_section_audio(self) -> _SectionCard:
@@ -431,6 +438,64 @@ class SettingsDialog(QDialog):
         card.add_row("Clipboard-Restore", self._restore_ms)
 
         return card
+
+    def _build_section_about(self) -> _SectionCard:
+        card = _SectionCard("Ueber Kira", icon_emoji="ℹ")  # info emoji
+
+        version_lbl = QLabel(f"Version {__version__}")
+        version_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        card.add_row("Version", version_lbl)
+
+        repo_lbl = QLabel(
+            f"<a href='https://github.com/{UPDATE_REPO}' "
+            f"style='color: #4a76b8; text-decoration: none;'>"
+            f"github.com/{UPDATE_REPO}</a>"
+        )
+        repo_lbl.setOpenExternalLinks(True)
+        repo_lbl.setStyleSheet("font-size: 11px;")
+        card.add_row("Quelle", repo_lbl)
+
+        # Update-Button: Multi-Asset-Bundle-Pull mit SHA256-Verify (wenn
+        # SHA256SUMS.txt im Release ist). Auto-Quit nach Setup-Launch via
+        # QApplication.quit() — umgeht den Tray-Cleanup-Pfad
+        # (recorder.close etc.), aber das ist OK weil Inno's Setup auf
+        # Mutex-Release wartet und das OS Filehandles eh freigibt.
+        update_row = QHBoxLayout()
+        update_row.addStretch()
+        update_btn = QPushButton("Updates suchen...")
+        update_btn.setToolTip(
+            "Holt die neueste Version von github.com/MikeGT4/kira,\n"
+            "verifiziert SHA256-Hashes (falls vorhanden) und startet\n"
+            "den Setup-Wizard. Kira beendet sich dafuer kurz."
+        )
+        update_btn.clicked.connect(self._run_update_check)
+        update_row.addWidget(update_btn)
+        card.add_widget(self._wrap_layout_in_widget(update_row))
+
+        return card
+
+    @staticmethod
+    def _wrap_layout_in_widget(layout) -> QWidget:
+        """QFormLayout.addRow erwartet QWidget oder einen QLayout-Wrapper —
+        die direkte Form mit QHBoxLayout funktioniert ueber addRow(widget),
+        also wickeln wir's in einen leeren QWidget."""
+        wrapper = QWidget()
+        wrapper.setLayout(layout)
+        return wrapper
+
+    def _run_update_check(self) -> None:
+        """Update-Flow aus dem Settings-Dialog. Auto-Quit-Callback ruft
+        QApplication.quit() — umgeht den Tray-Cleanup, aber praktikabel
+        weil Inno's Setup eh auf Mutex-Release wartet."""
+        from PyQt6.QtCore import QCoreApplication
+        from kira.ui._update_runner import run_update_flow
+
+        def request_quit() -> None:
+            inst = QCoreApplication.instance()
+            if inst is not None:
+                inst.quit()
+
+        run_update_flow(parent=self, on_quit_request=request_quit)
 
     def _build_hint(self) -> QLabel:
         hint = QLabel(

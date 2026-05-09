@@ -467,32 +467,25 @@ class KiraTray:
         self._qt_marshal.run_on_main_thread(func)
 
     def _check_for_updates(self, _icon, _item) -> None:
-        # In-app update is intentionally disabled in v0.1.x:
-        # the installer is a multi-file Inno bundle (1 stub + 7 .bin splits, ~13 GB),
-        # but kira.updater only knows how to pull a single Setup.exe asset.
-        # Wiring the previous handler up would silently download just the 2 MB
-        # stub and produce a broken install when the user clicks. Worse, the
-        # download had no Authenticode/SHA256 verification — a GitHub-account
-        # compromise (Shai-Hulud profile) would mean a single tray click =
-        # silent privileged code-exec on the friend's machine.
-        # Keep the menu entry so users see the feature is planned; show a
-        # plain hint until v0.2 ships manifest-based multi-asset pulls with
-        # signature verification.
-        # Routed through qt_marshal so the dialog inherits Kira's light
-        # theme — the previous Win32 MessageBoxW rendered black-on-black
-        # in Win11 dark mode.
-        self._marshal_to_qt(self._show_update_hint, "update hint")
+        """v0.2: echter Update-Check + Multi-Asset-Bundle-Pull.
+
+        Bis v0.1 war das ein statischer Hint (Asset-Pull konnte nur den
+        2 MB-Setup-Stub laden, die 7 .bin-Splits fehlten und Inno
+        scheiterte). v0.2's updater holt das gesamte Bundle und verify
+        SHA256SUMS falls vorhanden, bevor der Setup-Stub gestartet wird.
+
+        Setup-Launch tut Kira selbst beenden (via self._on_quit), sodass
+        das Programmverzeichnis fuer Inno schreibbar wird.
+        """
+        self._marshal_to_qt(
+            lambda: self._run_update_flow_marshalled(self._on_quit),
+            "update flow",
+        )
 
     @staticmethod
-    def _show_update_hint() -> None:
-        from kira.ui._dialog_style import light_information
-        light_information(
-            None, "Kira",
-            "Updates werden ab v0.2 direkt aus Kira geladen.\n\n"
-            "Bis dahin: neues Setup-Bundle vom Verteilungspfad herunterladen "
-            "und Setup.exe ausführen — der bestehende Installer erkennt "
-            "vorhandene Installationen automatisch und aktualisiert sie.",
-        )
+    def _run_update_flow_marshalled(quit_callback) -> None:
+        from kira.ui._update_runner import run_update_flow
+        run_update_flow(parent=None, on_quit_request=quit_callback)
 
     def _quit(self, _icon, _item) -> None:
         try:
