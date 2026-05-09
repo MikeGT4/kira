@@ -148,7 +148,7 @@ Polish-Prompts. Eingebaute Modi:
 „java skript" statt „JavaScript"). In Settings →
 „Rohconfig oeffnen..." kannst du eine Replacement-Map setzen, die
 Whisper-Output VOR dem Polish korrigiert:</p>
-<pre style='background:#f4f4f4; padding:8px; border-radius:4px; font-size:10px;'>
+<pre style='background:#f4f4f4; color:#1d1d1f; padding:8px; border-radius:4px; font-size:10px;'>
 whisper:
   replacements:
     "what's app": "WhatsApp"
@@ -207,14 +207,16 @@ class WelcomeDialog(QDialog):
         from kira.ui._dialog_style import apply_light_theme
         apply_light_theme(self)
 
-        # Apple-Look-Overrides ueber apply_light_theme drueber gelegt:
-        # weisser Card-Hintergrund, mehr Breathing-Space, runde Buttons,
-        # iOS-Blue-Akzent fuer den Default-Button, secondary-Text in
-        # mittelgrau. setObjectName scopet die Buttons-Styles auf
-        # diesen Dialog, damit andere Dialoge nicht versehentlich
-        # mit-restyled werden.
+        # Apple-Look-Overrides als ANHANG an das Light-Theme-Stylesheet,
+        # NICHT als Ersatz. apply_light_theme ruft setStyleSheet(_QSS) —
+        # wenn wir hier mit reinem self.setStyleSheet("Apple-only...")
+        # ueberschreiben, verlieren wir die _QSS-Regeln (QLabel-color #222,
+        # QPushButton-Restyle gegen Win11-Fluent's transparenten Default,
+        # QComboBox-Theme). Resultat war: Win11-Dark-Palette schlug bei
+        # Heading + Body wieder durch, weisses pre-Block hatte hell-Text-
+        # default → hell-on-hell unleserlich. Mike's Bug-Report 2026-05-09.
         self.setObjectName("welcomeDialog")
-        self.setStyleSheet(
+        apple_extensions = (
             "QDialog#welcomeDialog { background: #ffffff; }"
             "QDialog#welcomeDialog QPushButton[primary='true'] {"
             "  background: #007AFF;"
@@ -224,6 +226,7 @@ class WelcomeDialog(QDialog):
             "  padding: 9px 22px;"
             "  font-size: 13px;"
             "  font-weight: 500;"
+            "  min-width: 100px;"
             "}"
             "QDialog#welcomeDialog QPushButton[primary='true']:hover {"
             "  background: #0062cc;"
@@ -234,8 +237,10 @@ class WelcomeDialog(QDialog):
             "QDialog#welcomeDialog QCheckBox {"
             "  color: #555;"
             "  font-size: 11px;"
+            "  background: transparent;"
             "}"
         )
+        self.setStyleSheet(self.styleSheet() + apple_extensions)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 28, 36, 24)
