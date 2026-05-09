@@ -280,7 +280,18 @@ class KiraTray:
         # left-click ("default activate"); rechtsklick zeigt das ganze
         # Menu wie gehabt. Settings ist die Default-Action, weil das der
         # häufigste Konfig-Touchpoint ist (Mic, Polish-Modell, Hotkey).
+        # Branded Header oben (Mike-Vorgabe 2026-05-09): pystray nutzt
+        # Win32-Native-Popup-Menus (TrackPopupMenuEx) ohne Custom-Widget-
+        # Support, daher kein zentriertes Logo mit BG. Was wir tun
+        # koennen: ein disabled, default-aktiviertes Item mit Branding-
+        # Text + Sparkles-Unicode + viel Padding fuer den Center-Effekt.
+        # Win32-Menu rendert den Text mit System-Theme (Win11-Dark mit
+        # weisser Schrift); das ist "schoener Hintergrund" so weit das
+        # OS uns kommen laesst.
+        header_text = "    ✨  Kira  ✨    "  # ✨ Kira ✨ + padding
         items = [
+            pystray.MenuItem(header_text, None, enabled=False),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem(self._status_label, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
@@ -337,7 +348,27 @@ class KiraTray:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if not log_path.exists():
             log_path.write_text("", encoding="utf-8")
-        subprocess.Popen(["notepad.exe", str(log_path)])
+        try:
+            subprocess.Popen(["notepad.exe", str(log_path)])
+        except (OSError, FileNotFoundError) as exc:
+            # Open Log ist Mike's Last-Resort-Debug-Pfad — wenn das
+            # silent failt (Win11 N-Edition ohne notepad, Kiosk-Lock-
+            # down) sieht der User nichts, klickt nochmal, gibt auf.
+            # silent-failure-hunt 2026-05-09. Stattdessen Pfad anzeigen.
+            log.exception("notepad launch failed for log %s", log_path)
+            self._marshal_to_qt(
+                lambda: self._show_notepad_fallback(str(log_path), str(exc)),
+                "notepad fallback",
+            )
+
+    @staticmethod
+    def _show_notepad_fallback(file_path: str, exc_msg: str) -> None:
+        from kira.ui._dialog_style import light_warning
+        light_warning(
+            None, "Kira",
+            f"Notepad konnte nicht gestartet werden: {exc_msg}\n\n"
+            f"Datei manuell öffnen:\n{file_path}",
+        )
 
     def _open_help(self, _icon, _item) -> None:
         """Wiederverwendet WelcomeDialog im as_help=True-Modus — selber

@@ -270,8 +270,16 @@ class Transcriber:
         - vad_filter=True (vs False): Silero-VAD ueberspringt Pausen,
           verkuerzt total runtime und vermeidet Halluzinationen in
           Stille.
-        - condition_on_previous_text=True (vs False): besseres Context-
-          Tracking fuer mehrere zusammenhaengende Saetze.
+        - condition_on_previous_text: respektiert wcfg-Setting (statt
+          hardcoded True) — User der's für PTT aus hat will's für
+          File-Mode oft auch aus, sonst beeinflusst eine fehlinter-
+          pretierte Frühphase die ganze Spätphase. code-reviewer 2026-05-09.
+
+        Halluzinations-Filter: per-Segment statt only-on-full-text-equality.
+        Eine 3 h Aufnahme mit Stille-Sektionen kann sonst „Vielen Dank."
+        oder „Untertitel im Auftrag des ZDF" mitten im Transkript haben,
+        weil _is_hallucination(full_text) gegen exact-match prueft und
+        den langen Text nicht als Halluzination erkennt.
 
         faster-whisper akzeptiert path-strings direkt und nutzt
         intern PyAV/ffmpeg fuer Video-Demuxing — .mp4/.mkv funktionieren
@@ -289,11 +297,30 @@ class Transcriber:
                 language=None if lang == "auto" else lang,
                 beam_size=5,
                 vad_filter=True,
-                condition_on_previous_text=True,
+                condition_on_previous_text=wcfg.condition_on_previous_text,
                 initial_prompt=wcfg.initial_prompt,
             )
-            seg_list = list(segments)
-            text = " ".join(s.text.strip() for s in seg_list).strip()
+            # Per-Segment-Hallu-Filter: jedes Segment, das exakt-gleich
+            # einer bekannten Boilerplate-Zeile ist, raus. So bleiben
+            # legitime Sätze die zufaellig „Vielen Dank" enthalten
+            # erhalten, aber Stille-Bursts mitten im Audio werden
+            # rausgefiltert.
+            kept_segments = []
+            dropped = 0
+            for seg in segments:
+                seg_text = seg.text.strip()
+                if _is_hallucination(seg_text):
+                    dropped += 1
+                    log.info(
+                        "File-mode dropped halluzinated segment: %r",
+                        seg_text,
+                    )
+                    continue
+                if seg_text:
+                    kept_segments.append(seg_text)
+            text = " ".join(kept_segments).strip()
+            if dropped:
+                log.info("File-mode: %d Segmente als Halluzination gefiltert", dropped)
             if wcfg.replacements:
                 fixed = replacements.apply(text, wcfg.replacements)
                 if fixed != text:
@@ -303,8 +330,8 @@ class Transcriber:
                     )
                     text = fixed
             log.info(
-                "File transcribed: %d segments, %d chars, lang=%s",
-                len(seg_list), len(text), info.language,
+                "File transcribed: %d kept seg(s), %d chars, lang=%s",
+                len(kept_segments), len(text), info.language,
             )
             return TranscriptionResult(text=text, language=info.language)
         except Exception:

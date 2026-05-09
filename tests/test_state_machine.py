@@ -204,14 +204,33 @@ class _EditAwareStyler:
         return f"[edited]:{selection}"
 
 
-def test_edit_press_no_selection_stays_idle(monkeypatch):
-    """on_edit_press ohne Selection: bleibt IDLE, kein Recording, kein
-    Edit-Mode-Flag haengen. Fix-Prevention: Edit-Mode-Pollution beim
-    naechsten F8."""
+def test_edit_press_no_selection_flashes_error(monkeypatch):
+    """on_edit_press ohne Selection: ERROR-Flash (1.5 s gelb), kein
+    Recording, keine Edit-Mode-Flag-Pollution. Vorher silent IDLE
+    (User wusste nicht ob F9 ueberhaupt gefeuert hatte) — silent-
+    failure-hunt 2026-05-09."""
     monkeypatch.setattr("kira.app.read_selection", lambda: None)
     app = KiraApp.for_test()
     app.on_edit_press()
-    assert app.state == State.IDLE
+    # Kurz nach Press: State.ERROR fuer User-Feedback
+    assert app.state == State.ERROR
+    assert app._edit_mode is False
+    assert app._captured_selection is None
+
+
+def test_edit_press_clipboard_error_flashes_error(monkeypatch):
+    """Wenn read_selection ClipboardUnavailable wirft (Clipboard-busy,
+    RDP-Shimmer etc.), darf das nicht silent durchrutschen — User
+    soll ERROR-Flash sehen."""
+    from kira.edit_command import ClipboardUnavailable
+
+    def raising(*args, **kwargs):
+        raise ClipboardUnavailable("simulierter Clipboard-Block")
+
+    monkeypatch.setattr("kira.app.read_selection", raising)
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    assert app.state == State.ERROR
     assert app._edit_mode is False
     assert app._captured_selection is None
 

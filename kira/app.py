@@ -19,15 +19,18 @@ from kira.recorder import Recorder, DeviceUnavailable
 if sys.platform == "win32":
     from kira.transcriber_fw import TranscriptionResult
     from kira.context_win import detect_mode
-    from kira.edit_command import read_selection
+    from kira.edit_command import ClipboardUnavailable, read_selection
 else:
     from kira.transcriber import TranscriptionResult
     from kira.context import detect_mode
 
+    class ClipboardUnavailable(RuntimeError):  # type: ignore[no-redef]
+        pass
+
     def read_selection() -> str | None:  # type: ignore[misc]
         """Mac stub — Edit-Command-Hotkey wird auf Mac aktuell nicht
-        wired (Mac-Branch nutzt Fn-Key fuer Standard-Polish, F9-Doppel-
-        binding waere ungewollt). Kein-op damit der Import nicht
+        wired (Mac-Branch nutzt Fn-Key für Standard-Polish, F9-Doppel-
+        binding wäre ungewollt). Kein-op damit der Import nicht
         kracht."""
         return None
 
@@ -118,26 +121,53 @@ class KiraApp:
         self._set_state(State.RECORDING)
 
     def on_edit_press(self) -> None:
-        """F9 hold: Selection erfassen, dann recordet Voice-Command."""
+        """F9 hold: Selection erfassen, dann recordet Voice-Command.
+
+        State-Check VOR read_selection (silent-failure-hunt 2026-05-09):
+        sonst macht ein zweites F9 während STYLING/INJECTING noch den
+        teuren 100-ms-Strg+C-Roundtrip + setzt _edit_mode/_captured_
+        selection auf neue Werte, die das finally der laufenden Pipeline
+        zwar wegräumt aber Race-anfällig macht.
+        """
         if self._state != State.IDLE:
             return
-        # read_selection() macht Strg+C-Roundtrip mit Sentinel-basierter
-        # Empty-Detection. Bei keiner Selection (oder Clipboard-Fail)
-        # bleibt der State IDLE und der Hotkey ist no-op — kein
-        # spuerbares Recording-Feedback.
-        selection = read_selection()
+        try:
+            selection = read_selection()
+        except ClipboardUnavailable as exc:
+            # Clipboard-Fehler ist NICHT "keine Selection" — User soll
+            # ein sichtbares Fehler-Signal kriegen, sonst weiss er nicht
+            # dass F9 was gemacht hat.
+            log.warning("Edit hotkey aborted (clipboard unavailable): %s", exc)
+            self._flash_error_briefly()
+            return
         if selection is None:
-            log.info("Edit hotkey pressed without selection — ignoring")
+            # Echte "keine Selection" - User-Feedback via kurzer ERROR-
+            # Flash, sonst sieht der User keinen Unterschied zwischen
+            # "F9 nicht gebunden" und "ich hatte nichts markiert".
+            log.info("Edit hotkey pressed without selection — flashing ERROR")
+            self._flash_error_briefly()
             return
         self._captured_selection = selection
         self._edit_mode = True
         self.on_hotkey_press()
-        # Falls on_hotkey_press aus DeviceUnavailable o.ae. nicht in
-        # RECORDING gewechselt ist, Flags zuruecknehmen damit der naechste
+        # Falls on_hotkey_press aus DeviceUnavailable o.ä. nicht in
+        # RECORDING gewechselt ist, Flags zurücknehmen damit der nächste
         # F8 nicht versehentlich als Edit interpretiert wird.
         if self._state != State.RECORDING:
             self._edit_mode = False
             self._captured_selection = None
+
+    def _flash_error_briefly(self) -> None:
+        """1.5 s ERROR-State (gelbes Tray-Icon) → IDLE. Dient als
+        sichtbares 'Hotkey kam an, aber konnte nicht ausgefuehrt werden'-
+        Signal für F9-no-selection und Clipboard-Fehler."""
+        if self._state != State.IDLE:
+            return
+        self._set_state(State.ERROR)
+        threading.Timer(
+            1.5, lambda: self._set_state(State.IDLE)
+            if self._state == State.ERROR else None
+        ).start()
 
     def on_hotkey_release(self, duration_ms: int | None = None) -> None:
         if self._state != State.RECORDING:
@@ -169,13 +199,20 @@ class KiraApp:
 
     async def _run_pipeline(self, audio: np.ndarray) -> None:
         # Snapshot des Edit-States BEFORE finally clears them — sodass
-        # ein paralleles on_edit_press waehrend Pipeline-Laufzeit nicht
-        # das Verhalten der laufenden Pipeline aendert.
+        # ein paralleles on_edit_press während Pipeline-Laufzeit nicht
+        # das Verhalten der laufenden Pipeline ändert.
         edit_mode = self._edit_mode
         captured_selection = self._captured_selection
         try:
             self._set_state(State.TRANSCRIBING)
-            transcription = self._transcriber.transcribe(audio)
+            # asyncio.to_thread: Whisper-transcribe ist CPU/GPU-bound +
+            # 5-10 s Modell-Cold-Start auf erstem Call. Synchron im
+            # async-Loop wuerde die Tray-State-Updates + Hotkey-Polling
+            # für die ganze Zeit einfrieren. to_thread laesst den Loop
+            # weiterlaufen, der Worker-Thread bekommt die Last.
+            transcription = await asyncio.to_thread(
+                self._transcriber.transcribe, audio
+            )
             log.info(
                 "Whisper out (%d chars, lang=%s): %r",
                 len(transcription.text), transcription.language,

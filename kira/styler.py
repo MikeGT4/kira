@@ -80,11 +80,15 @@ class Styler:
         # Per-Mode-Override: model + timeout + temperature koennen je
         # Mode in StylerConfig.modes definiert sein. Fehlt der Mode dort
         # oder ist ein Feld None, faellt's auf den globalen StylerConfig
-        # zurueck.
+        # zurueck. temperature-Default 0.2 wird nur bei nicht-gesetztem
+        # Mode-Override angewendet (vorher war 0.2 hardcoded als
+        # Mode-Field-Default — code-reviewer Karpathy 2026-05-09).
         mode_cfg = self._config.styler.modes.get(mode, ModeConfig())
         model = mode_cfg.model or self._config.styler.model
         timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
-        temperature = mode_cfg.temperature
+        temperature = (
+            mode_cfg.temperature if mode_cfg.temperature is not None else 0.2
+        )
         try:
             response = await asyncio.wait_for(
                 self._client.chat(
@@ -110,6 +114,14 @@ class Styler:
                 )
                 if self._config.styler.fallback_to_raw:
                     return text
+                # Symmetric mit TimeoutError-branch unten: bei deaktiviertem
+                # Fallback raise statt empty-Polished-zurückgeben. Sonst
+                # wäre der Contract der Funktion asymmetrisch (Timeout
+                # raised, empty-response gibt leise "" zurück) — silent-
+                # failure-hunt 2026-05-09.
+                raise RuntimeError(
+                    f"Styler returned empty response (model={model})"
+                )
             return polished
         except asyncio.TimeoutError:
             # asyncio.TimeoutError has str(exc) == "" — the original generic
@@ -156,7 +168,9 @@ class Styler:
         mode_cfg = self._config.styler.modes.get("edit_command", ModeConfig())
         model = mode_cfg.model or self._config.styler.model
         timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
-        temperature = mode_cfg.temperature
+        temperature = (
+            mode_cfg.temperature if mode_cfg.temperature is not None else 0.2
+        )
         try:
             response = await asyncio.wait_for(
                 self._client.chat(

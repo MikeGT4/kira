@@ -65,14 +65,15 @@ class ModeConfig(BaseModel):
 
     Ein Mode darf optional ein eigenes Modell + Timeout + Temperature
     spezifizieren. Felder die hier None bleiben, fallen auf StylerConfig
-    zurueck. Mike's Use-Cases: Translation braucht Qwen3 (mehrsprachig
-    besser als gemma3:12b), Email-Formal braucht hoehere Temperature
-    fuer geschmeidigere Formulierung, Code-Mode braucht 0.0 fuer
-    Determinismus.
+    zurueck. Konsistente None-Semantik in allen drei Feldern (vorher
+    war temperature non-nullable mit hardcoded 0.2 als 'Default' — ein
+    User der nur model setzte hatte trotzdem implizit Temperature 0.2,
+    selbst wenn er die globale Default haben wollte). code-reviewer
+    Karpathy-Verstoss 2026-05-09.
     """
     model: str | None = None
     timeout_seconds: float | None = None
-    temperature: float = 0.2
+    temperature: float | None = None
 
 
 class StylerConfig(BaseModel):
