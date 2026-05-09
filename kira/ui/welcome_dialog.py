@@ -25,6 +25,8 @@ import os
 from pathlib import Path
 
 from packaging.version import InvalidVersion, parse as parse_version
+from PIL import Image
+from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
@@ -37,6 +39,31 @@ from kira import __version__
 log = logging.getLogger(__name__)
 _ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
 _WELCOME_MARKER = Path(os.environ.get("APPDATA", str(Path.home()))) / "Kira" / ".welcomed"
+
+
+def _load_branded_pixmap(size: int) -> QPixmap | None:
+    """Largest-frame ICO loader (Pillow → QPixmap). QPixmap's nativer
+    ICO-Loader nimmt eine willkuerlich kleine Frame und upscalet —
+    bleibt bei groesseren Sizes blurry. Pillow laesst uns die 256-Frame
+    explizit waehlen + einmal mit LANCZOS runterskalieren."""
+    src = _ASSETS / "icon-branded.ico"
+    if not src.exists():
+        return None
+    try:
+        img = Image.open(src)
+        ico = getattr(img, "ico", None)
+        if ico is not None:
+            sizes = sorted(ico.sizes(), key=lambda s: s[0] * s[1])
+            if sizes:
+                img.size = sizes[-1]  # type: ignore[misc]
+                img.load()
+        img = img.convert("RGBA").resize(
+            (size, size), Image.Resampling.LANCZOS,
+        )
+        return QPixmap.fromImage(ImageQt(img))
+    except Exception:
+        log.exception("failed to load icon-branded.ico")
+        return None
 
 
 def is_first_run() -> bool:
@@ -174,34 +201,73 @@ class WelcomeDialog(QDialog):
         icon_path = _ASSETS / "icon-branded.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(640, 600)
-        self.resize(680, 720)
+        self.setMinimumSize(640, 640)
+        self.resize(680, 760)
         self.setModal(True)
         from kira.ui._dialog_style import apply_light_theme
         apply_light_theme(self)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 20)
-        layout.setSpacing(12)
+        # Apple-Look-Overrides ueber apply_light_theme drueber gelegt:
+        # weisser Card-Hintergrund, mehr Breathing-Space, runde Buttons,
+        # iOS-Blue-Akzent fuer den Default-Button, secondary-Text in
+        # mittelgrau. setObjectName scopet die Buttons-Styles auf
+        # diesen Dialog, damit andere Dialoge nicht versehentlich
+        # mit-restyled werden.
+        self.setObjectName("welcomeDialog")
+        self.setStyleSheet(
+            "QDialog#welcomeDialog { background: #ffffff; }"
+            "QDialog#welcomeDialog QPushButton[primary='true'] {"
+            "  background: #007AFF;"
+            "  color: white;"
+            "  border: none;"
+            "  border-radius: 8px;"
+            "  padding: 9px 22px;"
+            "  font-size: 13px;"
+            "  font-weight: 500;"
+            "}"
+            "QDialog#welcomeDialog QPushButton[primary='true']:hover {"
+            "  background: #0062cc;"
+            "}"
+            "QDialog#welcomeDialog QPushButton[primary='true']:pressed {"
+            "  background: #004da3;"
+            "}"
+            "QDialog#welcomeDialog QCheckBox {"
+            "  color: #555;"
+            "  font-size: 11px;"
+            "}"
+        )
 
-        # Logo (digitalroots, klein gehalten — Help-Modus zeigt es auch fuer
-        # konsistente Branding-Identitaet; kostet 30 px und macht den Dialog
-        # weniger nuechtern).
-        logo_label = QLabel()
-        logo_path = _ASSETS / "digitalroots-logo.png"
-        if logo_path.exists():
-            pix = QPixmap(str(logo_path)).scaledToWidth(
-                360, Qt.TransformationMode.SmoothTransformation,
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 28, 36, 24)
+        layout.setSpacing(14)
+
+        # Brand-Hierarchie: digitalroots oben (kleiner, dezent — Hersteller-
+        # Wordmark), Kira-Glyph DARUNTER prominent (App-Identitaet, was der
+        # User wiedererkennen soll). Mike-Vorgabe 2026-05-09.
+        dr_label = QLabel()
+        dr_path = _ASSETS / "digitalroots-logo.png"
+        if dr_path.exists():
+            dr_pix = QPixmap(str(dr_path)).scaledToWidth(
+                240, Qt.TransformationMode.SmoothTransformation,
             )
-            logo_label.setPixmap(pix)
-        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo_label)
+            dr_label.setPixmap(dr_pix)
+        dr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(dr_label)
+
+        kira_label = QLabel()
+        kira_pix = _load_branded_pixmap(96)
+        if kira_pix is not None:
+            kira_label.setPixmap(kira_pix)
+        kira_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        kira_label.setContentsMargins(0, 4, 0, 0)
+        layout.addWidget(kira_label)
 
         heading = QLabel(heading_text)
         heading_font = QFont()
-        heading_font.setPointSize(18)
-        heading_font.setBold(True)
+        heading_font.setPointSize(22)
+        heading_font.setWeight(QFont.Weight.DemiBold)
         heading.setFont(heading_font)
+        heading.setStyleSheet("color: #1d1d1f;")  # Apple-System-Black
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(heading)
 
@@ -267,10 +333,13 @@ class WelcomeDialog(QDialog):
             layout.addWidget(self.cb_dont_show)
 
         btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 6, 0, 0)
         btn_row.addStretch()
         cta_btn = QPushButton(cta_text)
         cta_btn.clicked.connect(self.accept)
         cta_btn.setDefault(True)
+        # primary-Property triggert das iOS-Blue-Stylesheet von oben.
+        cta_btn.setProperty("primary", True)
         btn_row.addWidget(cta_btn)
         layout.addLayout(btn_row)
 
