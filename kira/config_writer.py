@@ -109,7 +109,13 @@ def update_scalars(yaml_text: str, updates: dict[str, Any]) -> str:
         # Jetzt: fehlende Section -> am EOF anhaengen, fehlender Key in
         # vorhandener Section -> am Section-Ende anhaengen, mit korrekter
         # 2-Space-Einrueckung. Comments bleiben unangetastet.
-        out_lines = _append_missing(out_lines, updates, missing)
+        # Section-Detection an der ORIGINAL-Quelle (yaml_text), nicht an
+        # out_lines: aktuell sind sie identisch (line-by-line copy mit
+        # Value-Rewrite), aber wenn jemand spaeter eine Section-Rewrite-
+        # Optimierung addiert, faengt die Append-Logik silent neue Sections
+        # auf out_lines auf. code-reviewer 2026-05-09.
+        original_lines = yaml_text.splitlines(keepends=True)
+        out_lines = _append_missing(out_lines, updates, missing, original_lines)
 
     return "".join(out_lines)
 
@@ -134,6 +140,7 @@ def _append_missing(
     out_lines: list[str],
     updates: dict[str, Any],
     missing: set[str],
+    original_lines: list[str],
 ) -> list[str]:
     """Fehlende Keys/Sections an die richtige Position anhaengen.
 
@@ -142,13 +149,16 @@ def _append_missing(
     - Pro Section: existiert sie? Dann finde das Section-Ende (naechste
       Top-Level-Section oder EOF) und insert die Keys davor.
     - Section existiert nicht? Append `section:` + alle Keys am EOF.
+
+    `original_lines` = Source-of-truth fuer Section-Existenz-Check
+    (statt out_lines was schon mutiert sein koennte).
     """
     by_section: dict[str, dict[str, Any]] = {}
     for path in missing:
         section, key = path.split(".", 1)
         by_section.setdefault(section, {})[key] = updates[path]
 
-    existing_sections = _existing_top_sections(out_lines)
+    existing_sections = _existing_top_sections(original_lines)
 
     # Phase 1: Insert in existing sections (am Section-Ende, vor dem
     # Anfang der naechsten Section oder vor leeren Trailing-Zeilen).

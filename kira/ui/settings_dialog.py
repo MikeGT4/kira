@@ -584,7 +584,34 @@ class SettingsDialog(QDialog):
         self._cfg_path.parent.mkdir(parents=True, exist_ok=True)
         if not self._cfg_path.exists():
             self._cfg_path.write_text(_MINIMAL_CONFIG, encoding="utf-8")
-        subprocess.Popen(["notepad.exe", str(self._cfg_path)])
+        try:
+            subprocess.Popen(["notepad.exe", str(self._cfg_path)])
+        except (OSError, FileNotFoundError) as exc:
+            # Win11 N-Edition / Kiosk / Corporate Policy kann notepad
+            # entfernen — silent-failure-hunt 2026-05-09. Stattdessen
+            # User informieren + Pfad anzeigen damit er manuell oeffnen
+            # kann.
+            log.exception("notepad launch failed for %s", self._cfg_path)
+            light_warning(
+                self, "Kira",
+                f"Notepad konnte nicht gestartet werden: {exc}\n\n"
+                f"Öffne die Datei manuell:\n{self._cfg_path}",
+            )
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Beim Dialog-Close den ggf. laufenden Polish-Pull-Worker
+        sauber beenden — sonst feuert das thread-Worker-Signal an einen
+        bereits zerstoerten Dialog (Segfault unter Qt6). best-practice
+        2026-05-09."""
+        thread = self._pull_thread
+        if thread is not None and thread.isRunning():
+            log.info("Settings dialog closing while polish-pull running — waiting up to 3s")
+            thread.quit()
+            if not thread.wait(3000):
+                log.warning("polish-pull thread did not exit in 3s; terminating")
+                thread.terminate()
+                thread.wait(1000)
+        super().closeEvent(event)
 
     def _save(self) -> None:
         # currentData() = userData des aktiven Items: None für Default,

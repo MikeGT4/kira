@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -29,6 +30,14 @@ _SETUP_PREFIX = "Kira-Setup-"
 _SETUP_SUFFIX = ".exe"
 _SHA256SUMS_NAME = "SHA256SUMS.txt"
 _TIMEOUT_SECONDS = 10.0
+
+# Asset-Name-Whitelist: 'Kira-Setup-vX.Y.Z.exe' oder
+# 'Kira-Setup-vX.Y.Z-N.bin' (N=1..9). Schuetzt vor Path-Traversal-Tricks
+# in einem kompromittierten GitHub-Account-Release ('Kira-Setup-../evil').
+# security-auditor 2026-05-09.
+_VALID_ASSET_NAME = re.compile(
+    r"^Kira-Setup-v\d+(?:\.\d+){1,3}(?:-\d+\.bin|\.exe)$"
+)
 
 
 @dataclass(frozen=True)
@@ -53,17 +62,24 @@ class UpdateCheckResult:
 
 
 def _is_setup_stub(name: str) -> bool:
-    """Setup-Stub: Kira-Setup-vX.Y.Z.exe (ohne -N im Suffix)."""
-    if not name.startswith(_SETUP_PREFIX) or not name.endswith(_SETUP_SUFFIX):
+    """Setup-Stub: Kira-Setup-vX.Y.Z.exe (ohne -N im Suffix).
+
+    Whitelist-Match (kein Path-Component, nur Version + .exe) — wer da
+    durchkommt ist garantiert ein clean filename ohne '..', '/' oder '\\'.
+    """
+    if not _VALID_ASSET_NAME.match(name):
         return False
-    # Splits heissen Kira-Setup-vX.Y.Z-1.bin … -7.bin (Inno DiskSpanning).
-    # Stub ist wirklich nur der eine .exe ohne Split-Index.
-    return True
+    return name.endswith(_SETUP_SUFFIX)
 
 
 def _is_setup_split(name: str) -> bool:
-    """Setup-Split: Kira-Setup-vX.Y.Z-N.bin (N=1..7 bei DiskSpanning 2 GiB)."""
-    return name.startswith(_SETUP_PREFIX) and name.endswith(".bin")
+    """Setup-Split: Kira-Setup-vX.Y.Z-N.bin (N=1..9 bei DiskSpanning).
+
+    Whitelist-Match auf das gleiche Pattern — Path-Traversal-frei.
+    """
+    if not _VALID_ASSET_NAME.match(name):
+        return False
+    return name.endswith(".bin")
 
 
 def check_for_update(local_version: str, repo: str) -> UpdateCheckResult:
@@ -167,7 +183,30 @@ def download_bundle(
     target_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for asset in assets:
+        # Defense-in-depth: asset.name kommt von GitHub-API, vertraut
+        # eigentlich auf check_for_update's Whitelist-Filter — aber bei
+        # kompromittiertem Account ist das die letzte Verteidigung.
+        if not _VALID_ASSET_NAME.match(asset.name):
+            raise ValueError(
+                f"asset name nicht whitelist-konform: {asset.name!r}"
+            )
         target = target_dir / asset.name
+        # Resume-Skip: wenn target existiert UND die size matched, ueber-
+        # spring ihn. Erlaubt einen Retry vom Settings-Dialog ohne das
+        # ganze 13 GB-Bundle erneut zu pullen. code-reviewer 2026-05-09.
+        if (
+            asset.size > 0
+            and target.exists()
+            and target.stat().st_size == asset.size
+        ):
+            log.info(
+                "resume-skip (%s already complete: %d bytes)",
+                asset.name, asset.size,
+            )
+            paths.append(target)
+            if on_progress is not None:
+                on_progress(asset.name, asset.size, asset.size)
+            continue
         log.info("downloading asset %s -> %s", asset.name, target)
 
         def _hook(block_num: int, block_size: int, total_size: int,

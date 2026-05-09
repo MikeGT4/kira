@@ -86,13 +86,15 @@ class VramAssessment:
 def _nvidia_smi_candidates() -> list[str]:
     """nvidia-smi-Executable-Pfade, in Probier-Reihenfolge.
 
-    pythonw.exe (Kira's launcher) hat einen anderen PATH als cmd.exe —
-    auf Mike's Box meldete der GPU-Check 'nicht im PATH' obwohl
-    nvidia-smi.exe in C:\\Windows\\System32\\ liegt. Daher: erst
-    bare-name probieren (nutzt PATH), dann absolute Win-Pfade als
-    Fallback für reduzierte PATH-Inheritance.
+    NUR absolute Pfade — bare 'nvidia-smi' wuerde Windows' PATH-Search
+    triggeren, die zuerst das App-Working-Directory prueft. Wenn Kira
+    aus einem User-writable-Folder gestartet wird (z.B. Downloads
+    waehrend Installer-Tests), und ein boeswilliges 'nvidia-smi.exe'
+    dort liegt, wuerde das vor dem System32-Binary aufgerufen.
+    System32 + Program Files sind beide nicht User-writable, daher
+    sicher. security-auditor 2026-05-09.
     """
-    candidates = ["nvidia-smi"]
+    candidates = []
     windir = os.environ.get("WINDIR") or "C:\\Windows"
     candidates.append(str(Path(windir) / "System32" / "nvidia-smi.exe"))
     candidates.append(

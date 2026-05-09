@@ -69,20 +69,27 @@ def test_read_selection_returns_none_when_clipboard_returns_empty(mock_clipboard
     assert read_selection() is None
 
 
-def test_read_selection_handles_pyperclip_initial_paste_failure(
-    monkeypatch,
-):
-    """Wenn pyperclip.paste() VOR dem Strg+C fehlschlaegt, abort cleanly."""
+def test_read_selection_raises_on_pyperclip_initial_paste_failure(monkeypatch):
+    """Wenn pyperclip.paste() VOR dem Strg+C fehlschlaegt, raisen wir
+    ClipboardUnavailable — der Caller (KiraApp.on_edit_press) muss
+    Clipboard-Failure von 'keine Selection' unterscheiden koennen.
+    silent-failure-hunt 2026-05-09."""
+    import pytest
+    from kira.edit_command import ClipboardUnavailable
+
     def fail(*_a, **_kw):
         raise RuntimeError("clipboard not available")
     monkeypatch.setattr(edit_command.pyperclip, "paste", fail)
-    assert read_selection() is None
+    with pytest.raises(ClipboardUnavailable, match="Clipboard-Lesen vor"):
+        read_selection()
 
 
-def test_read_selection_handles_keyboard_send_failure(monkeypatch):
-    """keyboard.send-Fehler darf nicht propagaten und das urspruengliche
-    Clipboard MUSS restored bleiben (wir setzen den Sentinel selber, ohne
-    Cleanup waere das Garbage im User-Clipboard)."""
+def test_read_selection_raises_on_keyboard_send_failure(monkeypatch):
+    """keyboard.send-Fehler raised ClipboardUnavailable. Cleanup MUSS
+    trotzdem laufen — Original-Clipboard restored."""
+    import pytest
+    from kira.edit_command import ClipboardUnavailable
+
     state = {"current": "user-original"}
 
     def fake_paste():
@@ -99,7 +106,7 @@ def test_read_selection_handles_keyboard_send_failure(monkeypatch):
     monkeypatch.setattr(edit_command.keyboard, "send", fail_send)
     monkeypatch.setattr(edit_command.time, "sleep", lambda _s: None)
 
-    result = read_selection()
-    assert result is None
-    # Cleanup-Restore muss gegriffen haben:
+    with pytest.raises(ClipboardUnavailable, match="keyboard.send"):
+        read_selection()
+    # Cleanup-Restore muss VOR dem raise gegriffen haben:
     assert state["current"] == "user-original"
