@@ -1,6 +1,53 @@
 # Changelog
 
-## v0.2.0 — 2026-05-09
+## v0.2.0 (work-in-progress) — 2026-05-09
+
+### Late-Day Review-Welle (commit `30dd02c`)
+
+4-Subagenten-Review (code-reviewer, security-auditor, silent-failure-
+hunter, best-practice-checker) parallel dispatched. 13+ Findings,
+gefixt in einer Sammelung:
+
+- **F9-Edit-Command Silent-Failure-Cluster:** `read_selection()`
+  raised jetzt `ClipboardUnavailable` statt return None bei Fehlern,
+  Sentinel-String entfernt (pollutierte Clipboard-Watcher), `on_edit_press`
+  flasht ERROR (1.5 s gelb) bei No-Selection/Clipboard-Fehler statt
+  silent No-Op, `edit_command` raised RuntimeError statt re-injectet
+  Original-Selection.
+- **Async-Blocking transcribe:** `_run_pipeline` nutzt jetzt
+  `asyncio.to_thread()` für Whisper — Tray-Updates + Hotkey bleiben
+  responsive während des 5-10 s CUDA-Cold-Starts.
+- **Updater Resume + Whitelist:** `download_bundle` skippt Files mit
+  matchender size, ermöglicht Retry ohne 13 GB neu zu pullen. Asset-
+  Name-Regex `^Kira-Setup-vX.Y.Z(-N.bin|.exe)$` schützt vor Path-
+  Traversal in kompromittierten GitHub-Releases.
+- **transcribe_file:** respektiert jetzt `condition_on_previous_text`
+  aus config (war hardcoded True), per-Segment-Hallucination-Filter
+  statt only-on-full-text-equality.
+- **Polish empty-response:** symmetric mit Timeout-Pfad — raised wenn
+  `fallback_to_raw=False`, statt silent empty-string return.
+- **Settings-Dialog `closeEvent`:** terminiert laufenden Polish-Pull-
+  Worker → kein Segfault wenn User Settings während Pull schließt.
+- **notepad.exe-Launch:** try/except + Fallback-Dialog (Win11 N-Edition
+  / Kiosk hat kein notepad).
+- **Edit-Command-Prompt:** anti-Prompt-Injection-Hinweis, 4-Backtick-
+  Fences statt 3.
+- **GPU-Check:** bare `nvidia-smi` aus PATH-Search-Kandidaten —
+  schützt vor User-folder `nvidia-smi.exe` Hijack. Nur absolute Pfade
+  (System32, Program Files).
+- **`ModeConfig.temperature`:** None-able für konsistente None-
+  Semantik (Karpathy: keine Felder mit zwei verschiedenen Semantiken).
+- **`config_writer`:** Section-Existenz-Check liest Source-YAML (statt
+  mutated out_lines) — defensiv gegen künftige Refactors.
+- **Tray-Menü:** Branded Disabled-Item „✨ Kira ✨" oben (Win32-Native
+  hat keine Custom-Widget-API für richtigen Logo-Header — pragmatic
+  Mittelweg).
+
+Pending (separate Wellen, zu groß für diese Sammlung): Ollama-Missing-
+permanenter-Tray-Indicator, projekt-weite Logging-Konsistenz, gemein-
+sames F8/F9-Listener-Lock für simultane-Press-Race.
+
+### Earlier am 2026-05-09
 
 Personal-use voice-to-text app, Windows 11 + WSL2 (`windows-port` branch).
 
