@@ -85,14 +85,58 @@ def test_int_and_float_values():
     assert parsed["whisper"]["vad_threshold"] == 0.5
 
 
-def test_unknown_section_raises():
-    with pytest.raises(KeyError):
-        update_scalars(SAMPLE_CONFIG, {"nonexistent.field": "value"})
+def test_unknown_section_appends_at_eof():
+    """Seit v0.2 (Mike's Bug 2026-05-09): User-Configs aus v0.1 hatten
+    keine `hotkey:`/`injector:`-Sections. Der alte KeyError hat den
+    Save vom Settings-Dialog unterbrochen. Fehlende Section wird jetzt
+    am EOF angehaengt."""
+    out = update_scalars(SAMPLE_CONFIG, {"hotkey.combo": "f8"})
+    assert "hotkey:" in out
+    assert "  combo: f8" in out
+    import yaml
+    parsed = yaml.safe_load(out)
+    assert parsed["hotkey"]["combo"] == "f8"
+    # Original-Sections + Comments unangetastet
+    assert "# Long lessons-learned" in out
 
 
-def test_unknown_key_in_known_section_raises():
-    with pytest.raises(KeyError):
-        update_scalars(SAMPLE_CONFIG, {"audio.no_such_key": 42})
+def test_unknown_key_in_known_section_appends_in_section():
+    """Fehlender Key in vorhandener Section wird am Section-Ende
+    eingefuegt — nicht nach EOF und nicht ueber Section-Comment."""
+    out = update_scalars(SAMPLE_CONFIG, {"audio.new_field": 42})
+    import yaml
+    parsed = yaml.safe_load(out)
+    assert parsed["audio"]["new_field"] == 42
+    # Section-Anker soll nicht doppelt angehangen werden
+    assert out.count("audio:") == 1
+
+
+def test_multiple_missing_keys_one_existing_one_new_section():
+    """Gemischter Fall: ein Key in vorhandener Section + komplett neue Section."""
+    out = update_scalars(SAMPLE_CONFIG, {
+        "audio.gain_boost": 1.5,
+        "hotkey.combo": "f8",
+        "hotkey.edit_combo": "f9",
+    })
+    import yaml
+    parsed = yaml.safe_load(out)
+    assert parsed["audio"]["gain_boost"] == 1.5
+    assert parsed["hotkey"]["combo"] == "f8"
+    assert parsed["hotkey"]["edit_combo"] == "f9"
+    # Original-Werte unveraendert
+    assert parsed["audio"]["input_gain"] == 2.0
+
+
+def test_existing_keys_still_updated_when_others_missing():
+    """Mix: bekannter Key + fehlende Section gleichzeitig — beide muessen wirken."""
+    out = update_scalars(SAMPLE_CONFIG, {
+        "audio.input_gain": 5.0,
+        "hotkey.edit_combo": "f9",
+    })
+    import yaml
+    parsed = yaml.safe_load(out)
+    assert parsed["audio"]["input_gain"] == 5.0
+    assert parsed["hotkey"]["edit_combo"] == "f9"
 
 
 def test_no_section_in_dotted_path_raises():

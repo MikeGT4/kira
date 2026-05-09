@@ -102,6 +102,126 @@ def update_scalars(yaml_text: str, updates: dict[str, Any]) -> str:
 
     missing = set(updates) - found
     if missing:
-        raise KeyError(f"path(s) not found in YAML: {sorted(missing)}")
+        # Append-Pfad seit v0.2: User-Configs aus v0.1 haben evtl. keine
+        # `hotkey:`- oder `injector:`-Sections (wurden mit Defaults gefahren).
+        # Alte update_scalars hat in dem Fall KeyError geworfen — der Save
+        # scheiterte und der User sah nur "Config hat unbekanntes Schema".
+        # Jetzt: fehlende Section -> am EOF anhaengen, fehlender Key in
+        # vorhandener Section -> am Section-Ende anhaengen, mit korrekter
+        # 2-Space-Einrueckung. Comments bleiben unangetastet.
+        out_lines = _append_missing(out_lines, updates, missing)
 
     return "".join(out_lines)
+
+
+def _existing_top_sections(lines: list[str]) -> set[str]:
+    """Sammle alle Top-Level-Section-Namen aus den Output-Zeilen."""
+    found: set[str] = set()
+    for raw in lines:
+        line = raw.rstrip("\n")
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" in stripped:
+            leading = len(line) - len(stripped)
+            if leading == 0:
+                name = stripped.split(":", 1)[0].strip()
+                found.add(name)
+    return found
+
+
+def _append_missing(
+    out_lines: list[str],
+    updates: dict[str, Any],
+    missing: set[str],
+) -> list[str]:
+    """Fehlende Keys/Sections an die richtige Position anhaengen.
+
+    Strategie:
+    - Group missing-Pfade nach Section.
+    - Pro Section: existiert sie? Dann finde das Section-Ende (naechste
+      Top-Level-Section oder EOF) und insert die Keys davor.
+    - Section existiert nicht? Append `section:` + alle Keys am EOF.
+    """
+    by_section: dict[str, dict[str, Any]] = {}
+    for path in missing:
+        section, key = path.split(".", 1)
+        by_section.setdefault(section, {})[key] = updates[path]
+
+    existing_sections = _existing_top_sections(out_lines)
+
+    # Phase 1: Insert in existing sections (am Section-Ende, vor dem
+    # Anfang der naechsten Section oder vor leeren Trailing-Zeilen).
+    sections_to_insert = {
+        s: kvs for s, kvs in by_section.items() if s in existing_sections
+    }
+    if sections_to_insert:
+        out_lines = _insert_into_sections(out_lines, sections_to_insert)
+
+    # Phase 2: Append new sections am EOF.
+    new_sections = {
+        s: kvs for s, kvs in by_section.items() if s not in existing_sections
+    }
+    if new_sections:
+        # Sicherstellen dass das letzte Char ein newline ist.
+        if out_lines and not out_lines[-1].endswith("\n"):
+            out_lines[-1] = out_lines[-1] + "\n"
+        for section, kvs in new_sections.items():
+            out_lines.append(f"\n{section}:\n")
+            for key, value in kvs.items():
+                out_lines.append(f"  {key}: {_format_scalar(value)}\n")
+
+    return out_lines
+
+
+def _insert_into_sections(
+    out_lines: list[str],
+    sections_to_insert: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Insert neue Keys am Ende der jeweiligen Section.
+
+    Section-Ende = letzte nicht-leere Zeile bevor die naechste Top-Level-
+    Section beginnt (oder das EOF wenn die Section am Ende der Datei steht).
+    """
+    # Pass 1: bestimme Section-Spans.
+    section_spans: dict[str, tuple[int, int]] = {}  # name -> (start_idx, end_idx)
+    current_section: str | None = None
+    section_start = -1
+    for i, raw in enumerate(out_lines):
+        line = raw.rstrip("\n")
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" in stripped:
+            leading = len(line) - len(stripped)
+            if leading == 0:
+                if current_section is not None:
+                    section_spans[current_section] = (section_start, i)
+                name = stripped.split(":", 1)[0].strip()
+                if name in sections_to_insert:
+                    current_section = name
+                    section_start = i
+                else:
+                    current_section = None
+                    section_start = -1
+    if current_section is not None:
+        section_spans[current_section] = (section_start, len(out_lines))
+
+    # Pass 2: rueckwaerts iterieren damit Insert-Indices nicht verschieben.
+    inserts: list[tuple[int, list[str]]] = []
+    for section, (start, end) in section_spans.items():
+        # Insert-Punkt = nach der letzten nicht-leeren Zeile innerhalb [start, end)
+        insert_at = end
+        while insert_at > start + 1 and out_lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+        # Build insert-Lines
+        new_lines: list[str] = []
+        for key, value in sections_to_insert[section].items():
+            new_lines.append(f"  {key}: {_format_scalar(value)}\n")
+        inserts.append((insert_at, new_lines))
+
+    # Apply rueckwaerts
+    inserts.sort(key=lambda t: t[0], reverse=True)
+    for idx, lines_to_add in inserts:
+        out_lines = out_lines[:idx] + lines_to_add + out_lines[idx:]
+    return out_lines
