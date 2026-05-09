@@ -62,7 +62,7 @@ class _SectionCard(QWidget):
         super().__init__()
         self.setObjectName("kiraSectionCard")
         # Stylesheet auf das objectName scopen, sonst erbt das alle
-        # Children und ueberschreibt z.B. QComboBox-Backgrounds.
+        # Children und überschreibt z.B. QComboBox-Backgrounds.
         self.setStyleSheet(
             "QWidget#kiraSectionCard { "
             "background: #fbfbfb; "
@@ -115,8 +115,8 @@ class _SectionCard(QWidget):
         self._form.addRow(label, widget_or_layout)
 
     def add_widget(self, widget) -> None:
-        """Add a full-width row ohne Label (z.B. fuer Status-Hinweise
-        oder buttons die ueber die ganze Card-Breite gehen sollen)."""
+        """Add a full-width row ohne Label (z.B. für Status-Hinweise
+        oder buttons die über die ganze Card-Breite gehen sollen)."""
         self._form.addRow(widget)
 
 
@@ -328,15 +328,15 @@ class SettingsDialog(QDialog):
         self._device.setToolTip(
             "Mikrofon-Auswahl. Gespeichert wird der Name (Substring-Match) -\n"
             "auch nach USB-Neustecken erkennt Kira denselben Eintrag wieder,\n"
-            "selbst wenn der PortAudio-Index sich aendert.\n"
-            "'Windows-Default' laesst Windows entscheiden - kann durch\n"
+            "selbst wenn der PortAudio-Index sich ändert.\n"
+            "'Windows-Default' lässt Windows entscheiden - kann durch\n"
             "Noise-Cancel-Filter (ASUS, Nahimic) routen und Whisper-Quality killen."
         )
         mic_row.addWidget(self._device, 1)
         refresh_btn = QPushButton("Aktualisieren")
         refresh_btn.setToolTip(
             "Geraete neu abfragen - nutzen wenn ein Mikro eingesteckt wurde\n"
-            "waehrend dieser Dialog offen ist."
+            "während dieser Dialog offen ist."
         )
         refresh_btn.clicked.connect(self._refresh_devices)
         mic_row.addWidget(refresh_btn)
@@ -390,8 +390,8 @@ class SettingsDialog(QDialog):
         self._styler_timeout.setSuffix(" s")
         self._styler_timeout.setValue(self._cfg.styler.timeout_seconds)
         self._styler_timeout.setToolTip(
-            "Timeout fuer den Polish-API-Call. 30 s ist robust fuer 12B-\n"
-            "Modelle im Cold-Start; 5 s reicht fuer warm gehaltene 2B-Modelle."
+            "Timeout für den Polish-API-Call. 30 s ist robust für 12B-\n"
+            "Modelle im Cold-Start; 5 s reicht für warm gehaltene 2B-Modelle."
         )
         card.add_row("Timeout", self._styler_timeout)
 
@@ -405,7 +405,7 @@ class SettingsDialog(QDialog):
         self._hotkey.setPlaceholderText("z.B. f8, ctrl+shift+space")
         self._hotkey.setToolTip(
             "Push-to-Talk-Hotkey (Format der `keyboard`-lib).\n"
-            "Aenderung wirkt nach Kira-Neustart."
+            "Änderung wirkt nach Kira-Neustart."
         )
         card.add_row("Diktat (PTT)", self._hotkey)
 
@@ -415,8 +415,8 @@ class SettingsDialog(QDialog):
         self._edit_hotkey.setPlaceholderText("z.B. f9 - leer = aus")
         self._edit_hotkey.setToolTip(
             "AI-Editing-Command-Hotkey: Text in der App selektieren,\n"
-            "Hotkey halten, sprechen ('mach das foermlich' / 'uebersetz\n"
-            "ins Englische'), loslassen. LLM ueberarbeitet die Selektion.\n"
+            "Hotkey halten, sprechen ('mach das förmlich' / 'übersetz\n"
+            "ins Englische'), loslassen. LLM überarbeitet die Selektion.\n"
             "Leer lassen, um das Feature zu deaktivieren."
         )
         card.add_row("Edit-Command", self._edit_hotkey)
@@ -440,7 +440,7 @@ class SettingsDialog(QDialog):
         return card
 
     def _build_section_about(self) -> _SectionCard:
-        card = _SectionCard("Ueber Kira", icon_emoji="ℹ")  # info emoji
+        card = _SectionCard("Über Kira", icon_emoji="ℹ")  # info emoji
 
         version_lbl = QLabel(f"Version {__version__}")
         version_lbl.setStyleSheet("color: #555; font-size: 11px;")
@@ -455,8 +455,8 @@ class SettingsDialog(QDialog):
         repo_lbl.setStyleSheet("font-size: 11px;")
         card.add_row("Quelle", repo_lbl)
 
-        # Drei Buttons rechts in einer Row: Anleitung / GPU pruefen /
-        # Updates suchen. Anleitung oeffnet WelcomeDialog im as_help-Modus.
+        # Drei Buttons rechts in einer Row: Anleitung / GPU prüfen /
+        # Updates suchen. Anleitung öffnet WelcomeDialog im as_help-Modus.
         # GPU-Check schaetzt VRAM-Bedarf von aktuellem Whisper + Polish
         # gegen die installierte Karte. Update-Button: Multi-Asset-Bundle-
         # Pull mit SHA256-Verify; Auto-Quit nach Setup-Launch.
@@ -469,9 +469,9 @@ class SettingsDialog(QDialog):
         )
         help_btn.clicked.connect(self._open_help_from_settings)
         button_row.addWidget(help_btn)
-        gpu_btn = QPushButton("GPU pruefen")
+        gpu_btn = QPushButton("GPU prüfen")
         gpu_btn.setToolTip(
-            "Pruef ob die installierte GPU genug VRAM hat fuer Whisper\n"
+            "Prüf ob die installierte GPU genug VRAM hat für Whisper\n"
             "+ aktuelles Polish-LLM. Zeigt Karten-Name, VRAM-Total,\n"
             "geschaetzten Bedarf und Headroom-Reserve."
         )
@@ -481,7 +481,7 @@ class SettingsDialog(QDialog):
         update_btn.setToolTip(
             "Holt die neueste Version von github.com/MikeGT4/kira,\n"
             "verifiziert SHA256-Hashes (falls vorhanden) und startet\n"
-            "den Setup-Wizard. Kira beendet sich dafuer kurz."
+            "den Setup-Wizard. Kira beendet sich dafür kurz."
         )
         update_btn.clicked.connect(self._run_update_check)
         button_row.addWidget(update_btn)
@@ -492,7 +492,7 @@ class SettingsDialog(QDialog):
     @staticmethod
     def _wrap_layout_in_widget(layout) -> QWidget:
         """QFormLayout.addRow erwartet QWidget oder einen QLayout-Wrapper —
-        die direkte Form mit QHBoxLayout funktioniert ueber addRow(widget),
+        die direkte Form mit QHBoxLayout funktioniert über addRow(widget),
         also wickeln wir's in einen leeren QWidget."""
         wrapper = QWidget()
         wrapper.setLayout(layout)
@@ -513,9 +513,9 @@ class SettingsDialog(QDialog):
         run_update_flow(parent=self, on_quit_request=request_quit)
 
     def _open_help_from_settings(self) -> None:
-        """Oeffnet WelcomeDialog im as_help=True-Modus aus dem Settings-
+        """Öffnet WelcomeDialog im as_help=True-Modus aus dem Settings-
         Dialog. Modal auf den Settings-Dialog (nicht globaler App), damit
-        der User nach dem Lesen genau zum vorigen Konfig-Punkt zurueckkehrt."""
+        der User nach dem Lesen genau zum vorigen Konfig-Punkt zurückkehrt."""
         from kira.ui.welcome_dialog import WelcomeDialog
         dlg = WelcomeDialog(as_help=True)
         dlg.setParent(self, dlg.windowFlags())

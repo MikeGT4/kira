@@ -3,18 +3,18 @@
 Ein Dialog, zwei Modi:
 
 - as_help=False (default): Welcome-Modus. Wird beim ersten Start gezeigt
-  wenn die installierte Version groesser ist als die im Marker
+  wenn die installierte Version größer ist als die im Marker
   vermerkte. Mit "Loslegen"-Button + "Bei diesem Update nicht mehr
   zeigen"-Checkbox (default ticked).
 
 - as_help=True: Help-Modus. Aus dem Tray-Menue ("Anleitung...") oder
   dem Hilfe-Button im Settings-Dialog aufgerufen. Title = "Anleitung",
-  kein Checkbox/Marker-Write, nur "Schliessen"-Button.
+  kein Checkbox/Marker-Write, nur "Schließen"-Button.
 
 Versions-aware Marker (seit v0.2): %APPDATA%\\Kira\\.welcomed enthaelt
 die Version-Number, die der User zuletzt durchgewinkt hat. Bei jedem
 Boot vergleichen wir vs __version__ — wenn die installierte Version
-groesser ist (User hat upgegradet), zeigen wir den Dialog erneut
+größer ist (User hat upgegradet), zeigen wir den Dialog erneut
 ("Was ist neu in vX.Y.Z?"). Old-style Marker (Inhalt "welcomed" aus
 v0.1.0) faellt unter "kann nicht geparst werden" und triggert den
 Dialog ein letztes Mal — danach steht die Version drin.
@@ -44,8 +44,8 @@ _WELCOME_MARKER = Path(os.environ.get("APPDATA", str(Path.home()))) / "Kira" / "
 def _load_branded_pixmap(size: int) -> QPixmap | None:
     """Largest-frame ICO loader (Pillow → QPixmap). QPixmap's nativer
     ICO-Loader nimmt eine willkuerlich kleine Frame und upscalet —
-    bleibt bei groesseren Sizes blurry. Pillow laesst uns die 256-Frame
-    explizit waehlen + einmal mit LANCZOS runterskalieren."""
+    bleibt bei größeren Sizes blurry. Pillow lässt uns die 256-Frame
+    explizit wählen + einmal mit LANCZOS runterskalieren."""
     src = _ASSETS / "icon-branded.ico"
     if not src.exists():
         return None
@@ -70,9 +70,9 @@ def is_first_run() -> bool:
     """True wenn der User die aktuelle Version noch nicht durchgewinkt hat.
 
     - Marker fehlt → True (echter erster Start)
-    - Marker existiert mit gueltiger Version >= __version__ → False
-    - Marker existiert mit gueltiger Version < __version__ → True (Upgrade)
-    - Marker existiert mit ungueltiger Version (v0.1-Stil "welcomed") → True
+    - Marker existiert mit gültiger Version >= __version__ → False
+    - Marker existiert mit gültiger Version < __version__ → True (Upgrade)
+    - Marker existiert mit ungültiger Version (v0.1-Stil "welcomed") → True
       (einmalig zeigen, beim Accept wird die Version geschrieben)
     """
     if not _WELCOME_MARKER.exists():
@@ -96,7 +96,7 @@ def is_first_run() -> bool:
 
 
 def mark_welcomed() -> None:
-    """Schreibe die aktuelle Version in den Marker. Beim naechsten Boot
+    """Schreibe die aktuelle Version in den Marker. Beim nächsten Boot
     mit derselben Version wird is_first_run False; nach Major/Minor-Bump
     zeigt sich der Dialog wieder ('Was ist neu')."""
     _WELCOME_MARKER.parent.mkdir(parents=True, exist_ok=True)
@@ -104,7 +104,7 @@ def mark_welcomed() -> None:
 
 
 _GUIDE_HTML = """
-<p>Kira ist dein lokaler Sprache-zu-Text-Helfer. Alles laeuft auf deinem PC —
+<p>Kira ist dein lokaler Sprache-zu-Text-Helfer. Alles läuft auf deinem PC —
 keine Cloud, keine Telemetrie. Whisper transkribiert, ein lokales LLM (Ollama)
 poliert.</p>
 
@@ -117,13 +117,13 @@ poliert.</p>
 <p style='color:#666; font-size:11px;'>Mindestens ~300 ms halten, sonst wird
 die Aufnahme als Aus-Versehen-Tap gewertet.</p>
 
-<h3>2. AI-Editing-Commands (Selektion ueberarbeiten)</h3>
+<h3>2. AI-Editing-Commands (Selektion überarbeiten)</h3>
 <ul>
   <li>Markiere Text in einer beliebigen App.</li>
   <li>Halte <b>F9</b> und sage einen Befehl:
-    „mach das foermlich" / „uebersetz auf Englisch" /
+    „mach das förmlich" / „übersetz auf Englisch" /
     „fass das in 3 Bullets zusammen".</li>
-  <li>Lass F9 los — die Selektion wird durch den ueberarbeiteten Text ersetzt.</li>
+  <li>Lass F9 los — die Selektion wird durch den überarbeiteten Text ersetzt.</li>
 </ul>
 <p style='color:#666; font-size:11px;'>F9 nutzt Strg+C im Hintergrund.
 Wenn nichts selektiert ist, ist der Hotkey ein No-Op.</p>
@@ -131,11 +131,11 @@ Wenn nichts selektiert ist, ist der Hotkey ein No-Op.</p>
 <h3>3. Datei transkribieren</h3>
 <p>Tray-Icon (rechts unten) → Rechtsklick → <b>„Datei transkribieren..."</b>.
 Audio (.wav, .mp3, .m4a, .flac, .ogg, .opus) oder Video
-(.mp4, .mov, .mkv, .webm) auswaehlen — Kira speichert die Transkription
+(.mp4, .mov, .mkv, .webm) auswählen — Kira speichert die Transkription
 als <code>.txt</code> neben der Eingabedatei.</p>
 
 <h3>4. Modi &amp; Custom Dictionary</h3>
-<p>Kira erkennt automatisch in welcher App du tippst (Outlook → foermliche
+<p>Kira erkennt automatisch in welcher App du tippst (Outlook → förmliche
 Email, Slack → lockerer Chat, VS Code → Code) und nutzt unterschiedliche
 Polish-Prompts. Eingebaute Modi:
 <code>email</code>, <code>chat</code>, <code>code</code>,
@@ -146,7 +146,7 @@ Polish-Prompts. Eingebaute Modi:
 <p>Eigennamen, Markennamen und Fachbegriffe werden oft falsch transkribiert
 („what's app" statt „WhatsApp", „chat g pt" statt „ChatGPT",
 „java skript" statt „JavaScript"). In Settings →
-„Rohconfig oeffnen..." kannst du eine Replacement-Map setzen, die
+„Rohconfig öffnen..." kannst du eine Replacement-Map setzen, die
 Whisper-Output VOR dem Polish korrigiert:</p>
 <pre style='background:#f4f4f4; color:#1d1d1f; padding:8px; border-radius:4px; font-size:10px;'>
 whisper:
@@ -157,10 +157,10 @@ whisper:
 </pre>
 
 <h3>5. Updates</h3>
-<p>Tray → <b>„Updates suchen..."</b> oder Settings → „Ueber Kira" → Update-Button.
-Kira prueft GitHub Releases, laedt das Multi-Asset-Bundle (Stub + Splits),
+<p>Tray → <b>„Updates suchen..."</b> oder Settings → „Über Kira" → Update-Button.
+Kira prüft GitHub Releases, lädt das Multi-Asset-Bundle (Stub + Splits),
 verifiziert SHA256-Hashes (falls im Release vorhanden), und startet den
-Setup-Wizard. Kira beendet sich dafuer kurz.</p>
+Setup-Wizard. Kira beendet sich dafür kurz.</p>
 
 <h3>6. Tray &amp; Status</h3>
 <p>Das Tray-Icon zeigt den Zustand:</p>
@@ -174,7 +174,7 @@ Setup-Wizard. Kira beendet sich dafuer kurz.</p>
 <h3>Konfiguration</h3>
 <p>Tray → <b>„Einstellungen..."</b>: Mic-Gain, Mikrofon-Auswahl,
 Whisper-Sprache, Polish-Modell, Hotkeys (F8 + F9), Clipboard-Restore-Delay.
-Komplexe Felder (Replacements, Modi, Initial-Prompt) ueber „Rohconfig oeffnen...".</p>
+Komplexe Felder (Replacements, Modi, Initial-Prompt) über „Rohconfig öffnen...".</p>
 
 <h3>Logs</h3>
 <p>Tray → <b>„Open Log..."</b>: <code>%LOCALAPPDATA%\\Kira\\kira.log</code>.
@@ -192,7 +192,7 @@ class WelcomeDialog(QDialog):
         if as_help:
             self.setWindowTitle("Kira - Anleitung")
             heading_text = "Kira - Anleitung"
-            cta_text = "Schliessen"
+            cta_text = "Schließen"
         else:
             self.setWindowTitle("Willkommen bei Kira")
             heading_text = "Willkommen bei Kira"
@@ -210,7 +210,7 @@ class WelcomeDialog(QDialog):
         # Apple-Look-Overrides als ANHANG an das Light-Theme-Stylesheet,
         # NICHT als Ersatz. apply_light_theme ruft setStyleSheet(_QSS) —
         # wenn wir hier mit reinem self.setStyleSheet("Apple-only...")
-        # ueberschreiben, verlieren wir die _QSS-Regeln (QLabel-color #222,
+        # überschreiben, verlieren wir die _QSS-Regeln (QLabel-color #222,
         # QPushButton-Restyle gegen Win11-Fluent's transparenten Default,
         # QComboBox-Theme). Resultat war: Win11-Dark-Palette schlug bei
         # Heading + Body wieder durch, weisses pre-Block hatte hell-Text-
@@ -326,10 +326,10 @@ class WelcomeDialog(QDialog):
         layout.addWidget(scroll, stretch=1)
 
         # Checkbox nur im Welcome-Modus — im Help-Modus waere "nicht mehr
-        # zeigen" sinnfrei (er wird ja nur on-demand geoeffnet).
+        # zeigen" sinnfrei (er wird ja nur on-demand geöffnet).
         # Text-Fassung passt zur version-aware Marker-Logik: wenn der User
         # tickt, schreiben wir die aktuelle Version ins Marker-File und der
-        # Dialog erscheint erst beim naechsten Update wieder.
+        # Dialog erscheint erst beim nächsten Update wieder.
         if not as_help:
             self.cb_dont_show = QCheckBox(
                 f"Bei diesem Update (v{__version__}) nicht erneut zeigen"
@@ -351,8 +351,8 @@ class WelcomeDialog(QDialog):
     def accept(self) -> None:
         # Marker nur im Welcome-Modus schreiben — der Help-Modus darf den
         # Onboarding-Status nicht beeinflussen (sonst koennte ein User der
-        # zum ersten Mal "Anleitung..." aus dem Tray oeffnet versehentlich
-        # den Welcome-Dialog beim naechsten Start ueberspringen).
+        # zum ersten Mal "Anleitung..." aus dem Tray öffnet versehentlich
+        # den Welcome-Dialog beim nächsten Start überspringen).
         if not self._as_help and getattr(self, "cb_dont_show", None) is not None:
             if self.cb_dont_show.isChecked():
                 mark_welcomed()

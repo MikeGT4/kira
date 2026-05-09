@@ -138,7 +138,7 @@ ASSETS = Path(__file__).parent.parent.parent / "assets"
 ICON_SIZE = 64
 ICON_BG_COLOR = (255, 196, 0, 255)   # warmes Gelb (#FFC400)
 ICON_BG_RADIUS = 12                  # Rounded-Corner-Radius in Pixel
-# Innenabstand fuer das Logo. Windows skaliert das 64x64 Image im
+# Innenabstand für das Logo. Windows skaliert das 64x64 Image im
 # Notification Area weiter runter (16x16 / 22x22). Bei <10% Padding
 # verschwindet der gelbe Rand bei dieser Skalierung praktisch komplett
 # (1.6 -> 1px gerundet) und der User sieht nur noch das schwarze Logo.
@@ -259,7 +259,7 @@ class KiraTray:
     ) -> None:
         self._on_quit = on_quit
         self._qt_marshal = qt_marshal
-        # Optional Transcriber-Instanz fuer File-Transcription-Menue.
+        # Optional Transcriber-Instanz für File-Transcription-Menue.
         # None = Menue-Eintrag „Datei transkribieren..." wird ausgeblendet
         # (z.B. im Test-Setup ohne Whisper-Modell). Wird in main.py nach
         # KiraApp-Konstruktion via tray.set_transcriber(...) gesetzt
@@ -290,7 +290,7 @@ class KiraTray:
             pystray.MenuItem("Open Log…", self._open_log),
         ]
         # File-Transcription-Eintrag nur sichtbar wenn ein Transcriber
-        # gewired ist — im Test-/Headless-Modus haengt das Menue sonst
+        # gewired ist — im Test-/Headless-Modus hängt das Menue sonst
         # auf einer toten Aktion.
         if self._transcriber is not None:
             items.append(
@@ -353,7 +353,7 @@ class KiraTray:
     def _open_transcribe_file(self, _icon, _item) -> None:
         """File-Transcription via Tray: QFileDialog → faster-whisper →
         .txt-Datei daneben. Worker-Thread, sonst blockiert Whisper das
-        Qt-Mainthread fuer Minuten bei langen Files."""
+        Qt-Mainthread für Minuten bei langen Files."""
         if self._transcriber is None:
             log.warning("transcribe-file menu fired but no transcriber wired")
             return
@@ -379,7 +379,7 @@ class KiraTray:
 
         path, _filter = QFileDialog.getOpenFileName(
             None,
-            "Audio- oder Videodatei zum Transkribieren auswaehlen",
+            "Audio- oder Videodatei zum Transkribieren auswählen",
             "",
             "Medien (*.wav *.mp3 *.m4a *.flac *.ogg *.opus *.mp4 *.mov *.mkv *.webm);;Alle Dateien (*.*)",
         )
@@ -487,7 +487,7 @@ class KiraTray:
         SHA256SUMS falls vorhanden, bevor der Setup-Stub gestartet wird.
 
         Setup-Launch tut Kira selbst beenden (via self._on_quit), sodass
-        das Programmverzeichnis fuer Inno schreibbar wird.
+        das Programmverzeichnis für Inno schreibbar wird.
         """
         self._marshal_to_qt(
             lambda: self._run_update_flow_marshalled(self._on_quit),
