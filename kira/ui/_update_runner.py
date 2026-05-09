@@ -1,17 +1,17 @@
-"""Shared Update-Workflow fuer Tray + Settings-Dialog.
+"""Shared Update-Workflow für Tray + Settings-Dialog.
 
 Eine Funktion: run_update_flow(parent, on_quit_request). Triggert
 Multi-Phase-Workflow:
     1. check_for_update (5-10s mit Busy-Cursor)
-    2. Falls 'newer': User-Dialog "vX.Y.Z verfuegbar - herunterladen?"
+    2. Falls 'newer': User-Dialog "vX.Y.Z verfügbar - herunterladen?"
     3. Background-Worker (QThread):
        a. download_bundle (1-30 Minuten je nach Verbindung, Progress)
        b. download SHA256SUMS.txt falls vorhanden
        c. verify_sha256sums (1-3 Min auf 13 GB)
-    4. User-Dialog: "Setup ist bereit. Kira wird beendet, Setup laeuft."
+    4. User-Dialog: "Setup ist bereit. Kira wird beendet, Setup läuft."
     5. Setup-Launch via subprocess (Liste-Args, KEIN shell=True →
        command-injection-frei) mit DETACHED_PROCESS damit Setup Kira-
-       Beendigung ueberlebt
+       Beendigung überlebt
     6. on_quit_request() → KiraTray._quit oder qt_app.quit()
 """
 from __future__ import annotations
@@ -126,10 +126,10 @@ class _UpdateWorker(QObject):
 
 
 def _launch_setup_detached(setup_path: str) -> None:
-    """Setup-Stub starten, sodass es Kira-Beendigung ueberlebt.
+    """Setup-Stub starten, sodass es Kira-Beendigung überlebt.
 
-    Sicherheits-Hinweis: setup_path ist via Liste an subprocess uebergeben
-    (KEIN shell=True), so dass kein Command-Injection moeglich ist - der
+    Sicherheits-Hinweis: setup_path ist via Liste an subprocess übergeben
+    (KEIN shell=True), so dass kein Command-Injection möglich ist - der
     Pfad wird nicht durch eine Shell geparst. Pfad-Kontrolle: kommt aus
     _bundle_dir() / asset_name; asset_name ist GitHub-API-controlled.
     """
@@ -190,10 +190,10 @@ def run_update_flow(
     bundle_count = len(result.bundle_assets)
     total_size_mb = sum(a.size for a in result.bundle_assets) / (1024 * 1024)
     msg = QMessageBox(parent)
-    msg.setWindowTitle("Kira - Update verfuegbar")
+    msg.setWindowTitle("Kira - Update verfügbar")
     msg.setIcon(QMessageBox.Icon.Question)
     msg.setText(
-        f"Version v{result.remote_version} ist verfuegbar.\n\n"
+        f"Version v{result.remote_version} ist verfügbar.\n\n"
         f"Du laeufst v{__version__}."
     )
     msg.setInformativeText(
@@ -253,7 +253,7 @@ def run_update_flow(
             "SHA256-Verifikation: bestanden.\n"
             if hash_verified
             else "Achtung: Release hatte keine SHA256SUMS-Datei. Hash-"
-            "Verifikation uebersprungen - du laedst auf eigene Verantwortung.\n"
+            "Verifikation übersprungen - du lädst auf eigene Verantwortung.\n"
         )
         confirm = QMessageBox(parent)
         confirm.setWindowTitle("Kira - Update bereit")
@@ -286,14 +286,14 @@ def run_update_flow(
             return
 
         if on_quit_request is not None:
-            log.info("Triggering Kira-Quit fuer Setup-Install")
+            log.info("Triggering Kira-Quit für Setup-Install")
             on_quit_request()
         else:
             light_information(
                 parent, "Kira",
-                "Setup laeuft. Bitte beende Kira ueber das Tray-Icon "
+                "Setup läuft. Bitte beende Kira über das Tray-Icon "
                 "(rechtsklick -> Quit Kira), damit Setup die Aktualisierung "
-                "abschliessen kann.",
+                "abschließen kann.",
             )
 
     def on_failed(message: str) -> None:

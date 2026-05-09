@@ -4,12 +4,12 @@ Pure Logic, kein UI. Ruft nvidia-smi via subprocess (kein PyTorch, kein
 pynvml — Mike's Stack ist faster-whisper + Ollama, beide ohne torch),
 schaetzt VRAM-Bedarf aus Modell-Namen, vergleicht.
 
-Aufgerufen aus dem Settings-Dialog "Ueber Kira"-Card als "GPU pruefen"-
+Aufgerufen aus dem Settings-Dialog "Über Kira"-Card als "GPU prüfen"-
 Button. Ergebnis wird via light_information / light_warning / light_critical
 als Dialog gezeigt.
 
-VRAM-Schaetzungen sind grob — Q4_K_M-Quantization fuer Ollama, float16 fuer
-faster-whisper. Ueberraschungen sind moeglich (Token-Kontext, multiple
+VRAM-Schaetzungen sind grob — Q4_K_M-Quantization für Ollama, float16 fuer
+faster-whisper. Überraschungen sind möglich (Token-Kontext, multiple
 concurrent generations), daher arbeiten wir mit einem Headroom-Buffer
 (>2 GB = ok, >0.5 GB = tight, sonst insufficient).
 """
@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 
 # Whisper / faster-whisper float16 VRAM-Bedarf in GB. Eintraege gegen
-# kleinste-zu-groesste sortiert; assess() iteriert in Insertion-Order
+# kleinste-zu-größte sortiert; assess() iteriert in Insertion-Order
 # und nimmt das erste Match — startswith semantics, so "large-v3-turbo"
 # vor "large-v3" damit der Turbo-Match zuerst greift.
 _WHISPER_VRAM_GB: dict[str, float] = {
@@ -41,7 +41,7 @@ _WHISPER_VRAM_GB: dict[str, float] = {
 }
 
 # Ollama Q4_K_M default. Substring-Match (kein Prefix), case-insensitive.
-# Eintraege mit groesseren Modellen zuerst damit "gemma3:27b" nicht von
+# Eintraege mit größeren Modellen zuerst damit "gemma3:27b" nicht von
 # "gemma3:2b" gefressen wird.
 _OLLAMA_VRAM_GB: dict[str, float] = {
     "llama3.3:70b": 40.0,
@@ -71,7 +71,7 @@ class GpuInfo:
 
 @dataclass(frozen=True)
 class VramAssessment:
-    """Resultat von assess(). status entscheidet ueber Dialog-Severity."""
+    """Resultat von assess(). status entscheidet über Dialog-Severity."""
     status: Literal["ok", "tight", "insufficient", "no_gpu"]
     gpu: GpuInfo | None
     whisper_model: str
@@ -90,7 +90,7 @@ def _nvidia_smi_candidates() -> list[str]:
     auf Mike's Box meldete der GPU-Check 'nicht im PATH' obwohl
     nvidia-smi.exe in C:\\Windows\\System32\\ liegt. Daher: erst
     bare-name probieren (nutzt PATH), dann absolute Win-Pfade als
-    Fallback fuer reduzierte PATH-Inheritance.
+    Fallback für reduzierte PATH-Inheritance.
     """
     candidates = ["nvidia-smi"]
     windir = os.environ.get("WINDIR") or "C:\\Windows"
@@ -157,7 +157,7 @@ def estimate_whisper_vram(model_name: str) -> float:
 
     Strategie: Backslashes zu Forwardslashes normalisieren, dann
     rsplit('/') um nur den letzten Pfad-Teil zu nehmen — das ist
-    immer der eigentliche Modell-Name. Praefixe 'whisper-' und
+    immer der eigentliche Modell-Name. Präfixe 'whisper-' und
     'faster-whisper-' werden gestrippt.
     """
     name = model_name.lower().strip().replace("\\", "/")
@@ -169,7 +169,7 @@ def estimate_whisper_vram(model_name: str) -> float:
     for prefix, gb in _WHISPER_VRAM_GB.items():
         if name.startswith(prefix):
             return gb
-    return 2.0  # konservativer Default fuer unbekannte Modelle
+    return 2.0  # konservativer Default für unbekannte Modelle
 
 
 def estimate_polish_vram(model_name: str) -> float:
@@ -203,7 +203,7 @@ def _suggest_smaller_polish(current: str) -> str:
 
 
 def assess(whisper_model: str, polish_model: str) -> VramAssessment:
-    """Vollstaendiger Check: GPU detect + VRAM estimate + Status-Dichotomie."""
+    """Vollständiger Check: GPU detect + VRAM estimate + Status-Dichotomie."""
     gpu = detect_gpu()
     w_vram = estimate_whisper_vram(whisper_model)
     p_vram = estimate_polish_vram(polish_model)
@@ -250,7 +250,7 @@ def assess(whisper_model: str, polish_model: str) -> VramAssessment:
             total_required_gb=total, headroom_gb=headroom,
             message=common + (
                 "Status: passt mit Komfort.\n"
-                "Genug Reserve fuer Desktop, Browser-GPU-Acceleration und "
+                "Genug Reserve für Desktop, Browser-GPU-Acceleration und "
                 "leichte parallele GPU-Last."
             ),
         )
@@ -265,7 +265,7 @@ def assess(whisper_model: str, polish_model: str) -> VramAssessment:
                 "Funktioniert solange nichts anderes die GPU stark belastet "
                 "(Spiel im Hintergrund, mehrere Browser-Fenster mit GPU-Acc, "
                 "Stable-Diffusion etc.). Bei Cold-Start kann es zu OOM-Errors "
-                "kommen.\n\nEmpfehlung: kleineres Polish-Modell waehlen."
+                "kommen.\n\nEmpfehlung: kleineres Polish-Modell wählen."
             ),
         )
     suggestion = _suggest_smaller_polish(polish_model)
