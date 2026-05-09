@@ -16,7 +16,7 @@ import keyboard
 
 log = logging.getLogger(__name__)
 
-SUPPORTED_COMBOS = {"f8"}
+SUPPORTED_COMBOS = {"f8", "f9"}
 
 
 class HotkeyListener:

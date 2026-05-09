@@ -4,12 +4,18 @@ import asyncio
 import logging
 from pathlib import Path
 import ollama
-from kira.config import Config
+from kira.config import Config, ModeConfig
 
 log = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent.parent / "prompts"
-VALID_MODES = ("email", "chat", "terminal", "code", "plain")
+# Modi mit eingebauten prompt-Files. User koennen weitere Modi via eigene
+# prompts/<name>.md anlegen — load_prompt faellt auf plain.md zurueck wenn
+# eine Datei fehlt, also ist die Liste hier nur Doku, nicht enforced.
+VALID_MODES = (
+    "email", "chat", "terminal", "code", "plain",
+    "clean", "translate_en", "email_formal",
+)
 
 
 def load_prompt(mode: str) -> str:
@@ -71,13 +77,20 @@ class Styler:
         if not text.strip():
             return text
         prompt = load_prompt(mode).format(text=text)
-        timeout = self._config.styler.timeout_seconds
+        # Per-Mode-Override: model + timeout + temperature koennen je
+        # Mode in StylerConfig.modes definiert sein. Fehlt der Mode dort
+        # oder ist ein Feld None, faellt's auf den globalen StylerConfig
+        # zurueck.
+        mode_cfg = self._config.styler.modes.get(mode, ModeConfig())
+        model = mode_cfg.model or self._config.styler.model
+        timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
+        temperature = mode_cfg.temperature
         try:
             response = await asyncio.wait_for(
                 self._client.chat(
-                    model=self._config.styler.model,
+                    model=model,
                     messages=[{"role": "user", "content": prompt}],
-                    options={"temperature": 0.2},
+                    options={"temperature": temperature},
                     keep_alive=self._config.styler.keep_alive,
                 ),
                 timeout=timeout,
@@ -93,7 +106,7 @@ class Styler:
                 log.warning(
                     "Styler returned empty response (model=%s, raw_chars=%d). "
                     "Falling back to raw transcription.",
-                    self._config.styler.model, len(text),
+                    model, len(text),
                 )
                 if self._config.styler.fallback_to_raw:
                     return text
@@ -109,7 +122,7 @@ class Styler:
                 "First-call cold-start can be ~14s for 27B-class models; "
                 "raise styler.timeout_seconds in config.yaml if this keeps "
                 "firing. Falling back to raw transcription.",
-                timeout, self._config.styler.model,
+                timeout, model,
             )
             if self._config.styler.fallback_to_raw:
                 return text
@@ -119,3 +132,60 @@ class Styler:
             if self._config.styler.fallback_to_raw:
                 return text
             raise
+
+    async def edit_command(self, selection: str, command: str) -> str:
+        """Apply an AI-Editing-Command auf eine Selektion.
+
+        F9-Pfad: User selektiert Text, sagt einen Voice-Command
+        ("mach das formeller", "uebersetz auf Englisch", "fass das in
+        3 Bullets zusammen"), das LLM rewriteset die Selektion.
+
+        Bei jedem Fehler-Pfad (Timeout, leere Antwort, Netzwerk) faellt
+        die Methode auf die Original-Selection zurueck — der Injector
+        kriegt also IMMER mindestens den Selection-Inhalt zurueck.
+        Wuerden wir leer returnen, wuerde Strg+V die Selektion mit
+        Garbage ueberschreiben.
+        """
+        if not selection.strip() or not command.strip():
+            return selection
+        template = load_prompt("edit_command")
+        prompt = template.format(selection=selection, command=command)
+        # Mode "edit_command" kann eigenes Modell + Timeout in
+        # StylerConfig.modes haben (z.B. ein staerkeres Modell als
+        # gemma3:12b fuer komplexe Edits).
+        mode_cfg = self._config.styler.modes.get("edit_command", ModeConfig())
+        model = mode_cfg.model or self._config.styler.model
+        timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
+        temperature = mode_cfg.temperature
+        try:
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options={"temperature": temperature},
+                    keep_alive=self._config.styler.keep_alive,
+                ),
+                timeout=timeout,
+            )
+            edited = response["message"]["content"].strip()
+            if not edited:
+                log.warning(
+                    "edit_command returned empty (model=%s, sel=%d chars, "
+                    "cmd=%r) — returning original selection",
+                    model, len(selection), command[:60],
+                )
+                return selection
+            return edited
+        except asyncio.TimeoutError:
+            log.warning(
+                "edit_command timed out after %.1fs (model=%s) — "
+                "returning original selection",
+                timeout, model,
+            )
+            return selection
+        except Exception as exc:
+            log.warning(
+                "edit_command failed (%s) — returning original selection",
+                exc,
+            )
+            return selection

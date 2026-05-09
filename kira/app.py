@@ -19,9 +19,17 @@ from kira.recorder import Recorder, DeviceUnavailable
 if sys.platform == "win32":
     from kira.transcriber_fw import TranscriptionResult
     from kira.context_win import detect_mode
+    from kira.edit_command import read_selection
 else:
     from kira.transcriber import TranscriptionResult
     from kira.context import detect_mode
+
+    def read_selection() -> str | None:  # type: ignore[misc]
+        """Mac stub — Edit-Command-Hotkey wird auf Mac aktuell nicht
+        wired (Mac-Branch nutzt Fn-Key fuer Standard-Polish, F9-Doppel-
+        binding waere ungewollt). Kein-op damit der Import nicht
+        kracht."""
+        return None
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +64,11 @@ class KiraApp:
         self._state = State.IDLE
         self._press_time: float | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Edit-Command-Pfad (F9): wird bei on_edit_press gesetzt und
+        # in _run_pipeline ausgewertet. Reset im Pipeline finally-Block
+        # plus im Short-Press-Pfad in on_hotkey_release.
+        self._edit_mode: bool = False
+        self._captured_selection: str | None = None
 
     @classmethod
     def for_test(cls) -> "KiraApp":
@@ -104,6 +117,28 @@ class KiraApp:
             return
         self._set_state(State.RECORDING)
 
+    def on_edit_press(self) -> None:
+        """F9 hold: Selection erfassen, dann recordet Voice-Command."""
+        if self._state != State.IDLE:
+            return
+        # read_selection() macht Strg+C-Roundtrip mit Sentinel-basierter
+        # Empty-Detection. Bei keiner Selection (oder Clipboard-Fail)
+        # bleibt der State IDLE und der Hotkey ist no-op — kein
+        # spuerbares Recording-Feedback.
+        selection = read_selection()
+        if selection is None:
+            log.info("Edit hotkey pressed without selection — ignoring")
+            return
+        self._captured_selection = selection
+        self._edit_mode = True
+        self.on_hotkey_press()
+        # Falls on_hotkey_press aus DeviceUnavailable o.ae. nicht in
+        # RECORDING gewechselt ist, Flags zuruecknehmen damit der naechste
+        # F8 nicht versehentlich als Edit interpretiert wird.
+        if self._state != State.RECORDING:
+            self._edit_mode = False
+            self._captured_selection = None
+
     def on_hotkey_release(self, duration_ms: int | None = None) -> None:
         if self._state != State.RECORDING:
             return
@@ -112,6 +147,11 @@ class KiraApp:
         self._press_time = None
         audio = self._recorder.stop()
         if (duration_ms or 0) < self._config.hotkey.min_duration_ms:
+            # Short-press path: pipeline laeuft nicht → finally-Reset
+            # greift nicht → wir muessen die Edit-Flags hier explizit
+            # zuruecksetzen, sonst pollutieren sie den naechsten Cycle.
+            self._edit_mode = False
+            self._captured_selection = None
             self._set_state(State.IDLE)
             return
         if self._loop is None:
@@ -128,6 +168,11 @@ class KiraApp:
         asyncio.run_coroutine_threadsafe(self._run_pipeline(audio), self._loop)
 
     async def _run_pipeline(self, audio: np.ndarray) -> None:
+        # Snapshot des Edit-States BEFORE finally clears them — sodass
+        # ein paralleles on_edit_press waehrend Pipeline-Laufzeit nicht
+        # das Verhalten der laufenden Pipeline aendert.
+        edit_mode = self._edit_mode
+        captured_selection = self._captured_selection
         try:
             self._set_state(State.TRANSCRIBING)
             transcription = self._transcriber.transcribe(audio)
@@ -141,12 +186,26 @@ class KiraApp:
                 self._set_state(State.IDLE)
                 return
             self._set_state(State.STYLING)
-            mode = detect_mode(self._config)
-            polished = await self._styler.polish(transcription.text, mode=mode)
-            log.info(
-                "Polish out (mode=%s, %d chars): %r",
-                mode, len(polished), polished[:80],
-            )
+            if edit_mode and captured_selection:
+                # F9-Pfad: Voice-Command + erfasste Selektion → LLM rewriteset
+                # die Selektion. Output landet im Inject, wo Strg+V die noch
+                # aktive Selektion in der Ziel-App ersetzt.
+                polished = await self._styler.edit_command(
+                    selection=captured_selection,
+                    command=transcription.text,
+                )
+                log.info(
+                    "Edit-command out (sel=%d chars, cmd=%r, out=%d chars): %r",
+                    len(captured_selection), transcription.text[:60],
+                    len(polished), polished[:80],
+                )
+            else:
+                mode = detect_mode(self._config)
+                polished = await self._styler.polish(transcription.text, mode=mode)
+                log.info(
+                    "Polish out (mode=%s, %d chars): %r",
+                    mode, len(polished), polished[:80],
+                )
             if not polished:
                 # Empty polish (e.g. fallback_to_raw=False with empty model
                 # response) used to fall through to inject(""), which is a
@@ -159,6 +218,10 @@ class KiraApp:
             log.exception("pipeline failed")
             self._set_state(State.ERROR)
         finally:
+            # Edit-Mode-Flags IMMER resetten — das hier ist der einzige
+            # garantierte Endpunkt fuer einen langen Press-Cycle.
+            self._edit_mode = False
+            self._captured_selection = None
             # Hold ERROR briefly so the tray icon actually shows yellow long
             # enough to notice; otherwise IDLE overwrote it within a frame.
             # Guard im Timer verhindert dass ein parallel-laufender

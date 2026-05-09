@@ -255,30 +255,55 @@ class KiraTray:
         self,
         on_quit: Callable[[], None],
         qt_marshal=None,
+        transcriber=None,
     ) -> None:
         self._on_quit = on_quit
         self._qt_marshal = qt_marshal
+        # Optional Transcriber-Instanz fuer File-Transcription-Menue.
+        # None = Menue-Eintrag „Datei transkribieren..." wird ausgeblendet
+        # (z.B. im Test-Setup ohne Whisper-Modell). Wird in main.py nach
+        # KiraApp-Konstruktion via tray.set_transcriber(...) gesetzt
+        # damit dieselbe Whisper-Instanz im PTT-Pfad und File-Pfad
+        # benutzt wird.
+        self._transcriber = transcriber
         self._state = State.IDLE
         self._status_label = "Status: Idle"
         self._icon: pystray.Icon | None = None
+
+    def set_transcriber(self, transcriber) -> None:
+        """Wird im main.py nach Tray-Konstruktion gerufen — die Tray
+        existiert bevor Transcriber gewarmupt ist, also late-binding."""
+        self._transcriber = transcriber
 
     def _build_menu(self) -> pystray.Menu:
         # default=True wires the entry to Windows-tray double-click /
         # left-click ("default activate"); rechtsklick zeigt das ganze
         # Menu wie gehabt. Settings ist die Default-Action, weil das der
         # häufigste Konfig-Touchpoint ist (Mic, Polish-Modell, Hotkey).
-        return pystray.Menu(
+        items = [
             pystray.MenuItem(self._status_label, None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "Einstellungen…", self._open_settings, default=True,
             ),
             pystray.MenuItem("Open Log…", self._open_log),
+        ]
+        # File-Transcription-Eintrag nur sichtbar wenn ein Transcriber
+        # gewired ist — im Test-/Headless-Modus haengt das Menue sonst
+        # auf einer toten Aktion.
+        if self._transcriber is not None:
+            items.append(
+                pystray.MenuItem(
+                    "Datei transkribieren…", self._open_transcribe_file,
+                ),
+            )
+        items.extend([
             pystray.MenuItem("Updates suchen…", self._check_for_updates),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("About Kira", self._about),
             pystray.MenuItem("Quit Kira", self._quit),
-        )
+        ])
+        return pystray.Menu(*items)
 
     def update_state(self, state: State) -> None:
         """Thread-safe state + icon update."""
@@ -312,6 +337,106 @@ class KiraTray:
         if not log_path.exists():
             log_path.write_text("", encoding="utf-8")
         subprocess.Popen(["notepad.exe", str(log_path)])
+
+    def _open_transcribe_file(self, _icon, _item) -> None:
+        """File-Transcription via Tray: QFileDialog → faster-whisper →
+        .txt-Datei daneben. Worker-Thread, sonst blockiert Whisper das
+        Qt-Mainthread fuer Minuten bei langen Files."""
+        if self._transcriber is None:
+            log.warning("transcribe-file menu fired but no transcriber wired")
+            return
+        self._marshal_to_qt(
+            lambda: self._show_transcribe_file_dialog(self._transcriber),
+            "transcribe-file dialog",
+        )
+
+    @staticmethod
+    def _show_transcribe_file_dialog(transcriber) -> None:
+        # Imports lazy: das Tray-Modul wird auf jedem Boot importiert,
+        # auch wenn der User nie File-Transcription nutzt — keine
+        # PyQt-Worker-Allokationen on-load.
+        from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
+        from PyQt6.QtWidgets import (
+            QFileDialog, QProgressDialog,
+        )
+        from kira.ui._dialog_style import (
+            apply_light_theme,
+            light_critical,
+            light_information,
+        )
+
+        path, _filter = QFileDialog.getOpenFileName(
+            None,
+            "Audio- oder Videodatei zum Transkribieren auswaehlen",
+            "",
+            "Medien (*.wav *.mp3 *.m4a *.flac *.ogg *.opus *.mp4 *.mov *.mkv *.webm);;Alle Dateien (*.*)",
+        )
+        if not path:
+            return  # User hat Cancel geklickt
+        log.info("File-Transcription requested: %s", path)
+
+        progress = QProgressDialog(
+            f"Transkribiere {Path(path).name}…",
+            "Abbrechen", 0, 0, None,
+        )
+        progress.setWindowTitle("Kira — Datei transkribieren")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        apply_light_theme(progress)
+        progress.show()
+
+        class _Worker(QObject):
+            done = pyqtSignal(str, str)   # output_path, language
+            failed = pyqtSignal(str)      # error message
+
+            def __init__(self, src_path: str):
+                super().__init__()
+                self._src = src_path
+
+            def run(self) -> None:
+                try:
+                    result = transcriber.transcribe_file(self._src)
+                    if not result.text:
+                        self.failed.emit(
+                            "Transkript ist leer — entweder Stille im File "
+                            "oder Whisper konnte nichts erkennen."
+                        )
+                        return
+                    out = Path(self._src).with_suffix(".txt")
+                    out.write_text(result.text, encoding="utf-8")
+                    self.done.emit(str(out), result.language)
+                except Exception as exc:
+                    log.exception("file-transcription worker crashed")
+                    self.failed.emit(f"Fehler: {exc}")
+
+        thread = QThread()
+        worker = _Worker(path)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+
+        def on_done(out_path: str, language: str) -> None:
+            progress.close()
+            thread.quit()
+            thread.wait()
+            light_information(
+                None, "Kira",
+                f"Fertig.\n\nTranskript gespeichert unter:\n{out_path}\n\n"
+                f"Erkannte Sprache: {language}",
+            )
+
+        def on_failed(message: str) -> None:
+            progress.close()
+            thread.quit()
+            thread.wait()
+            light_critical(None, "Kira", message)
+
+        worker.done.connect(on_done)
+        worker.failed.connect(on_failed)
+        thread.start()
+        # Refs am Progress-Dialog festhalten, sonst frisst der GC sie
+        # bevor der Worker fertig ist.
+        progress._kira_thread = thread  # type: ignore[attr-defined]
+        progress._kira_worker = worker  # type: ignore[attr-defined]
 
     def _about(self, _icon, _item) -> None:
         self._marshal_to_qt(self._show_about_dialog, "about dialog")

@@ -18,6 +18,13 @@ _HOME = Path.home()
 class HotkeyConfig(BaseModel):
     combo: str = "fn"
     min_duration_ms: int = 300
+    # Optional zweite Combo fuer AI-Editing-Commands. Strg+C nimmt die
+    # aktuelle Selection auf, der gehaltene Hotkey nimmt einen Voice-
+    # Command auf ("mach das formeller", "uebersetze ins Englische"),
+    # das LLM rewriteset die Selection und Strg+V ersetzt sie.
+    # None = Feature deaktiviert. Default "f9" auf Windows; Mac-Build
+    # ignoriert das Feld.
+    edit_combo: str | None = "f9"
 
 
 class AudioConfig(BaseModel):
@@ -46,6 +53,26 @@ class WhisperConfig(BaseModel):
     vad_threshold: float = 0.35
     condition_on_previous_text: bool = False
     initial_prompt: str | None = None
+    # Post-Whisper Find/Replace-Map fuer Eigennamen, Praxis-Begriffe,
+    # Patientenvornamen die Whisper systematisch falsch transkribiert.
+    # Wird angewendet NACH Halluzinations-Filter und VOR dem Polish.
+    # Match ist case-insensitive Substring; siehe kira/replacements.py.
+    replacements: dict[str, str] = Field(default_factory=dict)
+
+
+class ModeConfig(BaseModel):
+    """Per-Mode-Override fuer Polish-Parameter.
+
+    Ein Mode darf optional ein eigenes Modell + Timeout + Temperature
+    spezifizieren. Felder die hier None bleiben, fallen auf StylerConfig
+    zurueck. Mike's Use-Cases: Translation braucht Qwen3 (mehrsprachig
+    besser als gemma3:12b), Email-Formal braucht hoehere Temperature
+    fuer geschmeidigere Formulierung, Code-Mode braucht 0.0 fuer
+    Determinismus.
+    """
+    model: str | None = None
+    timeout_seconds: float | None = None
+    temperature: float = 0.2
 
 
 class StylerConfig(BaseModel):
@@ -61,6 +88,10 @@ class StylerConfig(BaseModel):
     # Pre-load the model at app startup with a tiny warmup request so the
     # very first user dictation doesn't pay the cold-start cost either.
     warmup_on_start: bool = True
+    # Optional Per-Mode-Overrides. Key = Mode-Name (matched gegen
+    # context_modes-Werte). Falls Mode hier nicht definiert oder Felder
+    # None: Defaults aus StylerConfig oben.
+    modes: dict[str, ModeConfig] = Field(default_factory=dict)
 
 
 class InjectorConfig(BaseModel):

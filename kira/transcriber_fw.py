@@ -36,6 +36,7 @@ if sys.platform == "win32":
 import numpy as np
 from faster_whisper import WhisperModel
 from kira.config import Config
+from kira import replacements
 
 log = logging.getLogger(__name__)
 
@@ -237,7 +238,75 @@ class Transcriber:
                     text,
                 )
                 return TranscriptionResult(text="", language=info.language)
+            # Post-Whisper Find/Replace fuer Eigennamen / Praxis-Begriffe.
+            # Logging diff-aware: nur wenn die Map tatsaechlich was geaendert
+            # hat, damit kira.log nicht bei jedem F8 ein "applied 0 fixes"
+            # zeigt.
+            mapping = wcfg.replacements
+            if mapping:
+                fixed = replacements.apply(text, mapping)
+                if fixed != text:
+                    log.info(
+                        "Replacements changed transcription "
+                        "(map_size=%d, before=%d chars, after=%d chars)",
+                        len(mapping), len(text), len(fixed),
+                    )
+                    text = fixed
             return TranscriptionResult(text=text, language=info.language)
         except Exception as exc:
             log.exception("faster-whisper transcription failed: %s", exc)
+            raise
+
+    def transcribe_file(self, path: str) -> TranscriptionResult:
+        """Transcribe einer Audio/Video-Datei mit File-Mode-Settings.
+
+        Im Gegensatz zu transcribe(audio_array) — das fuer kurze PTT-
+        Snippets aggressive Anti-Halluzinations-Settings nutzt — ist
+        diese Methode quality-optimiert fuer lange Files (Vorlesungen,
+        Voicememos, Interviews):
+
+        - beam_size=5 (vs 1): bessere Decoder-Suche, +0.5% WER aber
+          ~5x langsamer — bei File-Mode ist Throughput nicht kritisch.
+        - vad_filter=True (vs False): Silero-VAD ueberspringt Pausen,
+          verkuerzt total runtime und vermeidet Halluzinationen in
+          Stille.
+        - condition_on_previous_text=True (vs False): besseres Context-
+          Tracking fuer mehrere zusammenhaengende Saetze.
+
+        faster-whisper akzeptiert path-strings direkt und nutzt
+        intern PyAV/ffmpeg fuer Video-Demuxing — .mp4/.mkv funktionieren
+        also ohne externe Tools.
+
+        Replacements aus config werden wie im PTT-Pfad angewendet.
+        """
+        model = self._ensure_model()
+        wcfg = self._config.whisper
+        lang = wcfg.language
+        log.info("Transcribing file: %s (lang=%s)", path, lang)
+        try:
+            segments, info = model.transcribe(
+                str(path),
+                language=None if lang == "auto" else lang,
+                beam_size=5,
+                vad_filter=True,
+                condition_on_previous_text=True,
+                initial_prompt=wcfg.initial_prompt,
+            )
+            seg_list = list(segments)
+            text = " ".join(s.text.strip() for s in seg_list).strip()
+            if wcfg.replacements:
+                fixed = replacements.apply(text, wcfg.replacements)
+                if fixed != text:
+                    log.info(
+                        "File-Replacements: %d chars -> %d chars",
+                        len(text), len(fixed),
+                    )
+                    text = fixed
+            log.info(
+                "File transcribed: %d segments, %d chars, lang=%s",
+                len(seg_list), len(text), info.language,
+            )
+            return TranscriptionResult(text=text, language=info.language)
+        except Exception:
+            log.exception("File transcription failed: %s", path)
             raise

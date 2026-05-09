@@ -1,6 +1,6 @@
 ; Kira Windows installer -- Inno Setup script.
 ; Compile via:
-;   iscc /DVersion=0.1.0 /DBuildDir=<abs> /DOutputDir=<abs> installer/kira.iss
+;   iscc /DVersion=0.2.0 /DBuildDir=<abs> /DOutputDir=<abs> installer/kira.iss
 ; (the build_installer.ps1 wrapper supplies the /D defines)
 
 #ifndef Version
