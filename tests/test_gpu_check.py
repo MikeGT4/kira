@@ -28,6 +28,12 @@ from kira.gpu_check import (
     # MLX-Praefix wird gestripped
     ("mlx-community/whisper-large-v3-turbo", 1.6),
     ("whisper-medium", 1.0),
+    # Lokale Pfade — Mike's config kann z.B. lokales-Modell-Dir referenzieren
+    ("C:/Users/mike/models/faster-whisper-large-v3", 3.0),
+    ("C:\\Users\\mike\\models\\faster-whisper-large-v3-turbo", 1.6),
+    ("/home/user/.cache/faster-whisper/medium", 1.0),
+    # 'faster-whisper-' Praefix wird gestripped
+    ("faster-whisper-large-v3", 3.0),
 ])
 def test_estimate_whisper_vram_known_models(model, expected):
     assert estimate_whisper_vram(model) == expected
@@ -94,11 +100,36 @@ def test_detect_gpu_parses_nvidia_smi_output():
 
 
 def test_detect_gpu_returns_none_when_smi_missing():
+    """ALLE Kandidaten-Pfade (PATH-name + System32 + Program Files) failen."""
     with patch(
         "kira.gpu_check.subprocess.run",
         side_effect=FileNotFoundError("nvidia-smi"),
     ):
         assert detect_gpu() is None
+
+
+def test_detect_gpu_falls_back_to_system32_when_path_missing():
+    """1. Versuch (bare 'nvidia-smi' im PATH) failt → 2. Versuch
+    (C:\\Windows\\System32\\nvidia-smi.exe) klappt. Behebt Mike's Bug
+    wo pythonw.exe einen reduzierten PATH ohne System32 hatte."""
+    fake_out = "NVIDIA GeForce RTX 5090, 32607 MiB\n"
+    call_count = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # Erster Aufruf (bare 'nvidia-smi') failt mit FileNotFoundError
+            raise FileNotFoundError("nvidia-smi")
+        # Zweiter Aufruf (System32-Pfad) erfolgreich
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=fake_out, stderr="",
+        )
+
+    with patch("kira.gpu_check.subprocess.run", side_effect=fake_run):
+        gpu = detect_gpu()
+    assert gpu is not None
+    assert gpu.name == "NVIDIA GeForce RTX 5090"
+    assert call_count["n"] >= 2  # mind. der Fallback wurde probiert
 
 
 def test_detect_gpu_returns_none_when_smi_crashes():

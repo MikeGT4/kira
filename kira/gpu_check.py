@@ -15,9 +15,11 @@ concurrent generations), daher arbeiten wir mit einem Headroom-Buffer
 """
 from __future__ import annotations
 import logging
+import os
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 log = logging.getLogger(__name__)
@@ -81,28 +83,53 @@ class VramAssessment:
     message: str
 
 
+def _nvidia_smi_candidates() -> list[str]:
+    """nvidia-smi-Executable-Pfade, in Probier-Reihenfolge.
+
+    pythonw.exe (Kira's launcher) hat einen anderen PATH als cmd.exe —
+    auf Mike's Box meldete der GPU-Check 'nicht im PATH' obwohl
+    nvidia-smi.exe in C:\\Windows\\System32\\ liegt. Daher: erst
+    bare-name probieren (nutzt PATH), dann absolute Win-Pfade als
+    Fallback fuer reduzierte PATH-Inheritance.
+    """
+    candidates = ["nvidia-smi"]
+    windir = os.environ.get("WINDIR") or "C:\\Windows"
+    candidates.append(str(Path(windir) / "System32" / "nvidia-smi.exe"))
+    candidates.append(
+        "C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe"
+    )
+    return candidates
+
+
 def detect_gpu() -> GpuInfo | None:
     """nvidia-smi parsen. Return None wenn:
-    - nvidia-smi nicht im PATH (keine NVIDIA-Treiber)
+    - nvidia-smi nicht auffindbar (keine NVIDIA-Treiber)
     - nvidia-smi crasht (Treiber kaputt)
     - Output unparsable
 
     Format: 'NVIDIA GeForce RTX 5090, 32607 MiB'.
     """
-    try:
-        result = subprocess.run(  # noqa: S603 - list-args, kein shell
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total",
-                "--format=csv,noheader",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-            check=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        log.info("nvidia-smi not available: %s", exc)
+    last_exc: Exception | None = None
+    for executable in _nvidia_smi_candidates():
+        try:
+            result = subprocess.run(  # noqa: S603 - list-args, kein shell
+                [
+                    executable,
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+                check=True,
+            )
+            break
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            last_exc = exc
+            continue
+    else:
+        log.info("nvidia-smi not available (tried %d paths): %s",
+                 len(_nvidia_smi_candidates()), last_exc)
         return None
 
     output = result.stdout.strip()
@@ -123,14 +150,21 @@ def detect_gpu() -> GpuInfo | None:
 def estimate_whisper_vram(model_name: str) -> float:
     """faster-whisper-Modell-Name → VRAM-Schaetzung in GB.
 
-    Akzeptiert auch MLX-Praefix (mlx-community/whisper-large-v3-turbo)
-    den der Mac-Build nutzt — Transcriber._translate_model_name strippt
-    den schon, wir hier defensiv noch ein zweites Mal.
+    Akzeptiert:
+    - HF-Repo-Form: 'mlx-community/whisper-large-v3-turbo' (Mac-Build)
+    - lokaler Path: 'C:/Users/mike/models/faster-whisper-large-v3'
+    - bare name: 'large-v3' / 'medium' / 'tiny'
+
+    Strategie: Backslashes zu Forwardslashes normalisieren, dann
+    rsplit('/') um nur den letzten Pfad-Teil zu nehmen — das ist
+    immer der eigentliche Modell-Name. Praefixe 'whisper-' und
+    'faster-whisper-' werden gestrippt.
     """
-    name = model_name.lower().strip()
-    if "/" in name:
-        name = name.split("/", 1)[1]
-    if name.startswith("whisper-"):
+    name = model_name.lower().strip().replace("\\", "/")
+    name = name.rsplit("/", 1)[-1]
+    if name.startswith("faster-whisper-"):
+        name = name[len("faster-whisper-"):]
+    elif name.startswith("whisper-"):
         name = name[len("whisper-"):]
     for prefix, gb in _WHISPER_VRAM_GB.items():
         if name.startswith(prefix):
