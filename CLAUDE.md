@@ -483,6 +483,31 @@ is still on the v0.2 roadmap; until it lands, the in-app
 "Updates suchen…" entry stays a hint dialog (see
 `KiraTray._show_update_hint`).
 
+## Frontend/UI/UX-Pipeline (PFLICHT)
+
+Bei jedem UI-/Design-/Frontend-Task in diesem Projekt automatisch die passenden Skills + Plugins aktivieren — ohne dass Mike erinnern muss. Volle Mapping-Tabelle: [`~/CLAUDE.md`](../CLAUDE.md) und [`~/.claude/projects/-home-mikepollow/memory/feedback_frontend_skills_auto.md`](../.claude/projects/-home-mikepollow/memory/feedback_frontend_skills_auto.md).
+
+**Standard-Pipeline:**
+1. **Direction:** `frontend-design` (Anthropic) + `ui-ux-pro-max` (50 Styles, 21 Paletten, 50 Font-Pairings)
+2. **Implementierung:** `senior-frontend` (React/Next/TS/Tailwind) — Subagent `webdesigner` mit obigen Skills bewaffnet
+3. **Quality-Gate:** `web-design-guidelines` Skill (Vercel: 100+ A11y/Perf/UX-Regeln)
+4. **Usability-Audit:** `frontend-design-audit` Plugin (15 Prinzipien, fixt direkt im Code)
+5. **A11y (PFLICHT — DSGVO/Healthcare-Site):** `accesslint` Plugin (WCAG 2.2 audit→fix→verify) + `pa11y` + `axe` CLI
+6. **Performance:** `lighthouse` lokal
+7. **Bilder:** `nano-banana` (Gemini 3.1 Flash Image)
+8. **Figma:** `figma` MCP + `figma-use` CLI + `figma-export` CLI
+9. **Schnelle Mockups:** `playground` Plugin (interactive HTML-Artifacts) oder `flint` Plugin
+
+## Karpathy-Prinzipien (PFLICHT)
+
+Bei jedem Code-Edit, jeder Implementierung und jedem Refactor in diesem Projekt automatisch die 4 Karpathy-Prinzipien anwenden:
+1. **Think Before Coding** — Annahmen explizit machen BEVOR Code geschrieben wird
+2. **Simplicity First** — keine Over-Engineering, keine erfundenen Abstraktionen
+3. **Surgical Changes** — nur ändern was nötig ist (kein "while-I'm-here"-Refactor)
+4. **Goal-Driven Execution** — messbare Success-Kriterien VOR der Implementierung
+
+Volle Doku: [`~/CLAUDE.md`](../CLAUDE.md) und [`~/.claude/projects/-home-mikepollow/memory/feedback_karpathy_principles.md`](../.claude/projects/-home-mikepollow/memory/feedback_karpathy_principles.md). Plugin: `andrej-karpathy-skills@karpathy-skills`, Skill: `karpathy-guidelines`.
+
 ## License
 
 Personal use. See `LICENSE` (EN + DE) and `installer/license.de.txt`
