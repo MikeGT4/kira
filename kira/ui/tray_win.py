@@ -286,6 +286,7 @@ class KiraTray:
             pystray.MenuItem(
                 "Einstellungen…", self._open_settings, default=True,
             ),
+            pystray.MenuItem("Anleitung…", self._open_help),
             pystray.MenuItem("Open Log…", self._open_log),
         ]
         # File-Transcription-Eintrag nur sichtbar wenn ein Transcriber
@@ -337,6 +338,17 @@ class KiraTray:
         if not log_path.exists():
             log_path.write_text("", encoding="utf-8")
         subprocess.Popen(["notepad.exe", str(log_path)])
+
+    def _open_help(self, _icon, _item) -> None:
+        """Wiederverwendet WelcomeDialog im as_help=True-Modus — selber
+        Inhalt, ohne Marker-Schreiben + ohne 'nicht mehr zeigen'-Checkbox."""
+        self._marshal_to_qt(self._show_help_dialog, "help dialog")
+
+    @staticmethod
+    def _show_help_dialog() -> None:
+        from kira.ui.welcome_dialog import WelcomeDialog
+        dlg = WelcomeDialog(as_help=True)
+        getattr(dlg, "exec")()
 
     def _open_transcribe_file(self, _icon, _item) -> None:
         """File-Transcription via Tray: QFileDialog → faster-whisper →

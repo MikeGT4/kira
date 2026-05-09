@@ -455,13 +455,20 @@ class SettingsDialog(QDialog):
         repo_lbl.setStyleSheet("font-size: 11px;")
         card.add_row("Quelle", repo_lbl)
 
-        # Update-Button: Multi-Asset-Bundle-Pull mit SHA256-Verify (wenn
-        # SHA256SUMS.txt im Release ist). Auto-Quit nach Setup-Launch via
-        # QApplication.quit() — umgeht den Tray-Cleanup-Pfad
-        # (recorder.close etc.), aber das ist OK weil Inno's Setup auf
-        # Mutex-Release wartet und das OS Filehandles eh freigibt.
-        update_row = QHBoxLayout()
-        update_row.addStretch()
+        # Anleitung + Update als zwei Buttons rechts in einer Row.
+        # Anleitung oeffnet WelcomeDialog im as_help-Modus (kein Marker-
+        # Write, "Schliessen" statt "Loslegen"). Update-Button: Multi-
+        # Asset-Bundle-Pull mit SHA256-Verify (wenn SHA256SUMS.txt im
+        # Release ist). Auto-Quit nach Setup-Launch via QApplication.quit().
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        help_btn = QPushButton("Anleitung...")
+        help_btn.setToolTip(
+            "Volle Bedienungsanleitung: Diktat, Edit-Commands, File-\n"
+            "Transkription, Modi und Updates."
+        )
+        help_btn.clicked.connect(self._open_help_from_settings)
+        button_row.addWidget(help_btn)
         update_btn = QPushButton("Updates suchen...")
         update_btn.setToolTip(
             "Holt die neueste Version von github.com/MikeGT4/kira,\n"
@@ -469,8 +476,8 @@ class SettingsDialog(QDialog):
             "den Setup-Wizard. Kira beendet sich dafuer kurz."
         )
         update_btn.clicked.connect(self._run_update_check)
-        update_row.addWidget(update_btn)
-        card.add_widget(self._wrap_layout_in_widget(update_row))
+        button_row.addWidget(update_btn)
+        card.add_widget(self._wrap_layout_in_widget(button_row))
 
         return card
 
@@ -496,6 +503,15 @@ class SettingsDialog(QDialog):
                 inst.quit()
 
         run_update_flow(parent=self, on_quit_request=request_quit)
+
+    def _open_help_from_settings(self) -> None:
+        """Oeffnet WelcomeDialog im as_help=True-Modus aus dem Settings-
+        Dialog. Modal auf den Settings-Dialog (nicht globaler App), damit
+        der User nach dem Lesen genau zum vorigen Konfig-Punkt zurueckkehrt."""
+        from kira.ui.welcome_dialog import WelcomeDialog
+        dlg = WelcomeDialog(as_help=True)
+        dlg.setParent(self, dlg.windowFlags())
+        getattr(dlg, "exec")()
 
     def _build_hint(self) -> QLabel:
         hint = QLabel(
