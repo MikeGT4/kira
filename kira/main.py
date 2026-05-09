@@ -331,7 +331,11 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         from kira.ui.qt_marshal import MainThreadMarshal
         # Construct on the main thread so its signal/slot dispatch lands here.
         qt_marshal = MainThreadMarshal()
-        tray = KiraMenubar(on_quit=_on_tray_quit, qt_marshal=qt_marshal)
+        tray = KiraMenubar(
+            on_quit=_on_tray_quit,
+            qt_marshal=qt_marshal,
+            transcriber=transcriber,
+        )
     else:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 
@@ -392,6 +396,32 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         on_release=app.on_hotkey_release,
     )
     hotkey.start()
+
+    # Optional zweite Combo fuer AI-Editing-Commands (F9 Default).
+    # cfg.hotkey.edit_combo=None deaktiviert das Feature komplett. Press
+    # delegiert auf KiraApp.on_edit_press (das macht Selection-Capture
+    # und ruft danach intern on_hotkey_press), Release nutzt den
+    # gemeinsamen on_hotkey_release-Pfad — dieser entscheidet im Pipeline
+    # via _edit_mode-Flag ob Polish oder Edit-Command-LLM gefragt wird.
+    edit_hotkey = None
+    if cfg.hotkey.edit_combo:
+        try:
+            edit_hotkey = HotkeyListener(
+                combo=cfg.hotkey.edit_combo,
+                on_press=app.on_edit_press,
+                on_release=app.on_hotkey_release,
+            )
+            edit_hotkey.start()
+            log.info(
+                "Edit-Command hotkey aktiv (combo=%s)", cfg.hotkey.edit_combo,
+            )
+        except ValueError:
+            log.warning(
+                "edit_combo=%r ist nicht supported — Edit-Command-Feature "
+                "deaktiviert. Erlaubt: %s",
+                cfg.hotkey.edit_combo,
+                ", ".join(sorted(__import__("kira.hotkey_win", fromlist=["SUPPORTED_COMBOS"]).SUPPORTED_COMBOS)),
+            )
 
     tray.run_detached()
 

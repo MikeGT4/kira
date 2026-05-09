@@ -270,6 +270,84 @@ def test_warmup_swallows_exceptions(monkeypatch, fake_config):
     t.warmup()  # must not raise
 
 
+def test_transcribe_file_uses_quality_settings(monkeypatch, fake_config):
+    """File-Mode muss QUALITY-Settings nutzen (vad_filter=True, beam_size=5,
+    condition_on_previous_text=True), nicht die PTT-anti-Halluzinations-
+    Settings."""
+    from kira.transcriber_fw import Transcriber
+
+    seen: dict = {}
+    seen_path = {"val": None}
+
+    class FakeInfo:
+        language = "de"
+
+    class FakeSegment:
+        def __init__(self, text): self.text = text
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, audio, **kw):
+            seen_path["val"] = audio
+            seen.update(kw)
+            return iter([FakeSegment("Hallo Welt")]), FakeInfo()
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    t = Transcriber(fake_config)
+    result = t.transcribe_file("C:\\Users\\mike\\test.mp4")
+
+    assert result.text == "Hallo Welt"
+    assert result.language == "de"
+    # Path durchgereicht (als String):
+    assert seen_path["val"] == "C:\\Users\\mike\\test.mp4"
+    # Quality-Settings statt PTT-Settings:
+    assert seen["beam_size"] == 5, "File-Mode soll beam_size=5 nutzen"
+    assert seen["vad_filter"] is True, "File-Mode soll Silero-VAD nutzen"
+    assert seen["condition_on_previous_text"] is True, \
+        "File-Mode soll Context-Tracking nutzen"
+
+
+def test_transcribe_file_applies_replacements(monkeypatch, fake_config):
+    """File-Mode muss den replacements-Hook genauso anwenden wie der
+    PTT-Pfad — sonst zeigen User-Eigennamen-Korrekturen nur bei F8 Wirkung."""
+    from kira.transcriber_fw import Transcriber
+
+    class FakeInfo:
+        language = "de"
+
+    class FakeSegment:
+        def __init__(self, text): self.text = text
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, audio, **kw):
+            return iter([FakeSegment("Praxis im Mediku Wiesbaden")]), FakeInfo()
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    fake_config.whisper.replacements = {"im mediku": "im medicum"}
+    t = Transcriber(fake_config)
+    result = t.transcribe_file("/tmp/test.wav")
+    assert "im medicum" in result.text
+    assert "im Mediku" not in result.text
+
+
+def test_transcribe_file_propagates_exceptions(monkeypatch, fake_config):
+    """Wenn faster-whisper waehrend File-Transcription crasht (z.B. Codec-
+    Fehler bei kaputter Datei), muss die Exception propagaten — der Tray-
+    Worker konvertiert sie zu einem User-sichtbaren Error-Dialog."""
+    from kira.transcriber_fw import Transcriber
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, audio, **kw):
+            raise RuntimeError("ffmpeg: invalid data found")
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    t = Transcriber(fake_config)
+    with pytest.raises(RuntimeError, match="invalid data"):
+        t.transcribe_file("/tmp/broken.mp4")
+
+
 def test_ensure_model_is_thread_safe(monkeypatch, fake_config):
     """Concurrent calls to transcribe() must construct WhisperModel exactly once."""
     import threading

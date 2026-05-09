@@ -181,3 +181,114 @@ def test_hotkey_press_ignored_while_in_error_state():
     # Zweiter Press während ERROR: ignoriert (state != IDLE)
     app.on_hotkey_press()
     assert broken.start_calls == 1  # KEIN zweiter start()-Call
+
+
+# ===== Edit-Command-Pfad (F9) =========================================
+
+
+class _EditAwareStyler:
+    """Stub-Styler mit polish()+edit_command()-Methoden, der
+    Aufrufe protokolliert. Erlaubt Pipeline-Branch-Tests ohne Ollama."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.polish_calls = []
+        self.edit_calls = []
+
+    async def polish(self, text, mode):
+        self.polish_calls.append((text, mode))
+        return text
+
+    async def edit_command(self, selection, command):
+        self.edit_calls.append((selection, command))
+        return f"[edited]:{selection}"
+
+
+def test_edit_press_no_selection_stays_idle(monkeypatch):
+    """on_edit_press ohne Selection: bleibt IDLE, kein Recording, kein
+    Edit-Mode-Flag haengen. Fix-Prevention: Edit-Mode-Pollution beim
+    naechsten F8."""
+    monkeypatch.setattr("kira.app.read_selection", lambda: None)
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    assert app.state == State.IDLE
+    assert app._edit_mode is False
+    assert app._captured_selection is None
+
+
+def test_edit_press_with_selection_enters_recording_with_flags(monkeypatch):
+    monkeypatch.setattr("kira.app.read_selection", lambda: "selected text")
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    assert app.state == State.RECORDING
+    assert app._edit_mode is True
+    assert app._captured_selection == "selected text"
+
+
+def test_edit_pipeline_calls_edit_command_not_polish(monkeypatch):
+    """Voller F9-Cycle: press (mit Selection) → release → Pipeline
+    nimmt edit_command-Pfad, nicht polish."""
+    monkeypatch.setattr("kira.app.read_selection", lambda: "hi leute")
+    cfg = Config()
+    styler = _EditAwareStyler(cfg)
+    injector = _RecordingInjector()
+    app = KiraApp(
+        config=cfg,
+        recorder=Recorder(),
+        transcriber=KiraApp.for_test()._transcriber,  # returns "stub"
+        styler=styler,
+        injector=injector,
+    )
+    app.on_edit_press()
+    assert app.state == State.RECORDING
+    app.on_hotkey_release(duration_ms=500)
+    assert app.state == State.IDLE
+    # Edit-Pfad genommen, NICHT polish
+    assert len(styler.edit_calls) == 1
+    assert styler.edit_calls[0] == ("hi leute", "stub")
+    assert len(styler.polish_calls) == 0
+    # Injection mit Edit-Output
+    assert injector.last == "[edited]:hi leute"
+
+
+def test_normal_f8_pipeline_still_calls_polish(monkeypatch):
+    """Sicherstellen dass F8 (ohne edit_press) weiterhin polish() ruft,
+    nicht versehentlich edit_command. Regression-Guard fuer den Branch."""
+    cfg = Config()
+    styler = _EditAwareStyler(cfg)
+    injector = _RecordingInjector()
+    app = KiraApp(
+        config=cfg,
+        recorder=Recorder(),
+        transcriber=KiraApp.for_test()._transcriber,
+        styler=styler,
+        injector=injector,
+    )
+    app.on_hotkey_press()
+    app.on_hotkey_release(duration_ms=500)
+    assert len(styler.polish_calls) == 1
+    assert len(styler.edit_calls) == 0
+
+
+def test_edit_flags_reset_after_pipeline(monkeypatch):
+    """Nach erfolgreicher Edit-Pipeline muessen _edit_mode und
+    _captured_selection wieder None sein, damit der naechste F8
+    nicht versehentlich als Edit interpretiert wird."""
+    monkeypatch.setattr("kira.app.read_selection", lambda: "selection")
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    app.on_hotkey_release(duration_ms=500)
+    assert app._edit_mode is False
+    assert app._captured_selection is None
+
+
+def test_edit_flags_reset_after_short_press(monkeypatch):
+    """Short-Press (unter min_duration_ms) skippt die Pipeline — Flags
+    muessen trotzdem zuruecksetzen."""
+    monkeypatch.setattr("kira.app.read_selection", lambda: "selection")
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    app.on_hotkey_release(duration_ms=50)  # below 300ms
+    assert app.state == State.IDLE
+    assert app._edit_mode is False
+    assert app._captured_selection is None
