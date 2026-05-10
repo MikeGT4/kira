@@ -180,16 +180,37 @@ Filename: "{tmp}\OllamaSetup.exe"; \
 ; kira/setup_wizard.py, which downloads them on first run via huggingface_hub
 ; + ollama pull.
 
-; Step 9 -- embed icon into kira.exe / kira-once.exe via rcedit.
-Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\python\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
-    StatusMsg: "Bette Icon in kira.exe ein..."; \
-    Flags: waituntilterminated
+; Phase F2-23: rcedit-Steps DEAKTIVIERT.
+;
+; rcedit modifiziert PE-Resources (Icon + Version-Strings) der pip-
+; generierten kira.exe / kira-once.exe. Diese pip-Wrapper sind aber ein
+; PE-Loader + APPENDED ZIP-Stream am EXE-Ende (klassisches pip/distlib-
+; Pattern, "shebang+zip"). rcedit raubt beim PE-Section-Rewrite das ZIP
+; raus, der Wrapper ist danach silent-corrupted: Windows-PE-Loader laedt
+; die EXE, der pip-Stub kann sein script-payload nicht finden, exit 1
+; ohne stdout/stderr/log/MsgBox -- exakt was Mike beim Bundle-Test sah.
+;
+; Trade-off: kira.exe + kira-once.exe haben jetzt das pip-default-Icon
+; (Python-Logo). Datei-Explorer / Alt-Tab zeigen das. Tray-Icon bleibt
+; das gelb-branded (kommt zur Laufzeit aus tray_win.py). Lnks zeigen
+; auf icon-branded.ico via [Icons] IconFilename. Kosmetischer Verlust
+; nur in Datei-Explorer-View, funktional sauber.
+;
+; Fix-Pfad fuer spaeter: rcedit-x64.exe v2.0.0 hat den Bug nachweislich.
+; Alternativen: PEresedit, ResHacker, oder direkt distlib-Wrappers mit
+; dem Icon-Resource via __ICON__-Marker generieren (komplex). Erst nach
+; Code-Signing-Track relevant.
+;
+; Filename: "{app}\tools\rcedit-x64.exe"; \
+;     Parameters: """{app}\python\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
+;     StatusMsg: "Bette Icon in kira.exe ein..."; \
+;     Flags: waituntilterminated
 
-Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\python\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
-    StatusMsg: "Bette Icon in kira-once.exe ein..."; \
-    Flags: waituntilterminated
+; F2-23 ALSO DISABLED -- selber Wrapper-Corruption-Bug:
+; Filename: "{app}\tools\rcedit-x64.exe"; \
+;     Parameters: """{app}\python\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
+;     StatusMsg: "Bette Icon in kira-once.exe ein..."; \
+;     Flags: waituntilterminated
 
 ; Step 11 -- config.yaml: write only if missing. Implemented in [Code] (Task 10).
 ; Step 12 -- Lnks via [Icons]; already handled.
