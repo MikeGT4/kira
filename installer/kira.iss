@@ -32,10 +32,11 @@ Compression=lzma2/max
 SolidCompression=yes
 ; Slim bundle (~1.5 GB): single-file Setup.exe, no .bin splits. Comfortably
 ; under GitHub's 2 GiB per-asset limit. The fat bundle (v0.1.0) needed
-; DiskSpanning=yes with 2 GiB slices because Whisper + Gemma + Ollama-models
-; pushed it past 13 GB; the first-run wizard now pulls those at runtime, so
-; the installer ships only the embedded Python, wheels, and OllamaSetup.exe.
-DiskSpanning=no
+; OllamaSetup.exe (1.98 GB) + Embedded Python + Wheels = ~3.5 GB total —
+; ueber GitHub-Release-Asset-Limit (2 GiB). DiskSpanning=yes mit 1.99 GiB
+; Slices → Inno produziert 1 EXE + 1-2 .bin-Splits, alle unter 2 GiB.
+DiskSpanning=yes
+DiskSliceSize=2147483647
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
@@ -177,8 +178,12 @@ begin
   TempFile := ExpandConstant('{tmp}\nvidia-smi.txt');
   ForceDirectories(ExpandConstant('{tmp}'));
 
+  // Pascal-Quoting-Hell: Triple-Quotes im Outer-`"..."` brechen cmd-
+  // Parser auf manchen Win11-Boxen → "nicht gefunden" trotz vorhandener
+  // RTX. Ohne Outer-Quotes + Inner-Quotes nur einfach: cmd /c versteht
+  // das, TempFile-Pfad in nem einzelnen Quote-Pair.
   ExecOk := Exec('cmd.exe',
-    '/c "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > """ + TempFile + """ 2>NUL"',
+    '/c nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   if ExecOk and (ResultCode = 0) and LoadStringFromFile(TempFile, FileTextA) then begin
