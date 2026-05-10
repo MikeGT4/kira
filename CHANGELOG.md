@@ -1,8 +1,60 @@
 # Changelog
 
-## v0.2.0 (work-in-progress) — 2026-05-09
+## v0.2.0 — 2026-05-10
 
-### Late-Day Review-Welle (commit `30dd02c`)
+### WSL-Decoupling + Slim-Installer (2026-05-10)
+
+Mike's Dev-PC entkoppelt von WSL-Bindungen, plus Distri-Format auf
+Slim-Installer mit First-Run-Wizard umgestellt. End-User-Erlebnis: eine
+Setup-EXE (~1.5 GB) statt 8-File-Bundle (13 GB), Modelle werden beim
+ersten Start gepullt.
+
+- **Source-Tree auf NTFS:** Kira's Editable-Install zeigt nicht mehr
+  auf `\\wsl.localhost\…`. WSL kann jetzt heruntergefahren werden ohne
+  dass Kira ausfällt. Phase-A-Migration auf Mike's PC: alter
+  WSL-Tree → Backup, neuer Tree unter `C:\Users\mike\dev\kira\` mit
+  Symlink `~/claude_kira` für unveränderten WSL-Bash-Workflow.
+  Ollama läuft jetzt nativ auf Windows (`winget install Ollama.Ollama`,
+  v0.23.x), nicht mehr in WSL-Ubuntu via systemd + wslrelay.
+- **Setup-Scripts mit `-Source`-Param:** `install_win.ps1`,
+  `install_autostart.ps1`, `embed_icon.ps1` arbeiten ohne
+  UNC-Hardcode — Default `$PSScriptRoot\..` macht sie repo-relativ.
+  PR-Material für Public-Repo.
+- **First-Run-Wizard (`kira/setup_wizard.py`):** Qt-`QWizard` mit
+  3 Pages (Welcome, Download, Finished). 3 Worker-Threads pullen
+  parallel: `WhisperDownloadWorker` via `huggingface_hub.snapshot_download`
+  (`Systran/faster-whisper-large-v3`, ~3 GB), `OllamaSetupWorker` führt
+  embedded `OllamaSetup.exe /S /NORESTART` aus wenn Ollama nicht da,
+  `GemmaPullWorker` `ollama pull gemma3:12b` (~8 GB). Cancel via
+  `threading.Event` + Subprocess-`terminate()` (Critical-Fix —
+  `QThread.quit()` hatte keinen Effekt auf die blockierenden run()s).
+  Cross-Worker-Abort: Whisper-Error stoppt Ollama+Gemma sofort statt
+  8 GB unnötig zu pullen.
+- **First-Run-Detection (`kira/firstrun.py`):** Marker-File
+  `%APPDATA%\Kira\.first-run-complete` wird NUR bei Total-Erfolg in
+  `SetupWizard.accept()` geschrieben. Bei Crash/Cancel kein Marker →
+  Wizard erscheint beim nächsten Start wieder. Bei Marker-Write-Fail
+  zeigt Wizard `QMessageBox.warning` mit Klartext-Hint.
+- **127.0.0.1 statt `localhost`:** Win11 24H2+ resolvt `localhost` zu
+  IPv6 `::1`, Ollama bindet IPv4. Kira's Polish-Endpoint hart-codiert
+  auf `http://127.0.0.1:11434/api/tags`.
+- **Inno-Wizard-Branding:** `WizardStyle=modern`, Side-Image
+  (164×314 BMP24, gelb-branded Kira-Glyph + Wordmark + digitalroots-
+  Footer auf dunkelgrauem `#1c1c1c`-BG), Top-Image (55×58),
+  `LicenseFile`. Custom Welcome/Finished Pages mit deutschem Wording
+  via `[Messages]`-Section. Asset-Generator
+  `scripts/build_wizard_images.py` (Pillow-basiert).
+- **Slim-Bundle-Build:** `scripts/build_installer.ps1` zieht Whisper +
+  Gemma raus, embedded `OllamaSetup.exe` rein (~600 MB,
+  `installer/embedded/`). `DiskSpanning=no` → Single-File-EXE
+  (passt unter GitHub-Release-2-GiB-Limit). Sub-Installer-`[Run]` mit
+  `Check: NeedsOllama` Pascal-Function (testet
+  `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`).
+- **31 neue Tests** in `tests/test_firstrun.py` (4) +
+  `tests/test_setup_wizard.py` (27, davon 5 Cancel/Abort/Marker-Fixup-
+  Tests).
+
+### Late-Day Review-Welle (commit `30dd02c`, 2026-05-09)
 
 4-Subagenten-Review (code-reviewer, security-auditor, silent-failure-
 hunter, best-practice-checker) parallel dispatched. 13+ Findings,
