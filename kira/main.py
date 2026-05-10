@@ -220,6 +220,19 @@ _ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 _ICON_PATH = _ASSETS_DIR / "icon-branded.ico"
 
 
+def _resource_path(rel_path: str) -> Path:
+    """Resolve a file relative to bundled resources or the source tree.
+
+    Inside a PyInstaller onefile bundle ``sys._MEIPASS`` points at the
+    extracted temp dir; outside (editable dev install) we fall back to the
+    repo root two levels up from this file. The wizard's installer path
+    falls under both paths for the same relative spec.
+    """
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / rel_path
+    return Path(__file__).resolve().parent.parent / rel_path
+
+
 def _set_windows_app_identity() -> None:
     # Without an explicit AppUserModelID the Windows shell keys the taskbar /
     # Alt-Tab / notification grouping off pythonw.exe, so Kira inherits the
@@ -282,6 +295,30 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         qt_app.setWindowIcon(QIcon(str(_ICON_PATH)))
     else:
         log.warning("icon not found at %s — taskbar will use default", _ICON_PATH)
+
+    # First-run wizard: vor Splash + Welcome, weil ohne Whisper-Modell + Ollama
+    # die Tray gar nichts Sinnvolles tun kann. Marker liegt unter
+    # %APPDATA%\Kira\.first-run-complete und wird ausschliesslich von
+    # SetupWizard.accept() gesetzt — ein Cancel laesst ihn fehlen, sodass der
+    # User beim naechsten Start wieder den Wizard sieht.
+    # Alias als is_first_setup_run um Namens-Kollision mit dem WelcomeDialog-
+    # is_first_run weiter unten zu vermeiden — beide checken unterschiedliche
+    # Marker (.first-run-complete vs .welcomed-version-string).
+    from kira.firstrun import is_first_run as is_first_setup_run
+    if is_first_setup_run():
+        from kira.setup_wizard import SetupWizard
+
+        # Whisper-Target deckt sich mit der Default-Convention aus
+        # config.yaml.template ("C:/Users/${USERNAME}/models/...").
+        whisper_target = Path.home() / "models" / "faster-whisper-large-v3"
+        ollama_setup = _resource_path("installer/embedded/OllamaSetup.exe")
+
+        log.info("First-run detected — launching SetupWizard")
+        wizard = SetupWizard(whisper_target, ollama_setup)
+        wizard_result = wizard.exec()
+        if wizard_result != SetupWizard.DialogCode.Accepted:
+            log.warning("First-run wizard aborted by user — exiting.")
+            return
 
     # Boot splash with the digital-roots logo — sequentiell vor dem Welcome.
     # Vorher liefen Splash + Welcome PARALLEL: Splash (frameless, OnTop)
