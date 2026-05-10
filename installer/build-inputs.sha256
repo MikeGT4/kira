@@ -1,0 +1,16 @@
+# SHA256 hashes der Build-Inputs.
+#
+# Re-pinning bei Refresh:
+#   pwsh -Command "(Get-FileHash -Algorithm SHA256 <file>).Hash.ToLower()"
+# oder den Build mit -AcceptUnpinnedHashes laufen lassen, dann committen.
+#
+# Format: <hash>  <filename> (zwei Spaces zwischen Hash und Dateiname).
+#
+# TODO: Mike committet die echten Hashes nach dem ersten erfolgreichen
+# F2-Build (Build-Script wirft sonst klare Fehlermeldung). Auto-pin via
+# -AcceptUnpinnedHashes laeuft als TOFU (trust-on-first-use).
+#
+# python-3.12.10-embed-amd64.zip
+# get-pip.py
+# rcedit-x64.exe
+# OllamaSetup.exe

@@ -48,8 +48,12 @@ def _load_branded_icon() -> Image.Image:
         largest = max(sizes, key=lambda s: s[0] * s[1])
         try:
             from PIL import IcoImagePlugin  # type: ignore[import-untyped]
-            ico_img = IcoImagePlugin.IcoFile(open(ico, "rb"))
-            img = ico_img.getimage(largest)
+            # F2-10: with-block damit der File-Handle definitiv geschlossen
+            # wird; vorher leakte das Handle bei jedem Aufruf weil
+            # IcoImagePlugin.IcoFile(open(...)) nichts schliesst.
+            with open(ico, "rb") as fh:
+                ico_img = IcoImagePlugin.IcoFile(fh)
+                img = ico_img.getimage(largest)
         except (ImportError, AttributeError, OSError):
             img.load()
     return img.convert("RGBA")

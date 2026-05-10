@@ -7,6 +7,17 @@
 # Generated 2026-04-25 from Mike's kira-venv (Win Python 3.12.10).
 # Excluded by hand: editable kira install, dev/test-only packages
 # (pytest, pytest-asyncio, soundfile, py2app, pluggy, iniconfig).
+#
+# F2-1: PEP-517 Build-Backend-Stack. build_installer.ps1 baut das
+# Kira-Wheel im pre-pack-Step (`pip wheel`) und Inno's [Run]-pip-install
+# laeuft mit --no-build-isolation, sollte also nie auf hatchling treffen.
+# Trotzdem aufgenommen als defense-in-depth: falls jemand per Subagent-
+# Refactor PEP-517 wieder anschaltet, fehlt's nicht silent im Bundle.
+hatchling>=1.21
+pluggy>=1.4
+editables>=0.5
+pathspec>=0.12
+trove-classifiers>=2024
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0

@@ -11,8 +11,11 @@
 #   - Inno Setup 6 (provides iscc.exe; system-wide, per-user, or on PATH)
 #   - %USERPROFILE%\kira-venv exists (Mike's existing dev venv) for pip download
 
+[CmdletBinding()]
 param(
-    [switch]$SkipWheelDownload
+    [string]$OutputDir = "$env:USERPROFILE\OneDrive\Desktop\Kira",
+    [switch]$SkipWheelDownload,
+    [switch]$AcceptUnpinnedHashes
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +26,60 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Get-Item (Join-Path $PSScriptRoot "..")).FullName
 $BuildDir = Join-Path $RepoRoot "build"
 $CacheDir = Join-Path $BuildDir "_cache"
-$OutputDir = "C:\Users\mike\OneDrive\Desktop\Kira"
 $VenvPython = "$env:USERPROFILE\kira-venv\Scripts\python.exe"
+$HashPinFile = Join-Path $RepoRoot "installer\build-inputs.sha256"
+
+# F2-6: SHA256-Pin-Helpers. Verify-Sha256 wirft auf mismatch.
+# Read-PinnedHash liest ein Tag aus build-inputs.sha256 (Format:
+# "<hash>  <filename>", '#' Comment-Lines werden ignoriert).
+function Read-PinnedHash {
+    param([string]$Filename)
+    if (-not (Test-Path $HashPinFile)) {
+        return $null
+    }
+    foreach ($line in (Get-Content $HashPinFile)) {
+        $stripped = $line.Trim()
+        if ($stripped.StartsWith('#') -or $stripped -eq '') { continue }
+        $parts = $stripped -split '\s+', 2
+        if ($parts.Length -eq 2 -and $parts[1].Trim() -eq $Filename) {
+            return $parts[0].Trim().ToLower()
+        }
+    }
+    return $null
+}
+
+function Append-PinnedHash {
+    param([string]$Filename, [string]$Hash)
+    $line = "$Hash  $Filename"
+    if (-not (Test-Path $HashPinFile)) {
+        New-Item -ItemType File -Force -Path $HashPinFile | Out-Null
+    }
+    Add-Content -Path $HashPinFile -Value $line -Encoding UTF8
+}
+
+function Verify-Or-Pin {
+    param([string]$File, [string]$Filename)
+    $actual = (Get-FileHash -Algorithm SHA256 $File).Hash.ToLower()
+    $expected = Read-PinnedHash -Filename $Filename
+    if ($expected) {
+        if ($actual -ne $expected) {
+            throw "SHA256 mismatch for $Filename`n  expected: $expected`n  actual:   $actual`nIf the upstream binary was legitimately updated, edit $HashPinFile and re-pin."
+        }
+        Write-Host "  sha256 OK ($Filename)"
+    } else {
+        if (-not $AcceptUnpinnedHashes) {
+            throw @"
+No SHA256 pin for $Filename in $HashPinFile.
+Re-run with -AcceptUnpinnedHashes to auto-record the current hash, OR
+edit $HashPinFile and add a line:
+  $actual  $Filename
+This is TOFU (trust-on-first-use). Pin only after a build you trust.
+"@
+        }
+        Write-Warning "TOFU-pin: writing $Filename hash $actual to $HashPinFile (auto-pin via -AcceptUnpinnedHashes)"
+        Append-PinnedHash -Filename $Filename -Hash $actual
+    }
+}
 
 Write-Host "==> Kira installer build"
 Write-Host "Repo:   $RepoRoot"
@@ -81,11 +136,11 @@ New-Item -ItemType Directory -Force -Path $BuildDir, $CacheDir | Out-Null
 # refuses to operate. -c safe.directory='*' overrides for this single
 # invocation only; no global config mutation.
 Write-Host ""
-Write-Host "==> 1/6 git archive source"
+Write-Host "==> 1/7 git archive source"
 $sourceZip = Join-Path $BuildDir "kira-source.zip"
 & git -c safe.directory='*' -C $RepoRoot archive `
     --format=zip --output=$sourceZip windows-port -- `
-    kira/ prompts/ assets/icon.ico assets/digitalroots-logo.png assets/kira-splash.png pyproject.toml README.md
+    kira/ prompts/ assets/icon.ico assets/icon-branded.ico assets/digitalroots-logo.png assets/kira-splash.png pyproject.toml README.md
 if ($LASTEXITCODE -ne 0) { throw "git archive failed (exit $LASTEXITCODE)" }
 $sourceDir = Join-Path $BuildDir "kira-source"
 New-Item -ItemType Directory -Force -Path $sourceDir | Out-Null
@@ -94,14 +149,15 @@ Remove-Item $sourceZip
 
 # 6. Python embedded.
 Write-Host ""
-Write-Host "==> 2/6 Python 3.12 embedded"
+Write-Host "==> 2/7 Python 3.12 embedded"
 $pyEmbedZip = Join-Path $CacheDir "python-3.12-embed-amd64.zip"
 if (-not (Test-Path $pyEmbedZip)) {
     Write-Host "Downloading python-3.12.10-embed-amd64.zip..."
-    & curl.exe -L --fail -o $pyEmbedZip `
+    & curl.exe -L --fail --retry 3 --retry-delay 5 -o $pyEmbedZip `
         "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
     if ($LASTEXITCODE -ne 0) { throw "Failed to download Python embedded" }
 }
+Verify-Or-Pin -File $pyEmbedZip -Filename "python-3.12.10-embed-amd64.zip"
 $pyDir = Join-Path $BuildDir "python"
 New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
 Expand-Archive -Path $pyEmbedZip -DestinationPath $pyDir -Force
@@ -114,9 +170,10 @@ if ($pthFile) {
 # Bootstrap pip into the embedded interpreter so `python -m venv` succeeds.
 $getPip = Join-Path $CacheDir "get-pip.py"
 if (-not (Test-Path $getPip)) {
-    & curl.exe -L --fail -o $getPip "https://bootstrap.pypa.io/get-pip.py"
+    & curl.exe -L --fail --retry 3 --retry-delay 5 -o $getPip "https://bootstrap.pypa.io/get-pip.py"
     if ($LASTEXITCODE -ne 0) { throw "Failed to download get-pip.py" }
 }
+Verify-Or-Pin -File $getPip -Filename "get-pip.py"
 & "$pyDir\python.exe" $getPip --no-warn-script-location
 if ($LASTEXITCODE -ne 0) { throw "get-pip.py failed in embedded python" }
 
@@ -126,7 +183,7 @@ if ($LASTEXITCODE -ne 0) { throw "get-pip.py failed in embedded python" }
 # default; the embedded python at $pyDir\python.exe just got pip installed
 # from get-pip.py and is the same 3.12 minor as the target.
 Write-Host ""
-Write-Host "==> 3/6 wheels"
+Write-Host "==> 3/7 wheels"
 $wheelDir = Join-Path $BuildDir "wheels"
 New-Item -ItemType Directory -Force -Path $wheelDir | Out-Null
 if ($SkipWheelDownload) {
@@ -142,26 +199,47 @@ if ($SkipWheelDownload) {
     if ($LASTEXITCODE -ne 0) { throw "pip download failed" }
 }
 
+# 7b. F2-1: build the kira wheel itself. Inno's [Run]-pip-install schlug
+# vorher silent fehl, weil pip auf {app}\app[windows] PEP-517 aktivierte
+# und hatchling im Bundle fehlte. Statt dem Source-Tree shippen wir nun
+# das fertige Wheel mit; --no-build-isolation in der Inno [Run]-Section
+# verhindert PEP-517 ueberhaupt erst.
+Write-Host ""
+Write-Host "==> 3b/7 build kira wheel"
+& "$pyDir\python.exe" -m pip wheel "$RepoRoot" --no-deps -w $wheelDir 2>&1 | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "pip wheel for kira failed" }
+$kiraWheels = Get-ChildItem $wheelDir -Filter "kira-*.whl"
+if ($kiraWheels.Count -eq 0) { throw "kira wheel was not produced" }
+Write-Host "  built: $($kiraWheels[0].Name)"
+
 # 8. OllamaSetup.exe -- pulled into installer\embedded\ (committed dir,
 # binary itself gitignored). Refresh if stale (>30 days) so we don't ship
 # a known-CVE Ollama. Sanity-check the size to catch CDN-error pages and
 # truncated downloads early.
 Write-Host ""
-Write-Host "==> 4/6 OllamaSetup.exe"
+Write-Host "==> 4/7 OllamaSetup.exe"
 $OllamaSetupPath = Join-Path $RepoRoot "installer\embedded\OllamaSetup.exe"
 $OllamaUrl = "https://ollama.com/download/OllamaSetup.exe"
 $NeedsPull = $true
 if (Test-Path $OllamaSetupPath) {
+    $existingSize = (Get-Item $OllamaSetupPath).Length
     $age = (Get-Date) - (Get-Item $OllamaSetupPath).LastWriteTime
-    if ($age.TotalDays -lt 30) {
+    # F2-9: Cache-skip nur bei plausibler Size (>1.5 GB) UND <30 Tage Alter.
+    # Vorher wurde ein truncated/error-page-Download (z.B. 1 KB HTML) als
+    # Cache anerkannt und der naechste Build crashte erst beim Sanity-Check.
+    if ($existingSize -gt 1.5GB -and $age.TotalDays -lt 30) {
         $NeedsPull = $false
-        Write-Host "  cached ($([math]::Round($age.TotalDays,1)) days old)"
+        Write-Host "  cached ($([math]::Round($age.TotalDays,1)) days old, $([math]::Round($existingSize/1MB,1)) MB)"
+    } elseif ($existingSize -lt 1.5GB) {
+        Write-Host "  cached file too small ($([math]::Round($existingSize/1MB,1)) MB) -- re-pulling"
     }
 }
 if ($NeedsPull) {
     Write-Host "  pulling fresh from $OllamaUrl..."
     New-Item -ItemType Directory -Force -Path (Split-Path $OllamaSetupPath) | Out-Null
-    & curl.exe -L --fail -o $OllamaSetupPath $OllamaUrl
+    # F2-9: --retry + --continue-at fuer flapper-Internet-Resume.
+    # OllamaSetup.exe ist ~1.98 GB, ein single-shot-fail ist teuer.
+    & curl.exe -L --fail --retry 3 --retry-delay 5 --continue-at - -o $OllamaSetupPath $OllamaUrl
     if ($LASTEXITCODE -ne 0) { throw "Failed to download OllamaSetup.exe" }
 }
 $OllamaSetupSize = (Get-Item $OllamaSetupPath).Length
@@ -170,20 +248,35 @@ if ($OllamaSetupSize -lt 100MB -or $OllamaSetupSize -gt 3GB) {
     throw "OllamaSetup.exe size sanity-check failed: $OllamaSetupSize bytes (expected 100 MB to 3 GB)"
 }
 
+# F2-7: Authenticode-Signature-Check. Signer-Whitelist akzeptiert Ollama
+# Inc. UND Meta Platforms (Ollama wurde von Meta uebernommen, der
+# Maintainer-Wechsel kann Cert-Subject in Zukunft aendern).
+$sig = Get-AuthenticodeSignature $OllamaSetupPath
+if ($sig.Status -ne "Valid") {
+    throw "OllamaSetup.exe Authenticode-Signature is invalid: $($sig.Status)"
+}
+$signerSubject = $sig.SignerCertificate.Subject
+if ($signerSubject -notlike "*Ollama*" -and $signerSubject -notlike "*Meta Platforms*") {
+    throw "OllamaSetup.exe is signed by unexpected subject: $signerSubject"
+}
+Write-Host "  authenticode: $($sig.Status), signer: $signerSubject"
+Verify-Or-Pin -File $OllamaSetupPath -Filename "OllamaSetup.exe"
+
 # 9. rcedit.
 Write-Host ""
-Write-Host "==> 5/6 rcedit"
+Write-Host "==> 5/7 rcedit"
 $rcedit = Join-Path $CacheDir "rcedit-x64.exe"
 if (-not (Test-Path $rcedit)) {
-    & curl.exe -L --fail -o $rcedit `
+    & curl.exe -L --fail --retry 3 --retry-delay 5 -o $rcedit `
         "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
     if ($LASTEXITCODE -ne 0) { throw "Failed to download rcedit" }
 }
+Verify-Or-Pin -File $rcedit -Filename "rcedit-x64.exe"
 Copy-Item $rcedit $BuildDir
 
 # 10. Compile installer.
 Write-Host ""
-Write-Host "==> 6/6 ISCC compile"
+Write-Host "==> 6/7 ISCC compile"
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 & $iscc `
     "/DVersion=$Version" `
@@ -191,6 +284,23 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     "/DOutputDir=$OutputDir" `
     (Join-Path $RepoRoot "installer\kira.iss")
 if ($LASTEXITCODE -ne 0) { throw "ISCC compile failed" }
+
+# F2-8: SHA256SUMS.txt fuer GitHub-Release-Asset. User koennen damit
+# ihren Download verifizieren auch ohne Code-Signing-Cert (das wir nicht
+# haben). Datei wird neben dem Setup.exe + .bin-Splits abgelegt und
+# laesst sich mit `sha256sum -c SHA256SUMS.txt` (Linux/WSL) oder
+# `Get-FileHash` (PowerShell) checken.
+Write-Host ""
+Write-Host "==> 7/7 SHA256SUMS.txt"
+$sumsFile = Join-Path $OutputDir "SHA256SUMS.txt"
+$artifacts = Get-ChildItem $OutputDir -Filter "Kira-Setup-v$Version*"
+$sumLines = $artifacts | ForEach-Object {
+    $h = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+    "$h  $($_.Name)"
+}
+$sumLines | Set-Content -Encoding UTF8 $sumsFile
+$sumLines | ForEach-Object { Write-Host "  $_" }
+Write-Host "Wrote $sumsFile"
 
 # 11. Result.
 Write-Host ""
@@ -211,4 +321,5 @@ if ($splits) {
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  gh release create v$Version $OutputDir\Kira-Setup-v$Version.exe \"
+Write-Host "    $OutputDir\SHA256SUMS.txt \"
 Write-Host "    --title 'Kira v$Version' --notes 'Release notes...'"
