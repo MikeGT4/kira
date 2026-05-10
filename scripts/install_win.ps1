@@ -70,19 +70,30 @@ if (-not (Test-Path $VenvPath)) {
 # 3. Install Kira (editable) from $Source. UNC paths still need pushd
 # inside cmd.exe; local NTFS paths work directly. Use cmd.exe pushd
 # for both — handles UNC + NTFS uniformly.
+# F2-13: Quote-Escape via PowerShell-Backtick damit Pfade mit Spaces
+# (z.B. `OneDrive - Personal`) cmd.exe nicht zerschiessen.
 Write-Host ""
 Write-Host "==> Installing Kira + windows + dev deps (this can take a few minutes)"
 $pyExe = "$VenvPath\Scripts\python.exe"
 if ($uvCmd -eq "uv") {
-    cmd /c "pushd $Source && uv pip install --python $pyExe -e .[windows,dev] && popd"
+    cmd /c "pushd `"$Source`" && uv pip install --python `"$pyExe`" -e .[windows,dev] && popd"
 } else {
-    cmd /c "pushd $Source && py -3.12 -m uv pip install --python $pyExe -e .[windows,dev] && popd"
+    cmd /c "pushd `"$Source`" && py -3.12 -m uv pip install --python `"$pyExe`" -e .[windows,dev] && popd"
+}
+if ($LASTEXITCODE -ne 0) {
+    throw "uv pip install failed (exit $LASTEXITCODE)"
 }
 
 # 4. Smoke-test imports
+# F2-12: Returncode-Check damit ein silent ImportError (z.B. fehlende
+# CUDA-DLLs, Qt6-Plugin-Fail) den Bootstrap zum klaren Fail bringt
+# statt halb-installiertes Kira zu hinterlassen.
 Write-Host ""
 Write-Host "==> Smoke-testing imports"
 & $pyExe -c "import faster_whisper, pystray, PyQt6.QtWidgets, keyboard, win32gui, psutil; print('OK')"
+if ($LASTEXITCODE -ne 0) {
+    throw "Smoke test failed -- one or more imports missing (CUDA DLLs, Qt6 plugins, ...)"
+}
 
 # 5. Embed icon + version metadata into kira.exe / kira-once.exe.
 Write-Host ""

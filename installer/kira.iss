@@ -84,13 +84,25 @@ Source: "{#BuildDir}\wheels\*.whl"; DestDir: "{tmp}\kira-wheels"; Flags: deletea
 ; Static helper -- rcedit for icon-embed step.
 Source: "{#BuildDir}\rcedit-x64.exe"; DestDir: "{app}\tools"; DestName: "rcedit-x64.exe"; Flags: ignoreversion
 
-; OllamaSetup is run via [Run] -- keep it in tmp. Slim-Bundle pulls the latest
-; OllamaSetup.exe into installer\embedded\ via build_installer.ps1, so the
-; source path is now repo-local instead of build-dir-local.
+; OllamaSetup is run via [Run]. Slim-Bundle pulls the latest OllamaSetup.exe
+; into installer\embedded\ via build_installer.ps1, so the source path is
+; repo-local. Zwei DestDirs:
+;  - {tmp} (deleteafterinstall) damit Inno's [Run]-Step die EXE findet
+;  - {app}\app\installer\embedded permanent damit der First-Run-Wizard sie
+;    spaeter erneut starten kann (Re-Install bei broken Ollama-Service,
+;    etc.). _resource_path() in kira/main.py resolved relativ zu
+;    Path(__file__).parent.parent = {app}\app\ — also muss die EXE auch
+;    unter {app}\app\installer\embedded\ liegen, NICHT unter
+;    {app}\installer\embedded\.
 Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{app}\app\installer\embedded"; Flags: ignoreversion
 
-; Asset & config template.
+; Asset & config template. icon-branded.ico landet doppelt:
+;  - {app}\assets fuer Inno's eigene Lnk-IconLocation + UninstallDisplayIcon
+;  - {app}\app\assets damit der Code beim _resource_path-Lookup
+;    (relative to kira/-Modul) das Icon findet (Phase E2 fixup #2 hinted).
 Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\app\assets"; Flags: ignoreversion
 Source: "{#BuildDir}\..\installer\config.yaml.template"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
@@ -122,15 +134,22 @@ Name: "{userstartup}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
 
 [Run]
 ; Step 1-4 -- bootstrap venv from embedded Python and bundled wheels.
+; runhidden bewusst RAUS damit Errors im Setup-Window sichtbar sind. Vorher
+; wurde der Pip-Install-Fail (hatchling fehlte) silent geschluckt und
+; kira.exe kam nicht ans Ziel.
 Filename: "{app}\python\python.exe"; \
     Parameters: "-m venv ""{app}\venv"""; \
     StatusMsg: "Erstelle virtuelle Python-Umgebung..."; \
-    Flags: runhidden waituntilterminated
+    Flags: waituntilterminated
 
+; F2-1: Statt {app}\app[windows] (PEP-517-Build aus Sdist) jetzt das
+; vorgebaute Wheel via kira[windows]. --no-build-isolation erlaubt pip
+; explizit nicht, einen Build-Backend zu requesten falls's doch eine Sdist
+; greift. Defense gegen erneuten hatchling-Drift.
 Filename: "{app}\venv\Scripts\python.exe"; \
-    Parameters: "-m pip install --no-index --find-links ""{tmp}\kira-wheels"" --no-warn-script-location ""{app}\app[windows]"""; \
+    Parameters: "-m pip install --no-index --no-build-isolation --find-links ""{tmp}\kira-wheels"" --no-warn-script-location ""kira[windows]"""; \
     StatusMsg: "Installiere Kira-Python-Pakete..."; \
-    Flags: runhidden waituntilterminated
+    Flags: waituntilterminated
 
 ; Step 5 -- Ollama silent install. /S is Inno-Setup-Standard for OllamaSetup.exe
 ; (a NSIS installer); /NORESTART skips the post-install reboot prompt. Skipped
@@ -150,12 +169,12 @@ Filename: "{tmp}\OllamaSetup.exe"; \
 Filename: "{app}\tools\rcedit-x64.exe"; \
     Parameters: """{app}\venv\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
     StatusMsg: "Bette Icon in kira.exe ein..."; \
-    Flags: runhidden waituntilterminated
+    Flags: waituntilterminated
 
 Filename: "{app}\tools\rcedit-x64.exe"; \
     Parameters: """{app}\venv\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
     StatusMsg: "Bette Icon in kira-once.exe ein..."; \
-    Flags: runhidden waituntilterminated
+    Flags: waituntilterminated
 
 ; Step 11 -- config.yaml: write only if missing. Implemented in [Code] (Task 10).
 ; Step 12 -- Lnks via [Icons]; already handled.
@@ -169,7 +188,7 @@ Filename: "{app}\venv\Scripts\kira.exe"; \
 function InitializeSetup: Boolean;
 var
   ResultCode: Integer;
-  TempFile, TrimmedText: String;
+  TempFile, TrimmedText, NvidiaSmi, CmdExe: String;
   FileTextA: AnsiString;
   GpuMem: Integer;
   ExecOk: Boolean;
@@ -178,12 +197,28 @@ begin
   TempFile := ExpandConstant('{tmp}\nvidia-smi.txt');
   ForceDirectories(ExpandConstant('{tmp}'));
 
-  // Pascal-Quoting-Hell: Triple-Quotes im Outer-`"..."` brechen cmd-
-  // Parser auf manchen Win11-Boxen → "nicht gefunden" trotz vorhandener
-  // RTX. Ohne Outer-Quotes + Inner-Quotes nur einfach: cmd /c versteht
-  // das, TempFile-Pfad in nem einzelnen Quote-Pair.
-  ExecOk := Exec('cmd.exe',
-    '/c nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
+  // F2-5: PATH-Hijack-Fix. Vorher 'cmd.exe' ohne Pfad → der erste cmd.exe
+  // im PATH wird ausgefuehrt; ein Angreifer mit einer eigenen cmd.exe im
+  // %DOWNLOADS% (also dem Folder, in dem das Setup-Exe oft liegt) kriegt
+  // RCE noch BEVOR der User klickt. Genauso bei nvidia-smi: ohne
+  // absoluten Pfad triggert man jeden nvidia-smi.exe-Trojan im PATH.
+  // Loesung: cmd.exe aus {sys} (System32) + nvidia-smi mit absolutem
+  // {win}\System32-Pfad. Output-Redirect via cmd ist nur OK weil der
+  // cmd-Pfad jetzt auch fix ist.
+  CmdExe := ExpandConstant('{sys}\cmd.exe');
+  NvidiaSmi := ExpandConstant('{win}\System32\nvidia-smi.exe');
+
+  if not FileExists(NvidiaSmi) then begin
+    Result := MsgBox(
+      'Keine NVIDIA-Treiber-Tools (nvidia-smi.exe) auf dieser Box gefunden.' + #13#10 +
+      'Kira braucht CUDA fuer sinnvolle Performance.' + #13#10#13#10 +
+      'Trotzdem installieren?',
+      mbConfirmation, MB_YESNO) = IDYES;
+    exit;
+  end;
+
+  ExecOk := Exec(CmdExe,
+    '/c "' + NvidiaSmi + '" --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   if ExecOk and (ResultCode = 0) and LoadStringFromFile(TempFile, FileTextA) then begin
@@ -208,11 +243,12 @@ end;
 
 function NeedsOllama: Boolean;
 begin
-  // Ollama for Windows installs per-user into %LOCALAPPDATA%\Programs\Ollama\.
-  // {userappdata} maps to %APPDATA% (Roaming), so '..\Local\Programs\Ollama'
-  // walks up one level into AppData and back into the Local\Programs\Ollama
-  // path. Skip the install step if ollama.exe is already there.
-  Result := not FileExists(ExpandConstant('{userappdata}\..\Local\Programs\Ollama\ollama.exe'));
+  // F2-14: Ollama for Windows installs per-user into
+  // %LOCALAPPDATA%\Programs\Ollama\. {localappdata} ist Inno's nativer
+  // Constant fuer %LOCALAPPDATA% und robuster als der vorherige
+  // {userappdata}\..\Local-Walk (der bei APPDATA-Junctions oder
+  // OneDrive-Personal-Folders bricht).
+  Result := not FileExists(ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe'));
 end;
 
 procedure WriteConfigIfMissing();
@@ -250,8 +286,32 @@ begin
     Log('failed to write ' + ConfigPath);
 end;
 
+procedure VerifyKiraExeOrError();
+var
+  KiraExe: String;
+begin
+  // F2-2: Pip-Install-Failure-Detector. Wenn die Pip-[Run]-Section silent
+  // failed (z.B. weil hatchling fehlt → der naechste Start-Setup-Bug),
+  // existiert kira.exe nicht und der User hat eine kaputte Installation
+  // ohne klare Fehlermeldung. Frueh und laut crashen ist hier
+  // die richtige Loesung.
+  KiraExe := ExpandConstant('{app}\venv\Scripts\kira.exe');
+  if not FileExists(KiraExe) then begin
+    MsgBox(
+      'Setup-Fehler: kira.exe wurde nicht erstellt unter' + #13#10 +
+      KiraExe + '.' + #13#10#13#10 +
+      'Pip-Install ist vermutlich silent fehlgeschlagen.' + #13#10 +
+      'Bitte das Setup-Log anhaengen, wenn du das Issue meldest:' + #13#10 +
+      '  %TEMP%\Setup Log <DATUM>.txt' + #13#10#13#10 +
+      'Issue-Tracker: https://github.com/MikeGT4/kira/issues',
+      mbCriticalError, MB_OK);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then
+  if CurStep = ssPostInstall then begin
     WriteConfigIfMissing();
+    VerifyKiraExeOrError();
+  end;
 end;
