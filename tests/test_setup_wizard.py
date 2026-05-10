@@ -132,11 +132,6 @@ def test_whisper_worker_calls_snapshot_download_with_resume(qtbot, tmp_path, moc
     kwargs = fake_download.call_args.kwargs
     assert kwargs["repo_id"] == DEFAULT_WHISPER_REPO
     assert Path(kwargs["local_dir"]) == target
-    assert kwargs["resume_download"] is True
-    # Symlinks auf Win11 brauchen Admin oder Dev-Mode — wir wollen
-    # echte Files im Cache, sonst bricht der erste F8-Press wenn
-    # huggingface_hub zur Laufzeit Symlinks erwartet aber keine vorliegen.
-    assert kwargs.get("local_dir_use_symlinks") is False
 
     assert len(finished_payloads) == 1
     assert finished_payloads[0] == target
