@@ -188,7 +188,7 @@ Filename: "{app}\venv\Scripts\kira.exe"; \
 function InitializeSetup: Boolean;
 var
   ResultCode: Integer;
-  TempFile, TrimmedText, NvidiaSmi, CmdExe: String;
+  TempFile, TrimmedText, CmdExe: String;
   FileTextA: AnsiString;
   GpuMem: Integer;
   ExecOk: Boolean;
@@ -206,27 +206,15 @@ begin
   // {win}\System32-Pfad. Output-Redirect via cmd ist nur OK weil der
   // cmd-Pfad jetzt auch fix ist.
   CmdExe := ExpandConstant('{sys}\cmd.exe');
-  // Inno's InitializeSetup laeuft IMMER 32-bit (vor ArchitecturesInstallIn64BitMode-Switch).
-  // Auf x64-Win redirected dann {win}\System32 via WOW64-Filesystem-Redirector zu
-  // SysWOW64, wo nvidia-smi.exe NICHT liegt (es ist 64-bit-only in System32).
-  // {sysnative} ist Inno's Magic-Constant fuer den NICHT-redirected System32-Pfad.
-  NvidiaSmi := ExpandConstant('{sysnative}\nvidia-smi.exe');
-  if not FileExists(NvidiaSmi) then
-    NvidiaSmi := ExpandConstant('{win}\System32\nvidia-smi.exe');
-  if not FileExists(NvidiaSmi) then
-    NvidiaSmi := ExpandConstant('{sys}\nvidia-smi.exe');
-
-  if not FileExists(NvidiaSmi) then begin
-    Result := MsgBox(
-      'Keine NVIDIA-Treiber-Tools (nvidia-smi.exe) auf dieser Box gefunden.' + #13#10 +
-      'Kira braucht CUDA fuer sinnvolle Performance.' + #13#10#13#10 +
-      'Trotzdem installieren?',
-      mbConfirmation, MB_YESNO) = IDYES;
-    exit;
-  end;
-
+  // Inno's [Code] laeuft 32-bit auf x64-Win (vor Architectures-Switch).
+  // FileExists() von 32-bit-Pascal sieht das echte System32 NICHT (WOW64-
+  // Redirector → SysWOW64). Statt FileExists()-Pre-Check: einfach
+  // versuchen via cmd.exe (das selbst 32-bit ist und die Redirection
+  // applies — aber cmd disables Redirection per default fuer Spawned-
+  // Children seit Win10). PATH-search ist akzeptabel weil cmd.exe selbst
+  // mit absolutem Pfad gestartet wird.
   ExecOk := Exec(CmdExe,
-    '/c "' + NvidiaSmi + '" --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
+    '/c nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   if ExecOk and (ResultCode = 0) and LoadStringFromFile(TempFile, FileTextA) then begin
