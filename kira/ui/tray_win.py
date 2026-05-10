@@ -129,7 +129,8 @@ def _set_tray_window_title(icon_holder: "KiraTray", timeout_s: float = 5.0) -> N
         timeout_s,
     )
 
-ASSETS = Path(__file__).parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+ASSETS = _assets_dir()
 
 # Branded tray icon: schwarzes Logo auf gelbem Rounded-Square. Der
 # transparente Vorgänger war im Windows-11-Dark-Mode-Tray nahezu

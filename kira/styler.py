@@ -8,7 +8,8 @@ from kira.config import Config, ModeConfig
 
 log = logging.getLogger(__name__)
 
-PROMPT_DIR = Path(__file__).parent.parent / "prompts"
+from kira._resources import prompts_dir as _prompts_dir
+PROMPT_DIR = _prompts_dir()
 # Modi mit eingebauten prompt-Files. User koennen weitere Modi via eigene
 # prompts/<name>.md anlegen — load_prompt faellt auf plain.md zurueck wenn
 # eine Datei fehlt, also ist die Liste hier nur Doku, nicht enforced.

@@ -37,7 +37,8 @@ from kira.config import default_config_path, load_config
 from kira.config_writer import update_scalars
 
 log = logging.getLogger(__name__)
-_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+_ASSETS = _assets_dir()
 
 # userData-Sentinel für den "Windows-Default"-Combobox-Eintrag. Speichert
 # beim _save() als input_device=None (= leerer String in der alten

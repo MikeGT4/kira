@@ -37,7 +37,8 @@ from PyQt6.QtWidgets import (
 from kira import __version__
 
 log = logging.getLogger(__name__)
-_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+_ASSETS = _assets_dir()
 _WELCOME_MARKER = Path(os.environ.get("APPDATA", str(Path.home()))) / "Kira" / ".welcomed"
 
 

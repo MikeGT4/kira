@@ -12,7 +12,8 @@ from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 
-_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+_ASSETS = _assets_dir()
 
 
 class SetupHintDialog(QDialog):
