@@ -30,13 +30,21 @@ OutputDir={#OutputDir}
 OutputBaseFilename=Kira-Setup-v{#Version}
 Compression=lzma2/max
 SolidCompression=yes
-DiskSpanning=yes
-DiskSliceSize=2147483647
+; Slim bundle (~1.5 GB): single-file Setup.exe, no .bin splits. Comfortably
+; under GitHub's 2 GiB per-asset limit. The fat bundle (v0.1.0) needed
+; DiskSpanning=yes with 2 GiB slices because Whisper + Gemma + Ollama-models
+; pushed it past 13 GB; the first-run wizard now pulls those at runtime, so
+; the installer ships only the embedded Python, wheels, and OllamaSetup.exe.
+DiskSpanning=no
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+WizardImageFile={#BuildDir}\..\assets\wizard-side.bmp
+WizardSmallImageFile={#BuildDir}\..\assets\wizard-small.bmp
+WizardImageStretch=no
+WizardImageBackColor=$1c1c1c
 SetupIconFile={#BuildDir}\..\assets\icon.ico
 UninstallDisplayIcon={app}\assets\icon.ico
 UninstallDisplayName=Kira {#Version}
@@ -44,6 +52,18 @@ Uninstallable=yes
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+
+[Messages]
+; Override the default Inno wording on the Welcome and Finished pages so the
+; deutsche Version reflects Kira's first-run model-pull. %n is Inno's newline
+; token; double-quotes in [Messages] strings would need escaping as "" but we
+; stay in single-line clear text here.
+WelcomeLabel1=Willkommen bei Kira v{#Version}
+WelcomeLabel2=Diese Anwendung installiert Kira auf Deinem Computer.%n%nNach der Installation laedt Kira beim ersten Start ~10 GB Modelle (Whisper + Gemma) - Internet erforderlich. Das passiert nur einmal.%n%nKlicke auf "Weiter", um fortzufahren.
+
+FinishedHeadingLabel=Kira wurde installiert.
+FinishedLabel=Kira wurde erfolgreich installiert.%n%nBeim ersten Start oeffnet sich automatisch der Setup-Wizard fuer die Modelle.
+ClickFinish=Klicke auf "Fertigstellen", um Kira zu starten.
 
 [Tasks]
 Name: "autostart"; Description: "Beim Windows-Start automatisch ausfuehren"; GroupDescription: "Zusaetzliche Optionen:"
@@ -63,14 +83,10 @@ Source: "{#BuildDir}\wheels\*.whl"; DestDir: "{tmp}\kira-wheels"; Flags: deletea
 ; Static helper -- rcedit for icon-embed step.
 Source: "{#BuildDir}\rcedit-x64.exe"; DestDir: "{app}\tools"; DestName: "rcedit-x64.exe"; Flags: ignoreversion
 
-; OllamaSetup is run via [Run] -- keep it in tmp.
-Source: "{#BuildDir}\OllamaSetup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-
-; Whisper model -- copied via [Run] robocopy into %USERPROFILE%, NOT {app}.
-Source: "{#BuildDir}\whisper\*"; DestDir: "{tmp}\kira-whisper"; Flags: recursesubdirs deleteafterinstall
-
-; Ollama storage (gemma3:12b manifests + blobs).
-Source: "{#BuildDir}\ollama-models\*"; DestDir: "{tmp}\kira-ollama-models"; Flags: recursesubdirs deleteafterinstall
+; OllamaSetup is run via [Run] -- keep it in tmp. Slim-Bundle pulls the latest
+; OllamaSetup.exe into installer\embedded\ via build_installer.ps1, so the
+; source path is now repo-local instead of build-dir-local.
+Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 ; Asset & config template.
 Source: "{#BuildDir}\..\assets\icon.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
@@ -80,8 +96,9 @@ Source: "{#BuildDir}\..\installer\config.yaml.template"; DestDir: "{tmp}"; Flags
 Name: "{app}\venv"
 Name: "{app}\tools"
 Name: "{userappdata}\Kira"
-Name: "{%USERPROFILE}\.ollama\models"
-Name: "{%USERPROFILE}\models\faster-whisper-large-v3"
+; Note: %USERPROFILE%\.ollama\models and %USERPROFILE%\models\faster-whisper-*
+; were here for the old fat-bundle robocopy steps. Slim bundle delegates that
+; to the first-run setup wizard (kira/setup_wizard.py).
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\venv"
@@ -114,30 +131,19 @@ Filename: "{app}\venv\Scripts\python.exe"; \
     StatusMsg: "Installiere Kira-Python-Pakete..."; \
     Flags: runhidden waituntilterminated
 
-; Step 5 -- Ollama silent install. /SILENT skips the wizard; OllamaSetup ships a
-; service installer that registers itself on boot.
+; Step 5 -- Ollama silent install. /S is Inno-Setup-Standard for OllamaSetup.exe
+; (a NSIS installer); /NORESTART skips the post-install reboot prompt. Skipped
+; if Ollama is already on disk (NeedsOllama returns False).
 Filename: "{tmp}\OllamaSetup.exe"; \
-    Parameters: "/SILENT /NORESTART"; \
+    Parameters: "/S /NORESTART"; \
     StatusMsg: "Installiere Ollama..."; \
     Flags: waituntilterminated; \
-    Check: NeedsOllamaInstall
+    Check: NeedsOllama
 
-; Step 6 -- wait for Ollama service is implemented in [Code] (Task 10) via
-; CurStepChanged; not a [Run] entry.
-
-; Step 7 -- copy Ollama model storage. Robocopy keeps perms friendly.
-Filename: "robocopy.exe"; \
-    Parameters: """{tmp}\kira-ollama-models"" ""{%USERPROFILE}\.ollama\models"" /E /NFL /NDL /NJH /NJS /NP"; \
-    StatusMsg: "Kopiere Sprachmodell (Gemma 3 12B, ca. 7 GB)..."; \
-    Flags: runhidden; \
-    Check: NeedsOllamaModelsCopy
-
-; Step 8 -- copy faster-whisper model.
-Filename: "robocopy.exe"; \
-    Parameters: """{tmp}\kira-whisper"" ""{%USERPROFILE}\models\faster-whisper-large-v3"" /E /NFL /NDL /NJH /NJS /NP"; \
-    StatusMsg: "Kopiere Whisper-Modell (large-v3, ca. 3 GB)..."; \
-    Flags: runhidden; \
-    Check: NeedsWhisperModelCopy
+; Note: the old fat-bundle had robocopy steps here for the Gemma 3 12B model
+; (~7 GB) and faster-whisper large-v3 (~3 GB). Slim bundle delegates both to
+; kira/setup_wizard.py, which downloads them on first run via huggingface_hub
+; + ollama pull.
 
 ; Step 9 -- embed icon into kira.exe / kira-once.exe via rcedit.
 Filename: "{app}\tools\rcedit-x64.exe"; \
@@ -195,29 +201,13 @@ begin
   end;
 end;
 
-function NeedsOllamaInstall: Boolean;
+function NeedsOllama: Boolean;
 begin
   // Ollama for Windows installs per-user into %LOCALAPPDATA%\Programs\Ollama\.
-  // {userpf} maps to that directory. Skip the install step if present.
-  Result := not FileExists(ExpandConstant('{userpf}\Ollama\ollama.exe'));
-end;
-
-function NeedsWhisperModelCopy: Boolean;
-var
-  ModelBin: String;
-begin
-  // Skip the 3 GB copy if the model.bin already exists at the target.
-  ModelBin := ExpandConstant('{%USERPROFILE}\models\faster-whisper-large-v3\model.bin');
-  Result := not FileExists(ModelBin);
-end;
-
-function NeedsOllamaModelsCopy: Boolean;
-var
-  ManifestDir: String;
-begin
-  // Skip the 7 GB copy if the gemma3:12b manifest is already present.
-  ManifestDir := ExpandConstant('{%USERPROFILE}\.ollama\models\manifests\registry.ollama.ai\library\gemma3\12b');
-  Result := not FileExists(ManifestDir);
+  // {userappdata} maps to %APPDATA% (Roaming), so '..\Local\Programs\Ollama'
+  // walks up one level into AppData and back into the Local\Programs\Ollama
+  // path. Skip the install step if ollama.exe is already there.
+  Result := not FileExists(ExpandConstant('{userappdata}\..\Local\Programs\Ollama\ollama.exe'));
 end;
 
 procedure WriteConfigIfMissing();
