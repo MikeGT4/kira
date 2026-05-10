@@ -40,16 +40,22 @@ def _load_branded_icon() -> Image.Image:
     if not ico.exists():
         raise FileNotFoundError(f"Missing {ico} -- run scripts/regenerate_branded_icon.py first")
     img = Image.open(ico)
-    # Pillow exposes ICO frames via .info['sizes']; pick the largest.
+    # Pillow exposes ICO frames via .info['sizes']; pick the largest by
+    # asking IcoImagePlugin to return that specific frame (modern Pillow
+    # removed the img.size setter pattern).
     sizes = img.info.get("sizes")
     if sizes:
         largest = max(sizes, key=lambda s: s[0] * s[1])
-        img.size = largest
-        img.load()
+        try:
+            from PIL import IcoImagePlugin  # type: ignore[import-untyped]
+            ico_img = IcoImagePlugin.IcoFile(open(ico, "rb"))
+            img = ico_img.getimage(largest)
+        except (ImportError, AttributeError, OSError):
+            img.load()
     return img.convert("RGBA")
 
 
-def _try_load_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+def _try_load_font(size: int, *, bold: bool = False):
     """Pick a clean sans-serif. Fallback chain stays graceful on Win/WSL."""
     candidates = [
         # Windows-side fonts (preferred for the developer's machine)
@@ -75,7 +81,7 @@ def _draw_centered_text(
     text: str,
     y: int,
     width: int,
-    font: ImageFont.ImageFont,
+    font,
     color: tuple[int, int, int],
 ) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
@@ -92,7 +98,7 @@ def build_side_image(out_path: Path) -> None:
     # 1. Icon centered, ~38% of the side-panel height up from top.
     icon = _load_branded_icon()
     icon_size = 88
-    icon_resized = icon.resize((icon_size, icon_size), Image.LANCZOS)
+    icon_resized = icon.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
     icon_x = (SIDE_W - icon_size) // 2
     icon_y = 38
     # Paste with alpha mask -- icon-branded already has the rounded yellow BG.
@@ -125,7 +131,7 @@ def build_small_image(out_path: Path) -> None:
     icon = _load_branded_icon()
     # Leave 4 px padding so the rounded yellow plate doesn't kiss the edge.
     icon_size = min(SMALL_W, SMALL_H) - 8
-    icon_resized = icon.resize((icon_size, icon_size), Image.LANCZOS)
+    icon_resized = icon.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
     icon_x = (SMALL_W - icon_size) // 2
     icon_y = (SMALL_H - icon_size) // 2
     canvas.paste(icon_resized, (icon_x, icon_y), icon_resized)
