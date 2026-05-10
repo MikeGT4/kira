@@ -206,7 +206,24 @@ if ($SkipWheelDownload) {
 # verhindert PEP-517 ueberhaupt erst.
 Write-Host ""
 Write-Host "==> 3b/7 build kira wheel"
-& "$pyDir\python.exe" -m pip wheel "$RepoRoot" --no-deps -w $wheelDir 2>&1 | Out-Host
+# hatchling in den embedded Python installieren (aus den frisch-gepullten
+# Wheels), damit pip wheel mit --no-build-isolation findet was es braucht.
+# Ohne --no-build-isolation wuerde pip eine separate isolated build-env
+# bauen und hatchling nochmal aus PyPI ziehen wollen — die isolated env
+# kennt unseren --find-links nicht.
+# Inline-Scope mit ErrorActionPreference=Continue: pip schreibt
+# Info/Deprecation-Lines auf stderr, was mit dem outer
+# ErrorActionPreference=Stop sofort wirft, OBWOHL pip exit 0 hat.
+# Wir wollen exit-code-driven sein, nicht stderr-driven.
+& {
+    $ErrorActionPreference = "Continue"
+    & "$pyDir\python.exe" -m pip install --no-index --find-links $wheelDir --no-warn-script-location hatchling pluggy editables pathspec trove-classifiers 2>&1 | Out-Host
+}
+if ($LASTEXITCODE -ne 0) { throw "hatchling install in embedded Python failed" }
+& {
+    $ErrorActionPreference = "Continue"
+    & "$pyDir\python.exe" -m pip wheel "$RepoRoot" --no-deps --no-build-isolation -w $wheelDir 2>&1 | Out-Host
+}
 if ($LASTEXITCODE -ne 0) { throw "pip wheel for kira failed" }
 $kiraWheels = Get-ChildItem $wheelDir -Filter "kira-*.whl"
 if ($kiraWheels.Count -eq 0) { throw "kira wheel was not produced" }
