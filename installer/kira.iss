@@ -46,8 +46,8 @@ WizardImageFile={#BuildDir}\..\assets\wizard-side.bmp
 WizardSmallImageFile={#BuildDir}\..\assets\wizard-small.bmp
 WizardImageStretch=no
 WizardImageBackColor=$1c1c1c
-SetupIconFile={#BuildDir}\..\assets\icon.ico
-UninstallDisplayIcon={app}\assets\icon.ico
+SetupIconFile={#BuildDir}\..\assets\icon-branded.ico
+UninstallDisplayIcon={app}\assets\icon-branded.ico
 UninstallDisplayName=Kira {#Version}
 Uninstallable=yes
 
@@ -90,7 +90,7 @@ Source: "{#BuildDir}\rcedit-x64.exe"; DestDir: "{app}\tools"; DestName: "rcedit-
 Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 ; Asset & config template.
-Source: "{#BuildDir}\..\assets\icon.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#BuildDir}\..\installer\config.yaml.template"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
@@ -109,15 +109,15 @@ Type: filesandordirs; Name: "{app}"
 
 [Icons]
 Name: "{userdesktop}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
-    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; \
+    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: desktopicon
 
 Name: "{userprograms}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
-    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; \
+    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: startmenuicon
 
 Name: "{userstartup}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
-    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; \
+    WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: autostart
 
 [Run]
@@ -148,12 +148,12 @@ Filename: "{tmp}\OllamaSetup.exe"; \
 
 ; Step 9 -- embed icon into kira.exe / kira-once.exe via rcedit.
 Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\venv\Scripts\kira.exe"" --set-icon ""{app}\assets\icon.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
+    Parameters: """{app}\venv\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
     StatusMsg: "Bette Icon in kira.exe ein..."; \
     Flags: runhidden waituntilterminated
 
 Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\venv\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
+    Parameters: """{app}\venv\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
     StatusMsg: "Bette Icon in kira-once.exe ein..."; \
     Flags: runhidden waituntilterminated
 
