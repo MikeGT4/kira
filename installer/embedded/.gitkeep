@@ -1,0 +1,8 @@
+# Build cache directory.
+#
+# scripts/build_installer.ps1 pulls a fresh OllamaSetup.exe from
+# https://ollama.com/download/OllamaSetup.exe into this folder before
+# invoking ISCC. It's gitignored (see .gitignore: installer/embedded/*.exe)
+# so the ~1 GB binary stays out of the repo.
+#
+# This .gitkeep keeps the directory tracked.

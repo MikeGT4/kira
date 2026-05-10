@@ -31,6 +31,10 @@ kira.log
 installer/_cache/
 *.iss.bak
 
+# OllamaSetup.exe is pulled into installer/embedded/ at build time
+# (~600 MB - 1 GB). Keep the dir tracked via .gitkeep, ignore the binary.
+installer/embedded/OllamaSetup.exe
+
 # Sicherheitsrelevant — niemals committen
 .env
 *.pem
