@@ -43,7 +43,6 @@ from huggingface_hub import snapshot_download
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QTextEdit,
@@ -142,8 +141,6 @@ class WhisperDownloadWorker(QThread):
             local_path = snapshot_download(
                 repo_id=self._repo_id,
                 local_dir=str(self._target_dir),
-                local_dir_use_symlinks=False,
-                resume_download=True,
             )
         except Exception as exc:  # ConnectionError, HfHubHTTPError, etc.
             log.exception("Whisper-Download fehlgeschlagen")
@@ -297,6 +294,7 @@ class GemmaPullWorker(QThread):
             return
 
         try:
+            assert proc.stdout is not None  # stdout=PIPE guarantees this
             for line in proc.stdout:
                 line_clean = line.strip()
                 if line_clean:
