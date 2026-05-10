@@ -54,6 +54,9 @@ def _load_branded_icon() -> Image.Image:
             with open(ico, "rb") as fh:
                 ico_img = IcoImagePlugin.IcoFile(fh)
                 img = ico_img.getimage(largest)
+                # PIL lazy-loads pixel data; force load while file open,
+                # sonst spaeter `seek of closed file` beim convert().
+                img.load()
         except (ImportError, AttributeError, OSError):
             img.load()
     return img.convert("RGBA")
