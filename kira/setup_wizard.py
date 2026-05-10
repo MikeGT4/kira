@@ -265,7 +265,7 @@ class OllamaSetupWorker(QThread):
             return
 
         try:
-            stdout, stderr = self._proc.communicate(timeout=300)
+            _, stderr = self._proc.communicate(timeout=300)
             returncode = self._proc.returncode
         except subprocess.TimeoutExpired:
             self._proc.kill()
