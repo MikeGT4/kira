@@ -221,16 +221,31 @@ _ICON_PATH = _ASSETS_DIR / "icon-branded.ico"
 
 
 def _resource_path(rel_path: str) -> Path:
-    """Resolve a file relative to bundled resources or the source tree.
+    """Resolve a bundled resource path with PyInstaller-MEIPASS support and
+    Source-Tree-Fallback. Path-Traversal-protected via ``.resolve()`` +
+    ``.is_relative_to(base)`` check.
 
-    Inside a PyInstaller onefile bundle ``sys._MEIPASS`` points at the
-    extracted temp dir; outside (editable dev install) we fall back to the
-    repo root two levels up from this file. The wizard's installer path
-    falls under both paths for the same relative spec.
+    PyInstaller-Bundle: ``rel_path`` resolves to ``{sys._MEIPASS}/<rel_path>``.
+    Editable/Source-Tree: ``rel_path`` resolves to ``<repo-root>/<rel_path>``.
+
+    Note: in non-PyInstaller mode, files under ``installer/embedded/`` exist
+    only in the source-tree — the installed Inno-Bundle bundlet
+    ``installer/embedded/OllamaSetup.exe`` permanent nach
+    ``{app}/installer/embedded/`` seit Phase F.
+
+    Raises ``ValueError`` wenn ``rel_path`` aus dem Base-Verzeichnis
+    herausfuehrt (z.B. ``"../../../Windows/System32"``). Defense-in-depth
+    auch wenn ``rel_path`` heute immer programmgenerated kommt — billiger
+    Schutz gegen kuenftige Refactorings die User-Input einbinden.
     """
     if hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS) / rel_path
-    return Path(__file__).resolve().parent.parent / rel_path
+        base = Path(sys._MEIPASS).resolve()
+    else:
+        base = Path(__file__).resolve().parent.parent
+    target = (base / rel_path).resolve()
+    if not target.is_relative_to(base):
+        raise ValueError(f"Path traversal attempt blocked: {rel_path!r}")
+    return target
 
 
 def _set_windows_app_identity() -> None:
