@@ -46,7 +46,9 @@ ersten Start gepullt.
   `scripts/build_wizard_images.py` (Pillow-basiert).
 - **Slim-Bundle-Build:** `scripts/build_installer.ps1` zieht Whisper +
   Gemma raus, embedded `OllamaSetup.exe` rein (~600 MB,
-  `installer/embedded/`). `DiskSpanning=no` → Single-File-EXE
+  `installer/embedded/`). `DiskSpanning=yes` mit 1.998 GiB Slice → in der
+  Praxis Single-File-EXE bei <2 GiB Source, sonst Auto-Split in 1-2 .bin-Files
+  je <2 GiB
   (passt unter GitHub-Release-2-GiB-Limit). Sub-Installer-`[Run]` mit
   `Check: NeedsOllama` Pascal-Function (testet
   `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`).

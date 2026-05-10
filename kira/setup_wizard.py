@@ -117,9 +117,26 @@ WHISPER_ALLOWED_FILES: tuple[str, ...] = (
 # SSD/AV-Scan-Boxen ueber Env-Var auf laenger setzbar (kein Code-Edit
 # noetig fuer Endkunden-Support):
 #   set KIRA_OLLAMA_INSTALL_WAIT_SECONDS=120
-_OLLAMA_API_WAIT_SECONDS = int(
-    os.environ.get("KIRA_OLLAMA_INSTALL_WAIT_SECONDS", "60")
-)
+def _resolve_ollama_wait_seconds() -> int:
+    """Liest KIRA_OLLAMA_INSTALL_WAIT_SECONDS robust. Bei Garbage-Input
+    (`120s`, `two-minutes`, leere Strings, etc.) faellt's auf 60s zurueck
+    und logged WARN -- crashen ist hier teuer weil das Module-Level lebt
+    und bei Crash der `from kira.setup_wizard import` in main.py den
+    First-Run-Wizard silent killed (keine UI, nur Log).
+    """
+    raw = os.environ.get("KIRA_OLLAMA_INSTALL_WAIT_SECONDS", "60")
+    try:
+        return int(raw)
+    except ValueError:
+        log.warning(
+            "KIRA_OLLAMA_INSTALL_WAIT_SECONDS=%r ist nicht numerisch - "
+            "fallback auf 60s.",
+            raw,
+        )
+        return 60
+
+
+_OLLAMA_API_WAIT_SECONDS = _resolve_ollama_wait_seconds()
 
 # Win32-Console-Hide-Flag fuer Subprocess-Spawn. Konsistent mit
 # kira/_wsl_warmup.py. Auf Non-Windows: 0 (no-op-Flag, subprocess
@@ -131,11 +148,39 @@ _CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 # Helper
 # ---------------------------------------------------------------------------
 
-def is_ollama_installed() -> bool:
-    """Prueft ob 'ollama' im PATH liegt (Win11 + Ollama-Installer setzt
-    `%LOCALAPPDATA%\\Programs\\Ollama` als User-Path).
+def find_ollama_exe() -> Path | None:
+    """Resolve den absoluten Pfad zu ollama.exe. Cascade:
+
+    1. `%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe` (NSIS-Default)
+    2. `%PROGRAMFILES%\\Ollama\\ollama.exe` (Machine-Wide-Install)
+    3. `shutil.which("ollama")` PATH-Fallback (winget/Custom)
+
+    Hintergrund: nach OllamaSetup.exe-Run im selben Inno-Setup-Process
+    schreibt der Installer den neuen %LOCALAPPDATA%\\Programs\\Ollama\\
+    in HKCU\\Environment\\Path -- aber Windows propagiert die Aenderung
+    NICHT zu schon-laufenden Prozessen. kira.exe (vom Inno postinstall
+    gestartet) erbt die alte env, bare `ollama`-PATH-Lookup failt mit
+    FileNotFoundError. Absoluten Pfad nutzen statt PATH-Lookup.
     """
-    return shutil.which("ollama") is not None
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidate = Path(local) / "Programs" / "Ollama" / "ollama.exe"
+        if candidate.exists():
+            return candidate
+    pf = os.environ.get("PROGRAMFILES")
+    if pf:
+        candidate = Path(pf) / "Ollama" / "ollama.exe"
+        if candidate.exists():
+            return candidate
+    via_path = shutil.which("ollama")
+    if via_path:
+        return Path(via_path)
+    return None
+
+
+def is_ollama_installed() -> bool:
+    """True wenn ollama.exe im Standard-Install-Pfad ODER im PATH liegt."""
+    return find_ollama_exe() is not None
 
 
 def is_ollama_reachable(timeout: float = 3.0) -> bool:
@@ -323,11 +368,20 @@ class OllamaSetupWorker(QThread):
             # CREATE_NO_WINDOW: NSIS-OllamaSetup hat eigene UI/Console-
             # Fenster, ohne das Flag blitzt eine zweite cmd.exe-Konsole
             # auf. Phase-F-Polish.
+            # encoding="utf-8", errors="replace": vor F2-Review fehlte das.
+            # Ohne explizites Encoding nimmt Python locale.getpreferredencoding
+            # (Win11-DE = CP1252). Ein UTF-8-Byte im NSIS-Output (User mit
+            # Umlaut-Username, lokalisierte Fehlertext) crashte communicate()
+            # mit UnicodeDecodeError - das ist ValueError-Subclass, NICHT
+            # OSError -> der except-Block unten hat nicht gefangen, Wizard
+            # haengte sich silent auf.
             self._proc = subprocess.Popen(  # noqa: S603 - list-args, kein shell-Parsing
                 [str(self._installer_path), "/S", "/NORESTART"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=_CREATE_NO_WINDOW,
             )
         except OSError as exc:
@@ -404,13 +458,34 @@ class GemmaPullWorker(QThread):
     error = pyqtSignal(str)
     finished = pyqtSignal()
 
-    def __init__(self, model_tag: str = DEFAULT_GEMMA_TAG, parent=None) -> None:
+    def __init__(
+        self,
+        model_tag: str = DEFAULT_GEMMA_TAG,
+        ollama_exe: Path | None = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._model_tag = model_tag
+        # Absoluter Pfad zu ollama.exe -- noetig weil PATH-env in der
+        # kira.exe-Process-Snapshot stale ist (Inno-Setup spawnt kira.exe
+        # mit pre-Ollama-Install env, Win11 propagiert HKCU\\Environment-
+        # Aenderungen NICHT zu schon-laufenden Prozessen). Ohne absolutem
+        # Pfad failt subprocess([\"ollama\", ...]) auf jedem fresh-Win11.
+        self._ollama_exe = ollama_exe
         self._cancelled = threading.Event()
         # Live-Handle des `ollama pull`-Subprocess. cancel() ruft
         # terminate() darauf auf, plus kill() falls 5 s spaeter noch da.
         self._proc: subprocess.Popen | None = None
+
+    def _ollama_argv(self, *args: str) -> list[str]:
+        """Returnt subprocess-argv mit absolutem ollama.exe-Pfad falls
+        verfuegbar, sonst bare-name-Fallback."""
+        exe = self._ollama_exe
+        if exe is None:
+            exe = find_ollama_exe()
+        if exe is None:
+            return ["ollama", *args]
+        return [str(exe), *args]
 
     def cancel(self) -> None:
         """Setzt Cancel-Flag und killt den `ollama pull`-Subprocess.
@@ -444,7 +519,7 @@ class GemmaPullWorker(QThread):
         self.status.emit(f"Pruefe ob {self._model_tag} bereits installiert ist...")
         try:
             list_result = subprocess.run(  # noqa: S603 - list-args
-                ["ollama", "list"],
+                self._ollama_argv("list"),
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -480,7 +555,7 @@ class GemmaPullWorker(QThread):
             # davon nicht beeintraechtigt — wir bekommen weiterhin
             # die Progress-Lines aus _proc.stdout.
             self._proc = subprocess.Popen(  # noqa: S603 - list-args
-                ["ollama", "pull", self._model_tag],
+                self._ollama_argv("pull", self._model_tag),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=1,
@@ -712,7 +787,14 @@ class DownloadPage(QWizardPage):
             self._append_log("[Gemma] Pipeline abgebrochen — kein Pull")
             return
         self._gemma_status.setText("Gemma: starte...")
-        self._gemma_worker = GemmaPullWorker(model_tag=DEFAULT_GEMMA_TAG)
+        # Absoluter ollama.exe-Pfad. Wir frisch resolven WEIL der
+        # OllamaSetupWorker grade Ollama installiert hat — vorher
+        # existierte ollama.exe noch nicht.
+        ollama_exe = find_ollama_exe()
+        self._gemma_worker = GemmaPullWorker(
+            model_tag=DEFAULT_GEMMA_TAG,
+            ollama_exe=ollama_exe,
+        )
         self._gemma_worker.status.connect(self._on_gemma_status)
         self._gemma_worker.progress.connect(self._on_gemma_progress)
         self._gemma_worker.error.connect(self._on_gemma_error)
@@ -868,19 +950,36 @@ class SetupWizard(QWizard):
         self.addPage(DownloadPage(whisper_target, ollama_installer, self))
         self.addPage(FinishedPage(self))
 
+    def _cleanup_running_workers(self) -> None:
+        """Routet an DownloadPage.cleanupPage(). Wird von closeEvent
+        (X-Button/Alt+F4) UND reject() (Cancel-Button) gerufen.
+        """
+        page = self.page(1)
+        if isinstance(page, DownloadPage):
+            page.cleanupPage()
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         """Faengt X-Button und Alt+F4 ab.
 
         Vorher: User Alt+F4 oder X-Button waehrend DownloadPage aktiv ->
         Wizard-Window weg, Worker-Threads laufen weiter (Whisper-Download
         zieht ggf. noch 3 GB im Hintergrund). cleanupPage() wird von Qt
-        nur bei Cancel-Button aufgerufen, nicht bei closeEvent. Hier
-        routen wir an die DownloadPage (Page-ID 1) durch.
+        NUR bei Back-Navigation aufgerufen (NICHT Cancel, NICHT close)
+        — also brauchen wir beide Hooks.
         """
-        page = self.page(1)
-        if isinstance(page, DownloadPage):
-            page.cleanupPage()
+        self._cleanup_running_workers()
         super().closeEvent(event)
+
+    def reject(self) -> None:  # noqa: N802 - Qt override
+        """Faengt Cancel-Button (oder ESC) ab.
+
+        Cancel-Bug-Fix nach ultrareview: QDialog.reject() ruft hide()
+        ohne closeEvent zu fire'n -- vorher liefen Worker-Threads
+        nach Cancel weiter (8 GB Gemma-Pull, 3 GB Whisper) im
+        Hintergrund. cleanupPage() macht den Worker-Cancel.
+        """
+        self._cleanup_running_workers()
+        super().reject()
 
     def accept(self) -> None:  # noqa: N802 - Qt override
         """Marker NUR bei Total-Erfolg (User clickt Finish auf der letzten

@@ -30,11 +30,11 @@ OutputDir={#OutputDir}
 OutputBaseFilename=Kira-Setup-v{#Version}
 Compression=lzma2/max
 SolidCompression=yes
-; Slim bundle (~1.5 GB): single-file Setup.exe, no .bin splits. Comfortably
-; under GitHub's 2 GiB per-asset limit. The fat bundle (v0.1.0) needed
-; OllamaSetup.exe (1.98 GB) + Embedded Python + Wheels = ~3.5 GB total —
-; ueber GitHub-Release-Asset-Limit (2 GiB). DiskSpanning=yes mit 1.99 GiB
-; Slices → Inno produziert 1 EXE + 1-2 .bin-Splits, alle unter 2 GiB.
+; Slim-Bundle ~1.5 GB Source aber Embedded Python + 56 Wheels + bundled
+; OllamaSetup.exe (1.98 GB) summiert sich unter LZMA2-Compression auf ~3.5 GB
+; Output. DiskSpanning=yes + DiskSliceSize=1.998 GiB ist als Safety-Net da:
+; bei <2 GiB Output bleibt's Single-File-EXE, sonst auto-split in 1-2 .bin-
+; Files je <2 GiB (jeder unter GitHub-Release-Asset-Limit).
 DiskSpanning=yes
 DiskSliceSize=2147483647
 PrivilegesRequired=lowest
@@ -94,15 +94,20 @@ Source: "{#BuildDir}\rcedit-x64.exe"; DestDir: "{app}\tools"; DestName: "rcedit-
 ;    Path(__file__).parent.parent = {app}\app\ — also muss die EXE auch
 ;    unter {app}\app\installer\embedded\ liegen, NICHT unter
 ;    {app}\installer\embedded\.
+; OllamaSetup.exe DOPPELT deployed mit unterschiedlichem Lifecycle:
+;  - {tmp}: fuer den Inno [Run]-Step (delete-after-install). Ein-Use.
+;  - {app}\installer\embedded: persistent als Fallback fuer den First-
+;    Run-Wizard. Wenn der User spaeter Ollama uninstalled (oder Service-
+;    Crash) und Wizard-Re-Run, kann OllamaSetupWorker den lokalen Pfad
+;    nutzen statt erneuten ~600 MB Online-Pull. Resolved via
+;    kira/main.py:_resource_path() mit sys.executable-Bundle-Detection.
 Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{app}\app\installer\embedded"; Flags: ignoreversion
+Source: "{#BuildDir}\..\installer\embedded\OllamaSetup.exe"; DestDir: "{app}\installer\embedded"; Flags: ignoreversion
 
-; Asset & config template. icon-branded.ico landet doppelt:
-;  - {app}\assets fuer Inno's eigene Lnk-IconLocation + UninstallDisplayIcon
-;  - {app}\app\assets damit der Code beim _resource_path-Lookup
-;    (relative to kira/-Modul) das Icon findet (Phase E2 fixup #2 hinted).
+; Asset fuer Inno's eigene Lnk-IconLocation + UninstallDisplayIcon. Der
+; Python-Runtime-Code findet sein icon-branded.ico nicht hier sondern im
+; Wheel (kira/_assets/icon-branded.ico via pyproject.toml force-include).
 Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
-Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\app\assets"; Flags: ignoreversion
 Source: "{#BuildDir}\..\installer\config.yaml.template"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
@@ -119,6 +124,14 @@ Name: "{userappdata}\Kira"
 ; alte Wheel-Reste nicht mit neuen kollidieren.
 Type: filesandordirs; Name: "{app}\python\Lib\site-packages\kira"
 Type: filesandordirs; Name: "{app}\python\Lib\site-packages\kira-*"
+; Upgrade-Path v0.1.x -> v0.2.x: Slim-Installer schreibt nicht mehr in
+; {app}\venv\, daher wuerde der ~500 MB-1 GB venv-Tree als Cruft
+; ueberleben bis Full-Uninstall. Mindestens fuer 2 Releases entry
+; behalten, damit alle v0.1.x-Updater sauber rueberkommen.
+Type: filesandordirs; Name: "{app}\venv"
+; Genauso obsolete Trees aus Phase F2-15..18 (assets unter {app}\app):
+Type: filesandordirs; Name: "{app}\app\assets"
+Type: filesandordirs; Name: "{app}\app\installer"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

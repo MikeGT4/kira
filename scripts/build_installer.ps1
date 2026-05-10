@@ -229,6 +229,17 @@ $kiraWheels = Get-ChildItem $wheelDir -Filter "kira-*.whl"
 if ($kiraWheels.Count -eq 0) { throw "kira wheel was not produced" }
 Write-Host "  built: $($kiraWheels[0].Name)"
 
+# Build-deps wieder rausschmeissen damit hatchling/pluggy/editables/
+# pathspec/trove-classifiers (nur fuer pip wheel benoetigt) nicht
+# ungenutzt im Endbenutzer-Bundle landen. Ultrareview-Finding bug_014:
+# diese Pakete shippen sonst als ~1-2 MB Dead-Weight in {app}\python\
+# Lib\site-packages\ und werden von der Kira-Runtime nie importiert.
+& {
+    $ErrorActionPreference = "Continue"
+    & "$pyDir\python.exe" -m pip uninstall -y hatchling pluggy editables pathspec trove-classifiers 2>&1 | Out-Host
+}
+# Uninstall darf scheitern (z.B. bei Re-Build wo schon weg) -- kein throw.
+
 # 8. OllamaSetup.exe -- pulled into installer\embedded\ (committed dir,
 # binary itself gitignored). Refresh if stale (>30 days) so we don't ship
 # a known-CVE Ollama. Sanity-check the size to catch CDN-error pages and

@@ -65,3 +65,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["kira"]
+
+# Bundle-Mode (Slim-Installer): assets + Ollama-Setup-EXE + prompts landen
+# mit ins wheel als kira/_assets/, kira/_embedded/, kira/_prompts/.
+# Sonst findet `Path(__file__).parent.parent` beim Wheel-Install nichts
+# (resolved zu site-packages/, nicht repo-root). Editable-Install ignoriert
+# force-include (gilt nur fuer wheel-target), Editable-Mode nutzt den
+# klassischen Source-Tree-Lookup.
+[tool.hatch.build.targets.wheel.force-include]
+"assets/icon-branded.ico" = "kira/_assets/icon-branded.ico"
+"assets/icon.ico" = "kira/_assets/icon.ico"
+"assets/digitalroots-logo.png" = "kira/_assets/digitalroots-logo.png"
+"assets/kira-splash.png" = "kira/_assets/kira-splash.png"
+"prompts" = "kira/_prompts"
+# OllamaSetup.exe (~1.98 GB) wird BEWUSST NICHT ins wheel gepackt:
+#  - waere das Wheel ~2.1 GB statt ~50 KB
+#  - Inno-Bundle haette OllamaSetup.exe DOPPELT (Wheel + tmp-Run-Step)
+# Stattdessen: Inno deployed nach {app}\installer\embedded\, und
+# kira/main.py:_resource_path detected den Bundle-Mode via sys.executable.

@@ -73,7 +73,11 @@ def test_is_ollama_installed_true_when_which_returns_path(mocker):
     assert is_ollama_installed() is True
 
 
-def test_is_ollama_installed_false_when_which_returns_none(mocker):
+def test_is_ollama_installed_false_when_which_returns_none(mocker, monkeypatch):
+    # find_ollama_exe checkt zuerst LOCALAPPDATA + PROGRAMFILES, dann PATH.
+    # Alle drei muessen leer sein damit is_ollama_installed False returnt.
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.delenv("PROGRAMFILES", raising=False)
     mocker.patch("kira.setup_wizard.shutil.which", return_value=None)
     assert is_ollama_installed() is False
 
@@ -258,6 +262,8 @@ def test_ollama_worker_emits_error_when_installer_path_missing(qtbot, tmp_path, 
 # ---------------------------------------------------------------------------
 
 def test_gemma_worker_skips_pull_when_tag_in_list(qtbot, mocker):
+    # find_ollama_exe gemockt → bare-name "ollama" (Test-default-fallback)
+    mocker.patch("kira.setup_wizard.find_ollama_exe", return_value=None)
     fake_run = mocker.patch(
         "kira.setup_wizard.subprocess.run",
         return_value=MagicMock(
@@ -284,6 +290,7 @@ def test_gemma_worker_skips_pull_when_tag_in_list(qtbot, mocker):
 
 
 def test_gemma_worker_pulls_when_tag_missing(qtbot, mocker):
+    mocker.patch("kira.setup_wizard.find_ollama_exe", return_value=None)
     mocker.patch(
         "kira.setup_wizard.subprocess.run",
         return_value=MagicMock(returncode=0, stdout="NAME ID SIZE\n", stderr=""),

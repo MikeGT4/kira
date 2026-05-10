@@ -216,32 +216,103 @@ _APP_USER_MODEL_ID = "Digitalroots.Kira.1"
 # The previous name "Digitaroots" was a typo; existing installs that already
 # hold the old mutex will release it on their own quit, so renaming is safe.
 _SINGLE_INSTANCE_MUTEX = "Local\\Digitalroots.Kira.SingleInstance"
-_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+# Resource-Lookup: dual-mode (Wheel-Install vs Editable/Source-Tree).
+#
+# Wheel-Install (Slim-Installer-Bundle): pyproject.toml force-include packt
+# assets/ -> kira/_assets/, installer/embedded/ -> kira/_embedded/, prompts/
+# -> kira/_prompts/. Path(__file__).parent ist <site-packages>/kira/, also
+# <site-packages>/kira/_assets/ etc.
+#
+# Editable/Source-Tree-Mode: kein force-include, klassischer Repo-Layout —
+# Path(__file__).parent.parent ist <repo-root>/, also <repo-root>/assets/ etc.
+#
+# Wir versuchen Wheel-Layout zuerst; faellt zurueck auf Source-Tree.
+def _resolve_assets_dir() -> Path:
+    pkg_dir = Path(__file__).resolve().parent
+    wheel_assets = pkg_dir / "_assets"
+    if wheel_assets.exists():
+        return wheel_assets
+    return pkg_dir.parent / "assets"
+
+
+_ASSETS_DIR = _resolve_assets_dir()
 _ICON_PATH = _ASSETS_DIR / "icon-branded.ico"
 
 
-def _resource_path(rel_path: str) -> Path:
-    """Resolve a bundled resource path with PyInstaller-MEIPASS support and
-    Source-Tree-Fallback. Path-Traversal-protected via ``.resolve()`` +
-    ``.is_relative_to(base)`` check.
+_RESOURCE_REL_MAP = {
+    "assets": "_assets",
+    "prompts": "_prompts",
+}
 
-    PyInstaller-Bundle: ``rel_path`` resolves to ``{sys._MEIPASS}/<rel_path>``.
-    Editable/Source-Tree: ``rel_path`` resolves to ``<repo-root>/<rel_path>``.
 
-    Note: in non-PyInstaller mode, files under ``installer/embedded/`` exist
-    only in the source-tree — the installed Inno-Bundle bundlet
-    ``installer/embedded/OllamaSetup.exe`` permanent nach
-    ``{app}/installer/embedded/`` seit Phase F.
+def _bundle_root() -> Path | None:
+    """Return Inno-Slim-Bundle-Root wenn wir aus dem deployed Bundle laufen,
+    sonst None.
 
-    Raises ``ValueError`` wenn ``rel_path`` aus dem Base-Verzeichnis
-    herausfuehrt (z.B. ``"../../../Windows/System32"``). Defense-in-depth
-    auch wenn ``rel_path`` heute immer programmgenerated kommt — billiger
-    Schutz gegen kuenftige Refactorings die User-Input einbinden.
+    Im Bundle ist sys.executable = `{app}\\python\\python.exe`, d.h.
+    Path(sys.executable).parent.parent = `{app}`. Zusaetzlich
+    `{app}\\installer\\embedded\\OllamaSetup.exe` als Existenz-Check, damit
+    wir kein false-positive bei einem random embedded Python woanders
+    haben.
     """
+    try:
+        candidate = Path(sys.executable).resolve().parent.parent
+    except (OSError, ValueError):
+        return None
+    if (candidate / "installer" / "embedded").exists():
+        return candidate
+    return None
+
+
+def _resource_path(rel_path: str) -> Path:
+    """Resolve a bundled resource path with multi-mode support.
+
+    Cascade:
+      1. **Wheel-Layout** (force-include): kira/_assets/, kira/_prompts/
+         werden via pyproject.toml ins wheel gepackt. Resource resolves
+         relativ zum kira-Modul.
+      2. **PyInstaller-Bundle** (sys._MEIPASS): historisch, falls jemals
+         PyInstaller-Bundle gebaut wird.
+      3. **Inno-Slim-Bundle** (sys.executable): grosse Resources wie
+         installer/embedded/OllamaSetup.exe (~1.98 GB) sind absichtlich
+         NICHT im wheel — Inno deployed sie nach {app}\\installer\\embedded\\.
+         _bundle_root() detected das via sys.executable.
+      4. **Source-Tree** (parent of kira/-Modul): editable Install im
+         Repo-Root.
+
+    Path-Traversal-protected via ``.resolve()`` + ``.is_relative_to(base)``.
+    Raises ``ValueError`` wenn ``rel_path`` aus Base raushuepft.
+    """
+    pkg_dir = Path(__file__).resolve().parent
+    rel_norm = rel_path.replace("\\", "/")
+
+    # 1. Wheel-Layout
+    for source_prefix, wheel_prefix in _RESOURCE_REL_MAP.items():
+        if rel_norm.startswith(source_prefix + "/") or rel_norm == source_prefix:
+            wheel_rel = wheel_prefix + rel_norm[len(source_prefix):]
+            wheel_target = (pkg_dir / wheel_rel).resolve()
+            if wheel_target.exists() and wheel_target.is_relative_to(pkg_dir):
+                return wheel_target
+            break
+
+    # 2. PyInstaller-Bundle
     if hasattr(sys, "_MEIPASS"):
         base = Path(sys._MEIPASS).resolve()
-    else:
-        base = Path(__file__).resolve().parent.parent
+        target = (base / rel_path).resolve()
+        if not target.is_relative_to(base):
+            raise ValueError(f"Path traversal attempt blocked: {rel_path!r}")
+        return target
+
+    # 3. Inno-Slim-Bundle (assets/big files via Inno-deployed paths)
+    bundle_root = _bundle_root()
+    if bundle_root is not None:
+        target = (bundle_root / rel_path).resolve()
+        if target.exists() and target.is_relative_to(bundle_root):
+            return target
+
+    # 4. Source-Tree-Fallback
+    base = pkg_dir.parent
     target = (base / rel_path).resolve()
     if not target.is_relative_to(base):
         raise ValueError(f"Path traversal attempt blocked: {rel_path!r}")
