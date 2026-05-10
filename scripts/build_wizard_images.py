@@ -24,9 +24,15 @@ from PIL import Image, ImageDraw, ImageFont
 SIDE_W, SIDE_H = 164, 314
 SMALL_W, SMALL_H = 55, 58
 
-# Branding -- dark glass background. Hex 1c1c1c chosen to match
-# WizardImageBackColor in kira.iss; keep them in lockstep.
+# Branding -- dark glass background fuer wizard-side.bmp (Welcome/Finished
+# Pages). Hex 1c1c1c gespiegelt zu WizardImageBackColor in kira.iss.
 BG_DARK = (28, 28, 28)
+# wizard-small.bmp sitzt im Inner-Wizard (Install-Progress/Modus-Auswahl),
+# der weisses BG hat. Mit BG_DARK sieht man das Logo in einem schwarzen
+# Quadrat (Mike's "schwarzer Rahmen"-Beobachtung). Inno hat KEINE separate
+# WizardSmallImageBackColor-Direktive, also matchen wir den Win11-Inner-
+# Wizard-BG auf weiss.
+BG_LIGHT = (255, 255, 255)
 ACCENT_YELLOW = (255, 209, 71)  # Kira's tray accent
 TEXT_PRIMARY = (255, 255, 255)
 TEXT_SECONDARY = (180, 180, 180)
@@ -132,8 +138,10 @@ def build_side_image(out_path: Path) -> None:
 
 
 def build_small_image(out_path: Path) -> None:
-    """55x58 px top-right tile: branded icon, centered, dark BG."""
-    canvas = Image.new("RGB", (SMALL_W, SMALL_H), BG_DARK)
+    """55x58 px top-right tile: branded icon, centered, weisses BG passend
+    zum Win11-Inner-Wizard-BG (kein "schwarzer Rahmen" um das gelbe
+    rounded-square Logo)."""
+    canvas = Image.new("RGB", (SMALL_W, SMALL_H), BG_LIGHT)
 
     icon = _load_branded_icon()
     # Leave 4 px padding so the rounded yellow plate doesn't kiss the edge.
