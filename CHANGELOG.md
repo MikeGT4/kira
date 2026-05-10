@@ -56,6 +56,51 @@ ersten Start gepullt.
   `tests/test_setup_wizard.py` (27, davon 5 Cancel/Abort/Marker-Fixup-
   Tests).
 
+### Build- und Install-Fixes Phase F2 (2026-05-10 nachmittags–abends)
+
+23-Sub-Phase-Iteration auf dem Slim-Installer bis Bundle-kira.exe + Bundle-
+pythonw.exe sauber laufen. Die fünf folgenreichsten Cluster:
+
+- **F2-19 (`24aae92`) — Embedded Python ohne venv-Layer.** Embedded
+  Python-Distri enthält `venv` nicht (per Design — Distri-Ziel ist eine
+  bereits-portable Python). `python -m venv` failt mit „No module named
+  venv". Setup nutzt jetzt das embedded Python direkt als Kira-Runtime,
+  pip-Installs in `{app}\python\Lib\site-packages\`, Entry-Points unter
+  `{app}\python\Scripts\`.
+- **F2-20 (`0f6d34f`) — Ultrareview-Welle.** 9 Findings durch:
+  HF-Hub `allow_patterns`-Whitelist für Whisper-Pull (defense gegen
+  HF-Hub-Mirror-Hijack), `_resource_path` Path-Traversal-Defense,
+  `firstrun.py` `EnvironmentError`-Hardening + USERPROFILE-Whitelist,
+  Cancel-Race-Lock in `SetupWizard._abort_pipeline`, CREATE_NO_WINDOW-Flag
+  für `OllamaSetup.exe`-Popen, Cancel-Bypass-Override (`closeEvent` +
+  `reject` zusammen), Build-Deps-Cleanup nach Wheel-Build, hatchling-
+  `==`-Pinning in `requirements-bundle.txt`, CHANGELOG/README-Drift-
+  Fixes.
+- **F2-22 (`1a67d81`) — Wheel-aware Asset-Pfade.** Neues
+  `kira/_resources.py` mit `assets_dir()` + `prompts_dir()`-Helpern. Alle
+  7 UI-Module + `styler.py` umgestellt. Wheel-Install resolvt zu
+  `kira/_assets/` (force-include in `pyproject.toml`), Source-Tree
+  weiter auf `<repo>/assets/`. Sonst hätte das Bundle auf den
+  Build-Tree-Pfad gezeigt, der auf End-User-Boxen nicht existiert.
+- **F2-23 (`a8c7dd2`) — rcedit-x64 `[Run]`-Steps DEAKTIVIERT.**
+  Root-Cause der ganzen „kira.exe Exit -1 silent"-Welle. rcedit-x64.exe
+  v2.0.0 modifiziert PE-Resources (Icon + Version-Strings) per
+  Section-Rewrite. Pip/distlib-generierte gui_scripts-Wrapper
+  (`kira.exe`, `kira-once.exe`) sind aber PE-Loader + APPENDED ZIP-Stream
+  am EXE-Ende — rcedit zerschneidet diesen ZIP beim Rewrite. PE-Loader
+  lädt EXE, pip-Stub findet sein script-payload nicht, exit -1 ohne
+  stdout, stderr, MsgBox, faulthandler-Log oder kira-Log. Exakt Mike's
+  „unable to find an appended archive"-Symptom. TRADE-OFF: kira.exe +
+  kira-once.exe haben jetzt das pip-default-Icon (Python-Logo) im
+  Datei-Explorer. Tray-Icon (via runtime `tray_win.py`), Lnk-Icons
+  (`{app}\assets\icon-branded.ico` via Inno `[Icons]`-IconFilename) +
+  Setup-Wizard-UI bleiben branded.
+
+**Validierung Mike's Box 2026-05-10 20:00:** kira.exe + pythonw.exe
+beide aus `C:\Users\mike\AppData\Local\Kira\python\` aktiv, Boot-
+Sequenz 7 s (Tray + F8/F9 + Whisper-Warmup auf CUDA + gemma3:12b-
+Polish-Warmup). Autostart-Lnk zeigt korrekt auf Bundle-kira.exe.
+
 ### Late-Day Review-Welle (commit `30dd02c`, 2026-05-09)
 
 4-Subagenten-Review (code-reviewer, security-auditor, silent-failure-
