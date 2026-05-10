@@ -27,9 +27,11 @@ from kira.setup_wizard import (
     DEFAULT_GEMMA_TAG,
     DEFAULT_WHISPER_REPO,
     OLLAMA_API_URL,
+    WHISPER_ALLOWED_FILES,
     GemmaPullWorker,
     OllamaSetupWorker,
     WhisperDownloadWorker,
+    _has_model_tag,
     is_ollama_installed,
     is_ollama_reachable,
 )
@@ -626,3 +628,292 @@ def test_setup_wizard_accept_does_not_swallow_keyboard_interrupt(qtbot, tmp_path
 
     # KEINE Warning gezeigt
     fake_warn.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase F (2026-05-10): Hardening — Whitelist, mkdir-Race, Tag-Match,
+# Lock-Race, closeEvent, RuntimeError-defense
+# ---------------------------------------------------------------------------
+
+def test_whisper_worker_passes_allow_patterns_whitelist(qtbot, tmp_path, mocker):
+    """F1: snapshot_download muss mit allow_patterns gerufen werden, sonst
+    koennten kompromittierte HF-Repos andere Files (Notebooks, .py) on-disk
+    legen.
+    """
+    target = tmp_path / "whisper-model"
+    fake_download = mocker.patch(
+        "kira.setup_wizard.snapshot_download",
+        return_value=str(target),
+    )
+    worker = WhisperDownloadWorker(target_dir=target)
+
+    worker.run()
+
+    fake_download.assert_called_once()
+    kwargs = fake_download.call_args.kwargs
+    assert "allow_patterns" in kwargs, \
+        "snapshot_download muss allow_patterns kriegen (defense gegen rogue files in repo)"
+    patterns = kwargs["allow_patterns"]
+    # Liste, nicht None/leer/string
+    assert isinstance(patterns, list), "allow_patterns muss list sein"
+    assert len(patterns) > 0
+    # Erwartete CTranslate2-Files dabei
+    assert "model.bin" in patterns
+    assert "config.json" in patterns
+    assert "tokenizer.json" in patterns
+    # Keine Wildcards die zu viel matchen ('*' alleine)
+    assert "*" not in patterns
+
+
+def test_whisper_allowed_files_constant_locked():
+    """F1: Tuple-Form ist Module-Constant, falls jemand spaeter die Liste
+    aendert, soll der Test laut werden — dafuer ist sie da.
+    """
+    assert WHISPER_ALLOWED_FILES == (
+        "model.bin",
+        "config.json",
+        "tokenizer.json",
+        "vocabulary.json",
+        "preprocessor_config.json",
+        "*.txt",
+    )
+
+
+def test_whisper_worker_emits_error_when_mkdir_fails(qtbot, tmp_path, mocker):
+    """F5: mkdir wirft OSError (Disk-Full, ReadOnly-FS) — error-Signal
+    statt silent-stirb.
+    """
+    target = tmp_path / "whisper-model"
+    fake_download = mocker.patch("kira.setup_wizard.snapshot_download")
+    mocker.patch.object(
+        Path,
+        "mkdir",
+        side_effect=PermissionError("ReadOnly Filesystem"),
+    )
+
+    worker = WhisperDownloadWorker(target_dir=target)
+    errors: list[str] = []
+    worker.error.connect(lambda msg: errors.append(msg))
+
+    worker.run()
+
+    # snapshot_download niemals gerufen
+    fake_download.assert_not_called()
+    # error-Signal mit aussagekraeftiger Message
+    assert len(errors) == 1
+    assert "Whisper-Verzeichnis" in errors[0]
+    assert "PermissionError" in errors[0] or "ReadOnly" in errors[0]
+
+
+def test_has_model_tag_exact_match_only():
+    """F6: gemma3:12b vs gemma3:12b-instruct — Substring-Match wuerde
+    True liefern, exact-match auf erste Spalte muss aber False geben.
+    """
+    stdout = (
+        "NAME                ID    SIZE   MODIFIED\n"
+        "gemma3:12b-instruct abc   8.1 GB now\n"
+    )
+    # Such-Tag gemma3:12b ist NICHT als exact-Match in der NAME-Spalte
+    assert _has_model_tag(stdout, "gemma3:12b") is False
+    # Aber gemma3:12b-instruct schon
+    assert _has_model_tag(stdout, "gemma3:12b-instruct") is True
+
+
+def test_has_model_tag_finds_exact_tag():
+    """F6: positive Pfad — exakter Tag in der NAME-Spalte matched."""
+    stdout = (
+        "NAME                ID    SIZE   MODIFIED\n"
+        "gemma3:12b          abc   8.1 GB now\n"
+        "llama3:8b           xyz   4.7 GB last week\n"
+    )
+    assert _has_model_tag(stdout, "gemma3:12b") is True
+    assert _has_model_tag(stdout, "llama3:8b") is True
+    assert _has_model_tag(stdout, "phi3:14b") is False
+
+
+def test_has_model_tag_handles_empty_lines():
+    """F6: leere Lines / Header-only / blanks duerfen den Helper nicht
+    crashen lassen.
+    """
+    assert _has_model_tag("", "gemma3:12b") is False
+    assert _has_model_tag("\n\n\n", "gemma3:12b") is False
+    assert _has_model_tag("NAME ID SIZE\n", "gemma3:12b") is False
+
+
+def test_gemma_worker_does_not_match_substring(qtbot, mocker):
+    """F6 Integration: Worker sieht gemma3:12b-instruct in der Liste,
+    fragt aber nach gemma3:12b — muss pull triggern, NICHT skip.
+    """
+    mocker.patch(
+        "kira.setup_wizard.subprocess.run",
+        return_value=MagicMock(
+            returncode=0,
+            stdout=(
+                "NAME                ID    SIZE   MODIFIED\n"
+                "gemma3:12b-instruct abc   8.1 GB now\n"
+            ),
+            stderr="",
+        ),
+    )
+    fake_proc = MagicMock()
+    fake_proc.stdout.__iter__ = lambda self: iter(["pulling: 100%\n"])
+    fake_proc.wait.return_value = 0
+    fake_proc.returncode = 0
+    fake_popen = mocker.patch(
+        "kira.setup_wizard.subprocess.Popen",
+        return_value=fake_proc,
+    )
+
+    worker = GemmaPullWorker(model_tag="gemma3:12b")
+    worker.run()
+
+    # pull WURDE getriggert, weil exact-match auf gemma3:12b False war
+    fake_popen.assert_called_once()
+
+
+def test_abort_pipeline_idempotent_under_race(qtbot, tmp_path, mocker):
+    """F7: Lock-protected idempotency — zwei parallele Errors duerfen
+    NICHT zweimal _stop_all_workers() rufen (das kann QThread.terminate()
+    in inkonsistenten State stuerzen).
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    # _stop_all_workers patchen damit wir die Call-Count messen
+    spy_stop = mocker.patch.object(download_page, "_stop_all_workers")
+
+    # Erster Call setzt Flag und ruft _stop_all_workers
+    download_page._abort_pipeline()
+    # Zweiter Call (Race-Sim) — Flag schon gesetzt, _stop nicht nochmal
+    download_page._abort_pipeline()
+    # Dritter Call ebenfalls no-op
+    download_page._abort_pipeline()
+
+    assert download_page._pipeline_aborted is True
+    # Genau EIN Call zu _stop_all_workers — Lock haelt second/third zurueck
+    assert spy_stop.call_count == 1
+
+
+def test_close_event_cleans_up_running_workers(qtbot, tmp_path, mocker):
+    """F9: closeEvent (X-Button, Alt+F4) muss cleanupPage auf der
+    DownloadPage triggern, sonst laufen Worker im Hintergrund weiter
+    (3 GB Whisper-Download niemand verfolgt).
+    """
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QCloseEvent
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    spy_cleanup = mocker.patch.object(download_page, "cleanupPage")
+
+    # closeEvent braucht echtes QCloseEvent (PyQt akzeptiert kein
+    # MagicMock — interner C++-Type-Check)
+    real_event = QCloseEvent()
+    wizard.closeEvent(real_event)
+
+    spy_cleanup.assert_called_once()
+
+
+def test_setup_wizard_accept_handles_runtime_error_too(qtbot, tmp_path, mocker):
+    """F4: RuntimeError aus mark_first_run_complete (defensiv) muss vom
+    accept-Handler genauso aufgefangen werden wie OSError. Schuetzt
+    falls jemand spaeter firstrun.py wieder zu RuntimeError zurueck-
+    driftet.
+    """
+    from kira.setup_wizard import SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch(
+        "kira.setup_wizard.mark_first_run_complete",
+        side_effect=RuntimeError("legacy bug"),
+    )
+    fake_warn = mocker.patch("kira.setup_wizard.QMessageBox.warning")
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+
+    # Kein RuntimeError nach aussen
+    wizard.accept()
+
+    fake_warn.assert_called_once()
+
+
+def test_append_log_escapes_html(qtbot, tmp_path, mocker):
+    """F10: ollama-Output kann '<' enthalten — _append_log muss das via
+    html.escape sichern, sonst broken-HTML im QTextEdit.
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    download_page._append_log("<script>alert(1)</script>")
+
+    log_text = download_page._log.toPlainText()
+    # toPlainText liefert escaped Text als Plain — < und > kommen rueber,
+    # aber das Markup wird nicht als HTML gerendert. Die Garantie ist
+    # dass der Render-Path den Text NICHT als script-Tag interpretiert.
+    # Der escapete Text ist im Document, also < kommt wieder raus.
+    assert "<script>" in log_text or "&lt;script&gt;" in download_page._log.toHtml()
+
+
+def test_log_buffer_capped_at_500_blocks(qtbot, tmp_path, mocker):
+    """F10: setMaximumBlockCount(500) — Gemma-Pull schreibt 80k+ Lines,
+    ohne Cap waechst der QTextEdit-Buffer unbegrenzt.
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    assert download_page._log.document().maximumBlockCount() == 500

@@ -49,10 +49,13 @@ Sicherheit:
 Spec: docs/superpowers/plans/2026-05-10-wsl-decoupling-and-installer-redesign.md
 """
 from __future__ import annotations
+import html
 import logging
+import os
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -94,9 +97,34 @@ DEFAULT_WHISPER_REPO = "Systran/faster-whisper-large-v3"
 
 DEFAULT_GEMMA_TAG = "gemma3:12b"
 
+# Whitelist fuer huggingface_hub.snapshot_download — defense-in-depth
+# gegen kompromittierte HF-Repos die LFS-Pointer auf andere Hosts oder
+# Postinstall-aehnliche Hooks ablegen koennten. Wir akzeptieren nur die
+# CTranslate2-Weights + Tokenizer + Preprocessor + textuelle Lizenz/
+# README-Dateien. Alle anderen Files (Notebooks, .py, .so, .dll,
+# Modell-Karten-PDFs) werden geblockt.
+WHISPER_ALLOWED_FILES: tuple[str, ...] = (
+    "model.bin",
+    "config.json",
+    "tokenizer.json",
+    "vocabulary.json",
+    "preprocessor_config.json",
+    "*.txt",  # README/license/Beschreibungen
+)
+
 # Wait-Loop nach Ollama-Install: bis API erreichbar wird. 60 s sollten
-# fuer einen Service-Start auf Win11 reichen. Je 1 s Tick.
-_OLLAMA_API_WAIT_SECONDS = 60
+# fuer einen Service-Start auf Win11 reichen. Je 1 s Tick. Auf langsamen
+# SSD/AV-Scan-Boxen ueber Env-Var auf laenger setzbar (kein Code-Edit
+# noetig fuer Endkunden-Support):
+#   set KIRA_OLLAMA_INSTALL_WAIT_SECONDS=120
+_OLLAMA_API_WAIT_SECONDS = int(
+    os.environ.get("KIRA_OLLAMA_INSTALL_WAIT_SECONDS", "60")
+)
+
+# Win32-Console-Hide-Flag fuer Subprocess-Spawn. Konsistent mit
+# kira/_wsl_warmup.py. Auf Non-Windows: 0 (no-op-Flag, subprocess
+# akzeptiert das stillschweigend).
+_CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +151,22 @@ def is_ollama_reachable(timeout: float = 3.0) -> bool:
     except (urllib.error.URLError, ConnectionError, socket.timeout, OSError) as exc:
         log.debug("Ollama unreachable: %s", exc)
         return False
+
+
+def _has_model_tag(stdout: str, tag: str) -> bool:
+    """Exact-match in der NAME-Spalte von `ollama list`.
+
+    Vorher wurde `tag in stdout` benutzt — das matcht aber auch
+    `gemma3:12b-instruct` als True fuer die Such-Tag `gemma3:12b`,
+    obwohl Ollama beim spaeteren Use den genauen Tag nicht findet.
+    Erste Whitespace-getrennte Spalte ist NAME (siehe
+    https://github.com/ollama/ollama/blob/main/docs/api.md).
+    """
+    for line in stdout.splitlines():
+        parts = line.split()
+        if parts and parts[0] == tag:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +214,32 @@ class WhisperDownloadWorker(QThread):
         if self._cancelled.is_set():
             return
         self.status.emit(f"Lade Whisper-Modell ({self._repo_id})...")
-        self._target_dir.mkdir(parents=True, exist_ok=True)
+        # mkdir IN den try-Block: bei Disk-Full / ReadOnly-FS / EACCES
+        # bekommen wir sonst eine OSError aus QThread.run() raus, die
+        # silent stirbt (QThread frisst Top-Level-Exceptions). Mit dem
+        # Catch landet sie im Error-Signal und in der UI.
         try:
+            self._target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log.exception("Whisper-Target-Verzeichnis konnte nicht angelegt werden")
+            if self._cancelled.is_set():
+                return
+            self.error.emit(
+                f"Whisper-Verzeichnis konnte nicht angelegt werden: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+
+        try:
+            # allow_patterns-Whitelist (Phase F): nur die erwarteten
+            # CTranslate2-Files werden geladen. Schuetzt vor kompromittierten
+            # HF-Repos die zusaetzliche Files (z.B. boese .py-Skripte) im
+            # Snapshot ablegen koennten — wir wuerden die zwar nicht
+            # automatisch ausfuehren, aber on-disk haben ist defense-loss.
             local_path = snapshot_download(
                 repo_id=self._repo_id,
                 local_dir=str(self._target_dir),
+                allow_patterns=list(WHISPER_ALLOWED_FILES),
             )
         except Exception as exc:  # ConnectionError, HfHubHTTPError, etc.
             log.exception("Whisper-Download fehlgeschlagen")
@@ -254,18 +319,23 @@ class OllamaSetupWorker(QThread):
             #
             # Popen statt run() damit cancel() das Subprocess via
             # terminate() killen kann. Auf timeout-Aequivalent: wait(300).
+            #
+            # CREATE_NO_WINDOW: NSIS-OllamaSetup hat eigene UI/Console-
+            # Fenster, ohne das Flag blitzt eine zweite cmd.exe-Konsole
+            # auf. Phase-F-Polish.
             self._proc = subprocess.Popen(  # noqa: S603 - list-args, kein shell-Parsing
                 [str(self._installer_path), "/S", "/NORESTART"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                creationflags=_CREATE_NO_WINDOW,
             )
         except OSError as exc:
             self.error.emit(f"Ollama-Installer-Start fehlgeschlagen: {exc}")
             return
 
         try:
-            _, stderr = self._proc.communicate(timeout=300)
+            stdout, stderr = self._proc.communicate(timeout=300)
             returncode = self._proc.returncode
         except subprocess.TimeoutExpired:
             self._proc.kill()
@@ -282,9 +352,18 @@ class OllamaSetupWorker(QThread):
             return
 
         if returncode != 0:
+            # NSIS-Installer schreiben Fehler-Texte teils auf STDOUT
+            # (z.B. "Errors during install"), teils auf STDERR. Beides
+            # in den User-sichtbaren Error packen, damit Mike beim
+            # Support-Triage nicht raten muss.
+            parts: list[str] = []
+            if stdout and stdout.strip():
+                parts.append(f"stdout: {stdout.strip()}")
+            if stderr and stderr.strip():
+                parts.append(f"stderr: {stderr.strip()}")
+            combined = "\n".join(parts) or "(kein Output)"
             self.error.emit(
-                f"Ollama-Installer Exit-Code {returncode}.\n\n"
-                f"stderr: {stderr.strip() if stderr else '(leer)'}"
+                f"Ollama-Installer Exit-Code {returncode}.\n\n{combined}"
             )
             return
 
@@ -370,6 +449,7 @@ class GemmaPullWorker(QThread):
                 text=True,
                 timeout=10,
                 check=True,
+                creationflags=_CREATE_NO_WINDOW,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
                 FileNotFoundError, OSError) as exc:
@@ -382,7 +462,10 @@ class GemmaPullWorker(QThread):
         if self._cancelled.is_set():
             return
 
-        if self._model_tag in list_result.stdout:
+        # Exact-Match auf NAME-Spalte (Phase-F-Fix). Vorher matched
+        # `gemma3:12b` auch `gemma3:12b-instruct` als bereits-installiert,
+        # obwohl der spaetere chat()-Call den exakten Tag nicht findet.
+        if _has_model_tag(list_result.stdout, self._model_tag):
             log.info("Gemma %s bereits installiert -> skip pull", self._model_tag)
             self.status.emit(f"{self._model_tag} bereits installiert.")
             self.finished.emit()
@@ -392,6 +475,10 @@ class GemmaPullWorker(QThread):
         self.status.emit(f"Lade {self._model_tag} (~8 GB)...")
         log.info("Starting ollama pull %s", self._model_tag)
         try:
+            # CREATE_NO_WINDOW: ollama-CLI ist Console-App, ohne das
+            # Flag erscheint ein Terminal-Fenster. Stdout-Pipe wird
+            # davon nicht beeintraechtigt — wir bekommen weiterhin
+            # die Progress-Lines aus _proc.stdout.
             self._proc = subprocess.Popen(  # noqa: S603 - list-args
                 ["ollama", "pull", self._model_tag],
                 stdout=subprocess.PIPE,
@@ -400,6 +487,7 @@ class GemmaPullWorker(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=_CREATE_NO_WINDOW,
             )
         except OSError as exc:
             self.error.emit(f"`ollama pull` Start fehlgeschlagen: {exc}")
@@ -503,6 +591,10 @@ class DownloadPage(QWizardPage):
         # Wenn EIN Worker errort, soll NICHT die Pipeline weiterlaufen.
         # Sonst rasselt der User in 5 min Ollama-Install + 8 GB Gemma-Pull
         # nachdem Whisper schon DNS-failed hat. Critical-Fix 2026-05-10.
+        # Lock schuetzt vor Race wenn zwei parallel laufende Worker in
+        # 2 ms beide errorn — sonst koennten beide _stop_all_workers()
+        # rufen und QThread.terminate() ist nicht reentrant-safe.
+        self._abort_lock = threading.Lock()
         self._pipeline_aborted = False
 
         self._whisper_worker: WhisperDownloadWorker | None = None
@@ -536,6 +628,12 @@ class DownloadPage(QWizardPage):
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(120)
+        # Phase-F: Cap fuer Log-Buffer. Gemma-Pull schreibt bei chunked
+        # Downloads bis zu ~80k Lines — ohne Cap waechst der QTextEdit-
+        # Buffer unbegrenzt und drueckt Memory. 500 Lines reichen fuer
+        # die letzten paar Minuten Log, alles aeltere ist ohnehin im
+        # kira.log persistent.
+        self._log.document().setMaximumBlockCount(500)
         outer.addWidget(self._log, stretch=1)
 
     def isComplete(self) -> bool:  # noqa: N802 - Qt API
@@ -645,22 +743,32 @@ class DownloadPage(QWizardPage):
 
     # --- Log helper ---
     def _append_log(self, msg: str, error: bool = False) -> None:
+        # html.escape gegen broken-HTML wenn `msg` `<` enthaelt
+        # (z.B. ollama-pull-Output: "<some progress format>"). Ohne
+        # escape interpretiert QTextEdit den Text als HTML — wir bekommen
+        # entweder garbled Output oder im Worst-Case malformed Markup
+        # was den Render-Status der Box blockiert.
+        safe = html.escape(msg)
         if error:
-            self._log.append(f'<span style="color:#cc0000">{msg}</span>')
+            self._log.append(f'<span style="color:#cc0000">{safe}</span>')
         else:
-            self._log.append(msg)
+            self._log.append(safe)
 
     # --- Pipeline-Abort + Cleanup ---
     def _abort_pipeline(self) -> None:
         """Setzt das aborted-Flag und stoppt alle laufenden Worker.
 
-        Idempotent: wenn schon aborted, no-op (sonst koennten zwei
-        parallele Errors `_stop_all_workers` doppelt rufen, was QThread
-        bei terminate() raucht).
+        Idempotent: wenn schon aborted, no-op. Lock-protected damit zwei
+        parallele Errors (z.B. Whisper-DNS-Fail + Ollama-Installer-Crash
+        in 2 ms) nicht beide `_stop_all_workers()` rufen — QThread.
+        terminate() ist nicht reentrant-safe und kann zu doppeltem
+        TerminateProcess fuehren, was Windows-Handles invalidiert
+        (erkennbar an "RPC server is unavailable"-Aborts in kira.log).
         """
-        if self._pipeline_aborted:
-            return
-        self._pipeline_aborted = True
+        with self._abort_lock:
+            if self._pipeline_aborted:
+                return
+            self._pipeline_aborted = True
         log.warning("Pipeline aborted — stoppe alle Worker")
         self._append_log("[Pipeline] abgebrochen — laufende Worker werden gestoppt", error=True)
         self._stop_all_workers()
@@ -760,6 +868,20 @@ class SetupWizard(QWizard):
         self.addPage(DownloadPage(whisper_target, ollama_installer, self))
         self.addPage(FinishedPage(self))
 
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Faengt X-Button und Alt+F4 ab.
+
+        Vorher: User Alt+F4 oder X-Button waehrend DownloadPage aktiv ->
+        Wizard-Window weg, Worker-Threads laufen weiter (Whisper-Download
+        zieht ggf. noch 3 GB im Hintergrund). cleanupPage() wird von Qt
+        nur bei Cancel-Button aufgerufen, nicht bei closeEvent. Hier
+        routen wir an die DownloadPage (Page-ID 1) durch.
+        """
+        page = self.page(1)
+        if isinstance(page, DownloadPage):
+            page.cleanupPage()
+        super().closeEvent(event)
+
     def accept(self) -> None:  # noqa: N802 - Qt override
         """Marker NUR bei Total-Erfolg (User clickt Finish auf der letzten
         Page = alle 3 Pages durchlaufen, FinishedPage.isComplete() == True
@@ -772,14 +894,19 @@ class SetupWizard(QWizard):
         Wizard nochmal, der erkennt aber via huggingface_hub-Resume +
         ollama list dass die Models schon da sind, also kein 11 GB
         Re-Download — nur Idempotenz-Checks.
+
+        Wir catchen OSError UND RuntimeError defensiv: firstrun.py wirft
+        seit Phase F EnvironmentError (OSError-Subclass), aber falls
+        jemand spaeter zu RuntimeError zurueckdriftet wollen wir das
+        auch hier auffangen statt es zu einem Crash-Backtrace zu lassen.
+        KeyboardInterrupt + SystemExit propagieren weiterhin durch
+        (BaseException, nicht OSError/RuntimeError) — Mike's Ctrl+C/Quit
+        muss durchkommen.
         """
         try:
             mark_first_run_complete()
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             log.exception("mark_first_run_complete failed in accept()")
-            # KeyboardInterrupt + SystemExit weiterhin durchlassen
-            # (BaseException, kein OSError) — User soll Ctrl+C/Quit
-            # nicht durch unsere Warnung gefangen sehen.
             QMessageBox.warning(
                 self,
                 "Setup-Marker nicht gespeichert",
