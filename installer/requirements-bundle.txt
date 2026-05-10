@@ -13,11 +13,11 @@
 # laeuft mit --no-build-isolation, sollte also nie auf hatchling treffen.
 # Trotzdem aufgenommen als defense-in-depth: falls jemand per Subagent-
 # Refactor PEP-517 wieder anschaltet, fehlt's nicht silent im Bundle.
-hatchling>=1.21
-pluggy>=1.4
-editables>=0.5
-pathspec>=0.12
-trove-classifiers>=2024
+hatchling==1.29.0
+pluggy==1.6.0
+editables==0.6
+pathspec==1.1.1
+trove-classifiers==2026.5.7.17
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0

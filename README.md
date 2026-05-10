@@ -24,22 +24,23 @@ Voice-to-text tray app for **Windows 11** with NVIDIA GPU. Hold a hotkey, speak,
 
 Download von der [Releases-Seite](https://github.com/MikeGT4/kira/releases/latest):
 
-1. **Alle 8 Assets** in **denselben** Ordner herunterladen (~13 GB, leerer Ordner mit 25 GB freiem Speicher empfohlen):
-   - `Kira-Setup-v0.1.0.exe` (Setup-Wizard, 2 MB)
-   - `Kira-Setup-v0.1.0-1.bin` … `-7.bin` (sieben 2 GB-Splits, Inno Setup verlangt sie alle nebeneinander)
-2. Doppelklick auf die `.exe`. Inno findet die `.bin`-Slices automatisch.
+1. Lade `Kira-Setup-v0.2.0.exe` (~2 MB Setup-Stub) und `SHA256SUMS.txt` in **denselben** Ordner herunter.
+   - Falls Inno bei diesem Build Disk-Spanning ausgelöst hat (Setup-Stub > 2 GiB Source), liegen daneben noch 1–2 `Kira-Setup-v0.2.0-N.bin`-Dateien — die müssen mit in den selben Ordner.
+2. Doppelklick auf `Kira-Setup-v0.2.0.exe`. Inno findet etwaige `.bin`-Slices automatisch.
 3. Falls Windows Defender SmartScreen warnt: „Weitere Informationen" → „Trotzdem ausführen". (Kira ist nicht code-signed.)
-4. Wizard durchklicken (Welcome → Lizenz → Pfad → Optionen → Installieren → Fertig).
-5. Nach „Fertig" startet Kira automatisch in der Tray-Leiste — gelb-orangenes Icon mit dem Kira-Logo.
-6. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
+4. Inno-Wizard durchklicken (Welcome → Lizenz → Pfad → Installieren → Fertig).
+5. **Beim ersten Start** erscheint automatisch ein zweiter Wizard, der ~10 GB Modelle pullt: Whisper-large-v3 (~3 GB) von Hugging Face plus Gemma 3 12B (~8 GB) via Ollama. Das geht einmalig, danach ist alles offline.
+6. Nach „Fertigstellen" startet Kira automatisch in der Tray-Leiste — gelb gerahmtes Logo.
+7. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
 
-> **Tipp:** Auf der Release-Seite sieht „Assets" zusammengeklappt aus — auf den Pfeil klicken, dann siehst du alle 8 Files. Nicht nur die `.exe` ziehen, sonst meldet der Wizard „Disk slice not found" nach den ersten paar MB.
+> **Tipp:** Mit `certutil -hashfile Kira-Setup-v0.2.0.exe SHA256` gegen die Hashes in `SHA256SUMS.txt` prüfen, falls du dem Download nicht traust (kein Code-Signing in v0.2.0).
 
 ### Voraussetzungen
 
 - Windows 11 (10 sollte gehen, ungetestet)
 - NVIDIA-GPU mit ≥ 12 GB VRAM (empfohlen RTX 4080+ / 5080+)
-- 25 GB freier Speicher (Whisper-Modell + Gemma 3 12B + Ollama-Runtime)
+- 25 GB freier Speicher (Slim-Installer ~3.5 GB + First-Run-Wizard zieht weitere ~10 GB Modelle in `%USERPROFILE%\models\` und `%USERPROFILE%\.ollama\`)
+- Stabile Internet-Verbindung beim ersten Start (Wizard-Pull, einmalig)
 
 ---
 
