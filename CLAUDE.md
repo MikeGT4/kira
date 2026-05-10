@@ -4,11 +4,40 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.0 in Dev (commit `bd4cf78`, `windows-port`, 2026-05-09).
-v0.1.0 ist die letzte released Version auf GitHub Releases. v0.2 fuegt
+**Version:** v0.2.0 in Dev (commit `a8c7dd2`, `windows-port`, 2026-05-10 abends).
+v0.1.0 ist die letzte released Version auf GitHub Releases. v0.2 fuegt:
 Custom Dictionary (`whisper.replacements`), AI-Modes (per-Mode Override),
-F9 AI-Editing-Commands (Selection rewriteset), File-Transcription via Tray
-und einen Win11-Section-Card-Settings-Dialog hinzu. Siehe `CHANGELOG.md`.
+F9 AI-Editing-Commands mit Silent-Failure-Haertung, File-Transcription,
+Multi-Asset In-App-Updater (SHA256-Verify + Resume + Path-Traversal-
+Schutz), GPU-Check-Button, async-Whisper-Pipeline, Anleitung-Dialog
+mit Apple-Look, version-aware Welcome-Marker, Settings-Dialog Win11-
+Section-Cards mit "Ueber Kira"-Card (Anleitung + GPU + Updates),
+config_writer mit auto-append fuer fehlende Sections/Keys, **WSL-
+Decoupling** (Source auf NTFS unter `C:\Users\<user>\dev\kira`, Ollama
+nativ statt WSL-systemd), **Slim-Installer mit First-Run-Wizard**
+(`kira/setup_wizard.py`, 3 Worker-Threads pullen Whisper + Ollama +
+Gemma parallel), **wheel-aware Asset-Pfade** (`kira/_resources.py`).
+Siehe `CHANGELOG.md`. ~135 Tests gruen.
+
+**Review-Welle 2026-05-09:** 4 Subagenten (code-reviewer, security-
+auditor, silent-failure-hunter, best-practice-checker) parallel
+dispatched. Findings (commit `30dd02c`): F9-Path-Silent-Failure-
+Cluster, async-Blocking transcribe, updater-Resume, asset-name-
+Whitelist, prompt-injection-Schutz, GPU-PATH-Hijack, QThread-
+Cleanup, notepad-Launch-Hardening. Volles Findings-Detail in
+[`~/.claude/projects/-home-mikepollow-claude-kira/memory/best_practice_audit_v02.md`](../.claude/projects/-home-mikepollow-claude-kira/memory/best_practice_audit_v02.md).
+
+**Bundle-Welle Phase F2 2026-05-10:** 23 Sub-Phasen. Schluessel-Fix
+F2-23 (`a8c7dd2`): rcedit-x64 `[Run]`-Steps in `installer/kira.iss`
+deaktiviert. Pip/distlib gui_scripts-Wrapper (kira.exe, kira-once.exe)
+sind PE-Loader + appended ZIP — rcedit's PE-Section-Rewrite trimmt
+diesen ZIP-Stream, der Wrapper crasht silent mit Exit -1 (kein log,
+kein stderr, keine MsgBox). Trade-off: kira.exe-EXEs zeigen jetzt
+das pip-default Python-Logo im Datei-Explorer, alle anderen
+Branding-Surfaces (Tray, Lnks, Setup-Wizard) bleiben gelb. Bundle
+verifiziert auf Mike's Box `C:\Users\mike\AppData\Local\Kira\`,
+Boot 7 s inkl. Tray + F8/F9 + Whisper-CUDA + Polish-Warmup.
+Volle Phasen-Liste in [`TODO.md`](TODO.md).
 
 ## Branch strategy
 
