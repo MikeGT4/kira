@@ -106,7 +106,6 @@ Source: "{#BuildDir}\..\assets\icon-branded.ico"; DestDir: "{app}\app\assets"; F
 Source: "{#BuildDir}\..\installer\config.yaml.template"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Dirs]
-Name: "{app}\venv"
 Name: "{app}\tools"
 Name: "{userappdata}\Kira"
 ; Note: %USERPROFILE%\.ollama\models and %USERPROFILE%\models\faster-whisper-*
@@ -114,39 +113,42 @@ Name: "{userappdata}\Kira"
 ; to the first-run setup wizard (kira/setup_wizard.py).
 
 [InstallDelete]
-Type: filesandordirs; Name: "{app}\venv"
+; Embedded Python ohne venv (venv-Modul nicht in python embed-Distri).
+; Kira wird direkt ins {app}\python\Lib\site-packages\ pip-installed,
+; Entry-Points in {app}\python\Scripts\. Bei Update saubermachen damit
+; alte Wheel-Reste nicht mit neuen kollidieren.
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\kira"
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\kira-*"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
 [Icons]
-Name: "{userdesktop}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
+Name: "{userdesktop}\Kira"; Filename: "{app}\python\Scripts\kira.exe"; \
     WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: desktopicon
 
-Name: "{userprograms}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
+Name: "{userprograms}\Kira"; Filename: "{app}\python\Scripts\kira.exe"; \
     WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: startmenuicon
 
-Name: "{userstartup}\Kira"; Filename: "{app}\venv\Scripts\kira.exe"; \
+Name: "{userstartup}\Kira"; Filename: "{app}\python\Scripts\kira.exe"; \
     WorkingDir: "{app}"; IconFilename: "{app}\assets\icon-branded.ico"; \
     Tasks: autostart
 
 [Run]
-; Step 1-4 -- bootstrap venv from embedded Python and bundled wheels.
-; runhidden bewusst RAUS damit Errors im Setup-Window sichtbar sind. Vorher
-; wurde der Pip-Install-Fail (hatchling fehlte) silent geschluckt und
-; kira.exe kam nicht ans Ziel.
+; Phase F2-19: KEIN venv mehr. Embedded Python ohne `venv`-Modul →
+; `python -m venv` failt mit "No module named venv", kira.exe wurde nie
+; erstellt, Setup zeigte Code 2. Stattdessen embedded Python direkt als
+; Kira-Runtime: pip install in {app}\python\Lib\site-packages\, Entry-
+; Points landen in {app}\python\Scripts\.
+;
+; runhidden bewusst RAUS damit Errors im Setup-Window sichtbar sind.
+;
+; --no-build-isolation: pip nutzt embedded Python's site-packages fuer
+; build-deps (hatchling ist da via build-pipeline). Defense gegen
+; erneuten Drift falls eine sdist trotz Pre-built-Wheel reinkommt.
 Filename: "{app}\python\python.exe"; \
-    Parameters: "-m venv ""{app}\venv"""; \
-    StatusMsg: "Erstelle virtuelle Python-Umgebung..."; \
-    Flags: waituntilterminated
-
-; F2-1: Statt {app}\app[windows] (PEP-517-Build aus Sdist) jetzt das
-; vorgebaute Wheel via kira[windows]. --no-build-isolation erlaubt pip
-; explizit nicht, einen Build-Backend zu requesten falls's doch eine Sdist
-; greift. Defense gegen erneuten hatchling-Drift.
-Filename: "{app}\venv\Scripts\python.exe"; \
     Parameters: "-m pip install --no-index --no-build-isolation --find-links ""{tmp}\kira-wheels"" --no-warn-script-location ""kira[windows]"""; \
     StatusMsg: "Installiere Kira-Python-Pakete..."; \
     Flags: waituntilterminated
@@ -167,12 +169,12 @@ Filename: "{tmp}\OllamaSetup.exe"; \
 
 ; Step 9 -- embed icon into kira.exe / kira-once.exe via rcedit.
 Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\venv\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
+    Parameters: """{app}\python\Scripts\kira.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira voice-to-text"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira.exe"""; \
     StatusMsg: "Bette Icon in kira.exe ein..."; \
     Flags: waituntilterminated
 
 Filename: "{app}\tools\rcedit-x64.exe"; \
-    Parameters: """{app}\venv\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
+    Parameters: """{app}\python\Scripts\kira-once.exe"" --set-icon ""{app}\assets\icon-branded.ico"" --set-version-string ""FileDescription"" ""Kira CLI helper"" --set-version-string ""ProductName"" ""Kira"" --set-version-string ""CompanyName"" ""Mike Pollow"" --set-version-string ""OriginalFilename"" ""kira-once.exe"""; \
     StatusMsg: "Bette Icon in kira-once.exe ein..."; \
     Flags: waituntilterminated
 
@@ -180,7 +182,7 @@ Filename: "{app}\tools\rcedit-x64.exe"; \
 ; Step 12 -- Lnks via [Icons]; already handled.
 
 ; Final step -- start Kira (gated by the finish-page checkbox).
-Filename: "{app}\venv\Scripts\kira.exe"; \
+Filename: "{app}\python\Scripts\kira.exe"; \
     Description: "Kira jetzt starten"; \
     Flags: postinstall nowait skipifsilent
 
@@ -205,7 +207,13 @@ begin
   // Loesung: cmd.exe aus {sys} (System32) + nvidia-smi mit absolutem
   // {win}\System32-Pfad. Output-Redirect via cmd ist nur OK weil der
   // cmd-Pfad jetzt auch fix ist.
-  CmdExe := ExpandConstant('{sys}\cmd.exe');
+  // {sysnative} bypasses WOW64-Filesystem-Redirector (32-bit Pascal-Code
+  // sieht sonst nur SysWOW64\, wo cmd.exe 32-bit ist und Children im
+  // 32-bit-Mode laufen → nvidia-smi wird nicht gefunden im PATH-Lookup).
+  // {sysnative} faellt zurueck auf {sys} bei 64-bit-Setups (gleicher Pfad).
+  CmdExe := ExpandConstant('{sysnative}\cmd.exe');
+  if not FileExists(CmdExe) then
+    CmdExe := ExpandConstant('{sys}\cmd.exe');
   // Inno's [Code] laeuft 32-bit auf x64-Win (vor Architectures-Switch).
   // FileExists() von 32-bit-Pascal sieht das echte System32 NICHT (WOW64-
   // Redirector → SysWOW64). Statt FileExists()-Pre-Check: einfach
@@ -291,7 +299,7 @@ begin
   // existiert kira.exe nicht und der User hat eine kaputte Installation
   // ohne klare Fehlermeldung. Frueh und laut crashen ist hier
   // die richtige Loesung.
-  KiraExe := ExpandConstant('{app}\venv\Scripts\kira.exe');
+  KiraExe := ExpandConstant('{app}\python\Scripts\kira.exe');
   if not FileExists(KiraExe) then begin
     MsgBox(
       'Setup-Fehler: kira.exe wurde nicht erstellt unter' + #13#10 +
