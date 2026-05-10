@@ -20,6 +20,25 @@ Architektur:
   (SetupWizard.accept()) — abgebrochen oder mit Fehler -> Marker NICHT
   gesetzt -> Wizard erscheint beim naechsten Start wieder.
 
+Cancel-Mechanismus (Critical-Fix 2026-05-10):
+- Worker ueberschreiben QThread.run() blockierend, daher ist
+  `QThread.quit()` (Event-Loop-Exit) ein No-Op. Stattdessen
+  `threading.Event`-basierter Cancel + Subprocess-`terminate()`. Bei
+  Cancel: `worker.cancel()` setzt das Event UND killt das Subprocess
+  (Ollama-Installer / `ollama pull`); `_stop_all_workers()` faellt auf
+  QThread.terminate() zurueck wenn der Worker nach 2 s wait() noch
+  laeuft. WhisperDownloadWorker hat keinen feingranularen Cancel
+  (huggingface_hub.snapshot_download bietet keinen Hook) — partielle
+  Downloads bleiben liegen; HF-Hub-ETag-Resume nimmt sie beim naechsten
+  Run wieder auf.
+
+Cross-Worker-Abort (Critical-Fix 2026-05-10):
+- Wenn ein Worker errort (z.B. Whisper-DNS-Fail), darf die Pipeline
+  NICHT die anderen weiterlaufen lassen (sonst 5 min Ollama-Install +
+  8 GB Gemma-Pull umsonst). `_pipeline_aborted`-Flag in DownloadPage,
+  jeder `_on_*_error`-Handler ruft `_stop_all_workers()` und setzt das
+  Flag. `_start_gemma()` early-returns wenn aborted.
+
 Sicherheit:
 - Subprocess: IMMER list-args, NIE shell=True (siehe Cleanup-Notes
   CLAUDE.md). `_resource_path`-Pfade kommen aus Inno-Bundle, sind
@@ -34,6 +53,7 @@ import logging
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -44,6 +64,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QLabel,
+    QMessageBox,
     QProgressBar,
     QTextEdit,
     QVBoxLayout,
@@ -131,10 +152,23 @@ class WhisperDownloadWorker(QThread):
         super().__init__(parent)
         self._target_dir = Path(target_dir)
         self._repo_id = repo_id
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        """Setzt das Cancel-Flag.
+
+        huggingface_hub.snapshot_download bietet KEINEN Cancel-Hook —
+        der laufende Download wird also NICHT sofort gestoppt; QThread
+        muss via terminate() abgebrochen werden. ETag-Resume nimmt den
+        partial Download beim naechsten Run wieder auf.
+        """
+        self._cancelled.set()
 
     def run(self) -> None:
         log.info("Whisper-Download startet: repo=%s target=%s",
                  self._repo_id, self._target_dir)
+        if self._cancelled.is_set():
+            return
         self.status.emit(f"Lade Whisper-Modell ({self._repo_id})...")
         self._target_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -144,9 +178,14 @@ class WhisperDownloadWorker(QThread):
             )
         except Exception as exc:  # ConnectionError, HfHubHTTPError, etc.
             log.exception("Whisper-Download fehlgeschlagen")
+            if self._cancelled.is_set():
+                # Cancel waehrend Download — kein Error-Signal noetig
+                return
             self.error.emit(f"Whisper-Download fehlgeschlagen: {type(exc).__name__}: {exc}")
             return
 
+        if self._cancelled.is_set():
+            return
         log.info("Whisper-Download fertig: %s", local_path)
         self.status.emit("Whisper-Modell bereit.")
         self.finished.emit(Path(local_path))
@@ -172,8 +211,28 @@ class OllamaSetupWorker(QThread):
     def __init__(self, installer_path: Path, parent=None) -> None:
         super().__init__(parent)
         self._installer_path = Path(installer_path)
+        self._cancelled = threading.Event()
+        # Live-Handle des Installer-Subprocess (None ausserhalb Run-Body).
+        # cancel() ruft terminate() darauf auf wenn nicht None.
+        self._proc: subprocess.Popen | None = None
+
+    def cancel(self) -> None:
+        """Setzt Cancel-Flag und killt das laufende Installer-Subprocess.
+
+        Der Wait-Loop nach dem Install pruefen das Flag zwischen jedem
+        sleep(1) — sodass Cancel auch dort innerhalb 1 s wirkt.
+        """
+        self._cancelled.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError as exc:
+                log.warning("OllamaSetupWorker.cancel proc.terminate failed: %s", exc)
 
     def run(self) -> None:
+        if self._cancelled.is_set():
+            return
         if is_ollama_installed() and is_ollama_reachable():
             log.info("Ollama bereits installiert + erreichbar -> skip install")
             self.status.emit("Ollama bereits installiert.")
@@ -192,24 +251,40 @@ class OllamaSetupWorker(QThread):
             # Silent-Flags: /S (NSIS-Standard) + /NORESTART. KEIN shell=True,
             # IMMER list-args -> kein Command-Injection moeglich (auch wenn
             # _installer_path immer programmgenerated kommt).
-            result = subprocess.run(  # noqa: S603 - list-args, kein shell-Parsing
+            #
+            # Popen statt run() damit cancel() das Subprocess via
+            # terminate() killen kann. Auf timeout-Aequivalent: wait(300).
+            self._proc = subprocess.Popen(  # noqa: S603 - list-args, kein shell-Parsing
                 [str(self._installer_path), "/S", "/NORESTART"],
-                timeout=300,
-                check=False,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
             )
-        except subprocess.TimeoutExpired:
-            self.error.emit("Ollama-Installer Timeout (>300 s).")
-            return
         except OSError as exc:
             self.error.emit(f"Ollama-Installer-Start fehlgeschlagen: {exc}")
             return
 
-        if result.returncode != 0:
+        try:
+            stdout, stderr = self._proc.communicate(timeout=300)
+            returncode = self._proc.returncode
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            self.error.emit("Ollama-Installer Timeout (>300 s).")
+            return
+        except OSError as exc:
+            self.error.emit(f"Ollama-Installer-Lese-Fehler: {exc}")
+            return
+        finally:
+            self._proc = None
+
+        if self._cancelled.is_set():
+            log.info("OllamaSetupWorker cancelled waehrend Install")
+            return
+
+        if returncode != 0:
             self.error.emit(
-                f"Ollama-Installer Exit-Code {result.returncode}.\n\n"
-                f"stderr: {result.stderr.strip() if result.stderr else '(leer)'}"
+                f"Ollama-Installer Exit-Code {returncode}.\n\n"
+                f"stderr: {stderr.strip() if stderr else '(leer)'}"
             )
             return
 
@@ -217,6 +292,9 @@ class OllamaSetupWorker(QThread):
         # oft erst nach ein paar Sekunden via Auto-Run-Entry).
         self.status.emit("Warte auf Ollama-Service...")
         for tick in range(_OLLAMA_API_WAIT_SECONDS):
+            if self._cancelled.is_set():
+                log.info("OllamaSetupWorker cancelled im Wait-Loop bei %ds", tick)
+                return
             if is_ollama_reachable(timeout=2.0):
                 log.info("Ollama-Service erreichbar nach %ds", tick)
                 self.status.emit("Ollama bereit.")
@@ -250,8 +328,39 @@ class GemmaPullWorker(QThread):
     def __init__(self, model_tag: str = DEFAULT_GEMMA_TAG, parent=None) -> None:
         super().__init__(parent)
         self._model_tag = model_tag
+        self._cancelled = threading.Event()
+        # Live-Handle des `ollama pull`-Subprocess. cancel() ruft
+        # terminate() darauf auf, plus kill() falls 5 s spaeter noch da.
+        self._proc: subprocess.Popen | None = None
+
+    def cancel(self) -> None:
+        """Setzt Cancel-Flag und killt den `ollama pull`-Subprocess.
+
+        Der laufende `ollama pull` haelt eine HTTP-Connection zum
+        ollama-Server offen + schreibt rolling auf Disk; terminate()
+        sendet SIGTERM (Win: TerminateProcess) — Ollama bricht den
+        partial blob-Download ab. Resume beim naechsten Pull funktioniert
+        weil Ollama selbst Manifest-basiert layered.
+        """
+        self._cancelled.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError as exc:
+                log.warning("GemmaPullWorker.cancel proc.terminate failed: %s", exc)
+            # Defensive: wenn Ollama nach 5 s nicht weg ist, hart kill.
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except OSError as exc:
+                    log.warning("GemmaPullWorker.cancel proc.kill failed: %s", exc)
 
     def run(self) -> None:
+        if self._cancelled.is_set():
+            return
         # Schritt 1: ollama list. Falls schon da -> skip.
         self.status.emit(f"Pruefe ob {self._model_tag} bereits installiert ist...")
         try:
@@ -270,6 +379,9 @@ class GemmaPullWorker(QThread):
             )
             return
 
+        if self._cancelled.is_set():
+            return
+
         if self._model_tag in list_result.stdout:
             log.info("Gemma %s bereits installiert -> skip pull", self._model_tag)
             self.status.emit(f"{self._model_tag} bereits installiert.")
@@ -280,7 +392,7 @@ class GemmaPullWorker(QThread):
         self.status.emit(f"Lade {self._model_tag} (~8 GB)...")
         log.info("Starting ollama pull %s", self._model_tag)
         try:
-            proc = subprocess.Popen(  # noqa: S603 - list-args
+            self._proc = subprocess.Popen(  # noqa: S603 - list-args
                 ["ollama", "pull", self._model_tag],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -293,9 +405,14 @@ class GemmaPullWorker(QThread):
             self.error.emit(f"`ollama pull` Start fehlgeschlagen: {exc}")
             return
 
+        proc = self._proc
         try:
             assert proc.stdout is not None  # stdout=PIPE guarantees this
             for line in proc.stdout:
+                if self._cancelled.is_set():
+                    # cancel() hat terminate() gerufen — Loop beenden,
+                    # finally-Block raeumt _proc auf.
+                    break
                 line_clean = line.strip()
                 if line_clean:
                     self.progress.emit(line_clean)
@@ -308,6 +425,12 @@ class GemmaPullWorker(QThread):
             return
         except OSError as exc:
             self.error.emit(f"`ollama pull` lese-Fehler: {exc}")
+            return
+        finally:
+            self._proc = None
+
+        if self._cancelled.is_set():
+            log.info("GemmaPullWorker cancelled waehrend pull")
             return
 
         if returncode != 0:
@@ -376,6 +499,11 @@ class DownloadPage(QWizardPage):
         self._whisper_done = False
         self._ollama_done = False
         self._gemma_done = False
+
+        # Wenn EIN Worker errort, soll NICHT die Pipeline weiterlaufen.
+        # Sonst rasselt der User in 5 min Ollama-Install + 8 GB Gemma-Pull
+        # nachdem Whisper schon DNS-failed hat. Critical-Fix 2026-05-10.
+        self._pipeline_aborted = False
 
         self._whisper_worker: WhisperDownloadWorker | None = None
         self._ollama_worker: OllamaSetupWorker | None = None
@@ -452,6 +580,7 @@ class DownloadPage(QWizardPage):
         self._whisper_status.setText("Whisper: FEHLER")
         self._append_log(f"[Whisper FEHLER] {msg}", error=True)
         # KEIN finished -> isComplete bleibt False -> User kann nicht weiter
+        self._abort_pipeline()
 
     # --- Ollama signals ---
     def _on_ollama_status(self, msg: str) -> None:
@@ -471,9 +600,19 @@ class DownloadPage(QWizardPage):
     def _on_ollama_error(self, msg: str) -> None:
         self._ollama_status.setText("Ollama: FEHLER")
         self._append_log(f"[Ollama FEHLER] {msg}", error=True)
+        self._abort_pipeline()
 
     # --- Gemma signals ---
     def _start_gemma(self) -> None:
+        if self._pipeline_aborted:
+            # Whisper- oder Ollama-Error war frueher schon — kein 8 GB-
+            # Pull mehr starten. _on_ollama_finished feuert auch im
+            # Race-Fall wo der Ollama-Install fertig wird BEVOR der
+            # Whisper-Error-Handler _stop_all_workers gerufen hat.
+            log.info("Gemma-Start uebersprungen — Pipeline aborted")
+            self._gemma_status.setText("Gemma: abgebrochen")
+            self._append_log("[Gemma] Pipeline abgebrochen — kein Pull")
+            return
         self._gemma_status.setText("Gemma: starte...")
         self._gemma_worker = GemmaPullWorker(model_tag=DEFAULT_GEMMA_TAG)
         self._gemma_worker.status.connect(self._on_gemma_status)
@@ -502,6 +641,7 @@ class DownloadPage(QWizardPage):
     def _on_gemma_error(self, msg: str) -> None:
         self._gemma_status.setText("Gemma: FEHLER")
         self._append_log(f"[Gemma FEHLER] {msg}", error=True)
+        self._abort_pipeline()
 
     # --- Log helper ---
     def _append_log(self, msg: str, error: bool = False) -> None:
@@ -510,16 +650,55 @@ class DownloadPage(QWizardPage):
         else:
             self._log.append(msg)
 
-    # --- Cleanup bei Abort ---
+    # --- Pipeline-Abort + Cleanup ---
+    def _abort_pipeline(self) -> None:
+        """Setzt das aborted-Flag und stoppt alle laufenden Worker.
+
+        Idempotent: wenn schon aborted, no-op (sonst koennten zwei
+        parallele Errors `_stop_all_workers` doppelt rufen, was QThread
+        bei terminate() raucht).
+        """
+        if self._pipeline_aborted:
+            return
+        self._pipeline_aborted = True
+        log.warning("Pipeline aborted — stoppe alle Worker")
+        self._append_log("[Pipeline] abgebrochen — laufende Worker werden gestoppt", error=True)
+        self._stop_all_workers()
+
     def cleanupPage(self) -> None:
         """Wird von Qt aufgerufen wenn der User Back oder Cancel klickt."""
+        self._pipeline_aborted = True
         self._stop_all_workers()
 
     def _stop_all_workers(self) -> None:
+        """Cooperative cancel + harter Fallback.
+
+        QThread.quit() ist ein No-Op fuer ueberschriebene blocking-run().
+        Stattdessen: cancel() (unser threading.Event + Subprocess.terminate),
+        2 s wait, dann QThread.terminate() als Fallback fuer Worker die
+        in unkooperativen Calls hanging (z.B. snapshot_download).
+
+        QThread.terminate() ist gefaehrlich (zerlaesst Locks im inkonsistenten
+        State), Qt-Doku warnt explizit. Akzeptabel hier weil:
+        - Wir kommen nur in diesen Pfad bei Wizard-Cancel ODER Pipeline-Abort
+        - Der Process wird bei Wizard-Close eh unten gepullt
+        - Alternative waere haengender QThread bei snapshot_download
+        """
         for worker in (self._whisper_worker, self._ollama_worker, self._gemma_worker):
-            if worker is not None and worker.isRunning():
-                worker.quit()
-                worker.wait(2000)
+            if worker is None or not worker.isRunning():
+                continue
+            try:
+                worker.cancel()
+            except Exception:
+                log.exception("worker.cancel() failed")
+            worker.wait(2000)
+            if worker.isRunning():
+                log.warning(
+                    "Worker %s nach cancel+wait(2s) noch da -> terminate()",
+                    type(worker).__name__,
+                )
+                worker.terminate()
+                worker.wait(5000)
 
 
 # ---------------------------------------------------------------------------
@@ -586,12 +765,28 @@ class SetupWizard(QWizard):
         Page = alle 3 Pages durchlaufen, FinishedPage.isComplete() == True
         per default). Marker setzt Kira "konfiguriert", sodass der naechste
         Start den Wizard skippt.
+
+        Bei OSError (Permission-denied auf %APPDATA%\\Kira\\, ReadOnly-FS,
+        Disk-Full): User warnen aber Wizard trotzdem schliessen — sonst
+        kommt er nicht in die App rein. Konsequenz: naechster Start zeigt
+        Wizard nochmal, der erkennt aber via huggingface_hub-Resume +
+        ollama list dass die Models schon da sind, also kein 11 GB
+        Re-Download — nur Idempotenz-Checks.
         """
         try:
             mark_first_run_complete()
-        except Exception:
+        except OSError as exc:
             log.exception("mark_first_run_complete failed in accept()")
-            # Trotzdem accept() durchlassen — der User soll Kira benutzen
-            # koennen. Wenn der Marker beim naechsten Start fehlt, zeigt
-            # Kira den Wizard halt nochmal — keine Daten verloren.
+            # KeyboardInterrupt + SystemExit weiterhin durchlassen
+            # (BaseException, kein OSError) — User soll Ctrl+C/Quit
+            # nicht durch unsere Warnung gefangen sehen.
+            QMessageBox.warning(
+                self,
+                "Setup-Marker nicht gespeichert",
+                "Kira konnte den Setup-Marker nicht schreiben.\n\n"
+                "Beim naechsten Start kann der Wizard erneut erscheinen "
+                "(Modelle sind bereits vorhanden — kein Re-Download).\n\n"
+                "Pfad: %APPDATA%\\Kira\\\n"
+                f"Fehler: {type(exc).__name__}: {exc}"
+            )
         super().accept()
