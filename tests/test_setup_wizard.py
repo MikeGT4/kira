@@ -201,9 +201,15 @@ def test_ollama_worker_runs_installer_when_not_installed(qtbot, tmp_path, mocker
     # Reachable check NACH Install muss True liefern (1 Call), sonst Loop
     mocker.patch("kira.setup_wizard.is_ollama_reachable",
                  side_effect=[False, True])
-    fake_run = mocker.patch(
-        "kira.setup_wizard.subprocess.run",
-        return_value=MagicMock(returncode=0),
+    # Cancel-Fix 2026-05-10: Installer laeuft jetzt via Popen statt run()
+    # damit cancel() das Subprocess via terminate() killen kann.
+    fake_proc = MagicMock()
+    fake_proc.communicate.return_value = ("", "")
+    fake_proc.returncode = 0
+    fake_proc.poll.return_value = 0  # nicht mehr running
+    fake_popen = mocker.patch(
+        "kira.setup_wizard.subprocess.Popen",
+        return_value=fake_proc,
     )
     # time.sleep ueber-mocken damit der Wait-Loop nicht echt schlaeft
     mocker.patch("kira.setup_wizard.time.sleep", return_value=None)
@@ -216,10 +222,10 @@ def test_ollama_worker_runs_installer_when_not_installed(qtbot, tmp_path, mocker
 
     worker.run()
 
-    fake_run.assert_called_once()
-    args, kwargs = fake_run.call_args
+    fake_popen.assert_called_once()
+    args, kwargs = fake_popen.call_args
     cmd = args[0] if args else kwargs.get("args")
-    assert isinstance(cmd, list), "subprocess.run muss list-args bekommen, kein Shell-String"
+    assert isinstance(cmd, list), "subprocess.Popen muss list-args bekommen, kein Shell-String"
     assert str(installer) in cmd
     # Silent install flags — entweder /S oder /SILENT, beide gueltig
     assert any(flag in cmd for flag in ("/S", "/SILENT"))
@@ -233,7 +239,7 @@ def test_ollama_worker_emits_error_when_installer_path_missing(qtbot, tmp_path, 
     installer = tmp_path / "missing.exe"
     mocker.patch("kira.setup_wizard.is_ollama_installed", return_value=False)
     mocker.patch("kira.setup_wizard.is_ollama_reachable", return_value=False)
-    fake_run = mocker.patch("kira.setup_wizard.subprocess.run")
+    fake_popen = mocker.patch("kira.setup_wizard.subprocess.Popen")
 
     worker = OllamaSetupWorker(installer_path=installer)
     errors: list[str] = []
@@ -241,7 +247,7 @@ def test_ollama_worker_emits_error_when_installer_path_missing(qtbot, tmp_path, 
 
     worker.run()
 
-    fake_run.assert_not_called()
+    fake_popen.assert_not_called()
     assert len(errors) == 1
 
 
@@ -415,3 +421,208 @@ def test_download_page_initially_not_complete(qtbot, tmp_path, mocker):
     qtbot.addWidget(wizard)
     download_page = wizard.page(1)
     assert download_page.isComplete() is False
+
+
+# ---------------------------------------------------------------------------
+# Critical-Fix 2026-05-10: Cancel-Mechanismus + Cross-Worker-Abort
+# ---------------------------------------------------------------------------
+
+def _make_running_mock_worker():
+    """Mock-Worker: isRunning() startet True, nach cancel()+wait() False.
+
+    Simuliert den kooperativen Cancel-Pfad: cancel() laesst den Worker
+    "abklingen", sodass der zweite isRunning()-Check (nach wait(2000))
+    False zurueckgibt — also KEIN terminate()-Fallback noetig.
+    """
+    worker = MagicMock()
+    # erst running, nach cancel+wait nicht mehr
+    running_states = iter([True, False])
+
+    def running():
+        try:
+            return next(running_states)
+        except StopIteration:
+            return False
+
+    worker.isRunning.side_effect = running
+    return worker
+
+
+def test_cleanup_page_stops_running_workers(qtbot, tmp_path, mocker):
+    """cleanupPage() ruft cancel() auf alle laufenden Worker und faellt
+    auf terminate() zurueck wenn ein Worker nach wait(2000) noch laeuft.
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    # Drei Mock-Worker: zwei kooperativ (Whisper, Ollama), einer
+    # unkooperativ (Gemma) -> braucht terminate-Fallback.
+    whisper = _make_running_mock_worker()
+    ollama = _make_running_mock_worker()
+    # gemma: bleibt running auch nach cancel + wait(2s) -> terminate()
+    gemma = MagicMock()
+    gemma.isRunning.return_value = True
+
+    download_page._whisper_worker = whisper
+    download_page._ollama_worker = ollama
+    download_page._gemma_worker = gemma
+
+    download_page.cleanupPage()
+
+    whisper.cancel.assert_called_once()
+    whisper.wait.assert_called_with(2000)
+    whisper.terminate.assert_not_called()
+
+    ollama.cancel.assert_called_once()
+    ollama.wait.assert_called_with(2000)
+    ollama.terminate.assert_not_called()
+
+    gemma.cancel.assert_called_once()
+    # erst wait(2000), dann terminate() + wait(5000)
+    gemma.terminate.assert_called_once()
+    # Pruefen dass beide wait-Calls passierten:
+    wait_calls = [c.args for c in gemma.wait.call_args_list]
+    assert (2000,) in wait_calls
+    assert (5000,) in wait_calls
+
+
+def test_whisper_error_aborts_pipeline(qtbot, tmp_path, mocker):
+    """Whisper-Error feuert: gemma_worker wird NIE gestartet, auch wenn
+    Ollama danach noch normal finished feuert.
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+    # GemmaPullWorker-Constructor patchen - wir wollen sehen ob er
+    # ueberhaupt instanziert wird.
+    fake_gemma_cls = mocker.patch("kira.setup_wizard.GemmaPullWorker")
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    # Whisper-Error feuert ZUERST
+    download_page._on_whisper_error("DNS resolution failed")
+
+    # _pipeline_aborted ist gesetzt
+    assert download_page._pipeline_aborted is True
+
+    # Jetzt feuert _on_ollama_finished (Race: Ollama-Install war
+    # parallel und hat fertig bevor _stop_all_workers wirken konnte)
+    download_page._on_ollama_finished()
+
+    # Gemma-Worker NIE instanziert
+    fake_gemma_cls.assert_not_called()
+
+
+def test_ollama_error_aborts_pipeline(qtbot, tmp_path, mocker):
+    """Ollama-Error: gemma_worker NIE gestartet, _start_gemma early-return.
+    """
+    from kira.setup_wizard import DownloadPage, SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch.object(DownloadPage, "initializePage", return_value=None)
+    fake_gemma_cls = mocker.patch("kira.setup_wizard.GemmaPullWorker")
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+    download_page = wizard.page(1)
+
+    download_page._on_ollama_error("Installer Exit-Code 1")
+
+    assert download_page._pipeline_aborted is True
+
+    # Auch wenn jetzt _start_gemma direkt gerufen wird (defensiv) ->
+    # early-return, kein Pull.
+    download_page._start_gemma()
+
+    fake_gemma_cls.assert_not_called()
+
+
+def test_setup_wizard_accept_warns_on_marker_failure(qtbot, tmp_path, mocker):
+    """mark_first_run_complete wirft OSError -> QMessageBox.warning,
+    aber super().accept() wird trotzdem aufgerufen damit Wizard schliesst.
+    """
+    from kira.setup_wizard import SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch(
+        "kira.setup_wizard.mark_first_run_complete",
+        side_effect=PermissionError("APPDATA-Ordner ist read-only"),
+    )
+    fake_warn = mocker.patch("kira.setup_wizard.QMessageBox.warning")
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+
+    wizard.accept()
+
+    # Warning angezeigt
+    fake_warn.assert_called_once()
+    # Title + Body deutsch + erwaehnt %APPDATA%\Kira
+    args = fake_warn.call_args.args
+    title_or_body = " ".join(str(a) for a in args)
+    assert "Setup-Marker" in title_or_body
+    assert "%APPDATA%" in title_or_body or "APPDATA" in title_or_body
+    # Wizard schliesst (super().accept()) -> result == Accepted
+    assert wizard.result() == int(SetupWizard.DialogCode.Accepted)
+
+
+def test_setup_wizard_accept_does_not_swallow_keyboard_interrupt(qtbot, tmp_path, mocker):
+    """KeyboardInterrupt darf NICHT vom OSError-Handler geschluckt werden —
+    Mike's Ctrl+C / Quit muss durchkommen.
+    """
+    from kira.setup_wizard import SetupWizard
+
+    whisper_target = tmp_path / "whisper"
+    ollama_setup = tmp_path / "OllamaSetup.exe"
+    ollama_setup.touch()
+
+    mocker.patch(
+        "kira.setup_wizard.mark_first_run_complete",
+        side_effect=KeyboardInterrupt(),
+    )
+    fake_warn = mocker.patch("kira.setup_wizard.QMessageBox.warning")
+
+    wizard = SetupWizard(
+        whisper_target=whisper_target,
+        ollama_installer=ollama_setup,
+    )
+    qtbot.addWidget(wizard)
+
+    with pytest.raises(KeyboardInterrupt):
+        wizard.accept()
+
+    # KEINE Warning gezeigt
+    fake_warn.assert_not_called()
