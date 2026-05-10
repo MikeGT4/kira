@@ -68,11 +68,29 @@ def main() -> None:
         raise SystemExit(f"Source icon not found: {SRC}")
 
     logo = _load_largest_logo(SRC)
-    master = _make_branded_master(logo, MASTER_SIZE)
-    master.save(DST, format="ICO", sizes=ICO_SIZES)
+    # Render JEDE Size eigenstaendig statt PIL's auto-downscale auf einen
+    # Master-Frame. PIL's ICO-Save mit sizes=... hat einen Bug bei dem
+    # die kleineren Frames (16x16, 32x32) faelschlich nur den 1. Pixel
+    # des Master rendern → Icon erscheint schwarz im Datei-Explorer
+    # bei kleinen Symbol-Sizes (Win11 Default).
+    # Per-size rendering vermeidet Pillow's NEAREST-downscale-Bug
+    # bei ICO mit alpha-graded edges (16x16-Frame wurde quasi
+    # komplett transparent statt gelb).
+    frames = [_make_branded_master(logo, w) for w, _h in ICO_SIZES]
+    # ICO-Save: base = groesster Frame (Win11 nutzt 256x256 als
+    # PNG-encoded), append_images = alle anderen native-Sizes.
+    # KEIN sizes=... Parameter — der wuerde Pillow zwingen jeden
+    # Frame neu zu downscalen statt sie 1:1 zu uebernehmen.
+    sorted_frames = sorted(frames, key=lambda f: f.size[0], reverse=True)
+    base = sorted_frames[0]
+    base.save(
+        DST,
+        format="ICO",
+        append_images=sorted_frames[1:],
+    )
 
     size_kb = DST.stat().st_size / 1024
-    print(f"OK {DST} ({size_kb:.1f} KB, {len(ICO_SIZES)} sizes)")
+    print(f"OK {DST} ({size_kb:.1f} KB, {len(ICO_SIZES)} sizes, per-size rendered)")
 
 
 if __name__ == "__main__":

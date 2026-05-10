@@ -206,7 +206,15 @@ begin
   // {win}\System32-Pfad. Output-Redirect via cmd ist nur OK weil der
   // cmd-Pfad jetzt auch fix ist.
   CmdExe := ExpandConstant('{sys}\cmd.exe');
-  NvidiaSmi := ExpandConstant('{win}\System32\nvidia-smi.exe');
+  // Inno's InitializeSetup laeuft IMMER 32-bit (vor ArchitecturesInstallIn64BitMode-Switch).
+  // Auf x64-Win redirected dann {win}\System32 via WOW64-Filesystem-Redirector zu
+  // SysWOW64, wo nvidia-smi.exe NICHT liegt (es ist 64-bit-only in System32).
+  // {sysnative} ist Inno's Magic-Constant fuer den NICHT-redirected System32-Pfad.
+  NvidiaSmi := ExpandConstant('{sysnative}\nvidia-smi.exe');
+  if not FileExists(NvidiaSmi) then
+    NvidiaSmi := ExpandConstant('{win}\System32\nvidia-smi.exe');
+  if not FileExists(NvidiaSmi) then
+    NvidiaSmi := ExpandConstant('{sys}\nvidia-smi.exe');
 
   if not FileExists(NvidiaSmi) then begin
     Result := MsgBox(
