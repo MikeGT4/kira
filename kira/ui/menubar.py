@@ -10,7 +10,8 @@ from kira.config import default_config_path
 
 log = logging.getLogger(__name__)
 
-ASSETS = Path(__file__).parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+ASSETS = _assets_dir()
 ICON_DEFAULT = str(ASSETS / "icon-template.png")
 
 

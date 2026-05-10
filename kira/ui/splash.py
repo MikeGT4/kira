@@ -19,7 +19,8 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QSplashScreen
 
 
-_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+_ASSETS = _assets_dir()
 
 
 def make_splash() -> QSplashScreen | None:

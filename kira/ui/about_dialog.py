@@ -24,7 +24,8 @@ from kira import UPDATE_REPO, __version__
 from kira.config import effective_hotkey
 
 log = logging.getLogger(__name__)
-_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+from kira._resources import assets_dir as _assets_dir  # noqa: E402
+_ASSETS = _assets_dir()
 
 
 def _load_branded_pixmap(size: int) -> QPixmap | None:
