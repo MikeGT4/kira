@@ -201,61 +201,23 @@ Filename: "{app}\python\Scripts\kira.exe"; \
 
 [Code]
 function InitializeSetup: Boolean;
-var
-  ResultCode: Integer;
-  TempFile, TrimmedText, CmdExe: String;
-  FileTextA: AnsiString;
-  GpuMem: Integer;
-  ExecOk: Boolean;
 begin
-  Result := True;
-  TempFile := ExpandConstant('{tmp}\nvidia-smi.txt');
-  ForceDirectories(ExpandConstant('{tmp}'));
-
-  // F2-5: PATH-Hijack-Fix. Vorher 'cmd.exe' ohne Pfad → der erste cmd.exe
-  // im PATH wird ausgefuehrt; ein Angreifer mit einer eigenen cmd.exe im
-  // %DOWNLOADS% (also dem Folder, in dem das Setup-Exe oft liegt) kriegt
-  // RCE noch BEVOR der User klickt. Genauso bei nvidia-smi: ohne
-  // absoluten Pfad triggert man jeden nvidia-smi.exe-Trojan im PATH.
-  // Loesung: cmd.exe aus {sys} (System32) + nvidia-smi mit absolutem
-  // {win}\System32-Pfad. Output-Redirect via cmd ist nur OK weil der
-  // cmd-Pfad jetzt auch fix ist.
-  // {sysnative} bypasses WOW64-Filesystem-Redirector (32-bit Pascal-Code
-  // sieht sonst nur SysWOW64\, wo cmd.exe 32-bit ist und Children im
-  // 32-bit-Mode laufen → nvidia-smi wird nicht gefunden im PATH-Lookup).
-  // {sysnative} faellt zurueck auf {sys} bei 64-bit-Setups (gleicher Pfad).
-  CmdExe := ExpandConstant('{sysnative}\cmd.exe');
-  if not FileExists(CmdExe) then
-    CmdExe := ExpandConstant('{sys}\cmd.exe');
+  // F2-21: nvidia-smi-Pre-Check ENTFERNT.
+  //
   // Inno's [Code] laeuft 32-bit auf x64-Win (vor Architectures-Switch).
-  // FileExists() von 32-bit-Pascal sieht das echte System32 NICHT (WOW64-
-  // Redirector → SysWOW64). Statt FileExists()-Pre-Check: einfach
-  // versuchen via cmd.exe (das selbst 32-bit ist und die Redirection
-  // applies — aber cmd disables Redirection per default fuer Spawned-
-  // Children seit Win10). PATH-search ist akzeptabel weil cmd.exe selbst
-  // mit absolutem Pfad gestartet wird.
-  ExecOk := Exec(CmdExe,
-    '/c nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > "' + TempFile + '" 2>NUL',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-
-  if ExecOk and (ResultCode = 0) and LoadStringFromFile(TempFile, FileTextA) then begin
-    TrimmedText := Trim(String(FileTextA));
-    GpuMem := StrToIntDef(TrimmedText, 0);
-    if GpuMem < 10240 then begin
-      Result := MsgBox(
-        'Dieses Bundle ist fuer NVIDIA-GPUs ab 12 GB VRAM optimiert.' + #13#10 +
-        'Auf deiner Hardware sind nur ' + IntToStr(GpuMem) + ' MB verfuegbar.' + #13#10 +
-        'Die Performance wird stark eingeschraenkt sein.' + #13#10#13#10 +
-        'Trotzdem installieren?',
-        mbConfirmation, MB_YESNO) = IDYES;
-    end;
-  end else begin
-    Result := MsgBox(
-      'Keine NVIDIA-GPU mit nvidia-smi gefunden.' + #13#10 +
-      'Kira braucht CUDA fuer sinnvolle Performance.' + #13#10#13#10 +
-      'Trotzdem installieren?',
-      mbConfirmation, MB_YESNO) = IDYES;
-  end;
+  // Mehrere {sysnative}/{sys}/cmd-Quoting-Varianten verifiziert via
+  // PowerShell und alle gepatcht -- der Pascal-Setup-Wizard hat trotzdem
+  // konsistent "Keine NVIDIA-GPU"-MsgBox gezeigt. WOW64-Redirector +
+  // CreateProcess-Argv-Quoting in 32-bit-Pascal ist ein bottomless rabbit
+  // hole, der echten Wert haette: NULL. Selbst auf einer RTX 5090 sah
+  // Mike den False-Negative.
+  //
+  // Ersatzstrategie: NVIDIA-Detection erfolgt zur Laufzeit waehrend des
+  // First-Run-Wizards (kira/setup_wizard.py via faster-whisper-Loader,
+  // der CUDA-DLLs probiert -- 100 % zuverlaessig weil im echten 64-bit-
+  // Python-Prozess). User mit fehlender CUDA bekommt dort einen sauberen
+  // Hinweis statt einer pre-Setup-MsgBox die false-negate-t.
+  Result := True;
 end;
 
 function NeedsOllama: Boolean;
