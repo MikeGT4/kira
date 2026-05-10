@@ -1,19 +1,28 @@
 # Kira Windows venv + dependency bootstrap.
 # Run from PowerShell (no admin required).
 #
-# Deviation from the plan's code block: the UNC path (\\wsl.localhost\...)
-# cannot be cmd.exe CWD, and pip install -e <unc-path> is interpreted as
-# a relative Windows path unless we pushd the UNC first. Therefore we
-# use `pushd` inside a cmd /c wrapper for the install step.
+# Default source is the repo containing this script ($PSScriptRoot\..).
+# Override with -Source to install from a different checkout (e.g. a
+# WSL UNC path \\wsl.localhost\Ubuntu\home\<user>\claude_kira).
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$Source = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+)
 
 $ErrorActionPreference = "Stop"
 
 $VenvPath = "$env:USERPROFILE\kira-venv"
-$RepoUnc  = "\\wsl.localhost\Ubuntu\home\mikepollow\claude_kira"
+
+if (-not (Test-Path (Join-Path $Source 'pyproject.toml'))) {
+    Write-Error "Source path '$Source' is not a Kira repo (no pyproject.toml found). Pass -Source <repo-root>."
+    exit 1
+}
 
 Write-Host "==> Kira Windows bootstrap"
-Write-Host "Venv: $VenvPath"
-Write-Host "Repo: $RepoUnc"
+Write-Host "Venv:   $VenvPath"
+Write-Host "Source: $Source"
 Write-Host ""
 
 # 1. Prereqs
@@ -34,21 +43,13 @@ $uvCmd = $null
 if (Get-Command uv -ErrorAction SilentlyContinue) {
     $uvCmd = "uv"
 } else {
-    # Ensure uv is installed as a pip package on Python 3.12
     Write-Host "  uv not on PATH — installing via pip"
     & py -3.12 -m pip install --upgrade --quiet uv
     $uvCmd = "py -3.12 -m uv"
 }
 Write-Host "  uv available: $uvCmd"
 
-# 2. WSL repo reachable
-if (-not (Test-Path $RepoUnc)) {
-    Write-Error "Can't reach $RepoUnc. Start WSL (wsl -d Ubuntu -- true) and retry."
-    exit 1
-}
-Write-Host "  WSL repo: reachable"
-
-# 3. Create venv
+# 2. Create venv
 if (Test-Path $VenvPath) {
     Write-Host ""
     Write-Host "==> Venv exists at $VenvPath"
@@ -66,29 +67,29 @@ if (-not (Test-Path $VenvPath)) {
     }
 }
 
-# 4. Install deps — pushd to UNC so pip finds the project path
+# 3. Install Kira (editable) from $Source. UNC paths still need pushd
+# inside cmd.exe; local NTFS paths work directly. Use cmd.exe pushd
+# for both — handles UNC + NTFS uniformly.
 Write-Host ""
 Write-Host "==> Installing Kira + windows + dev deps (this can take a few minutes)"
 $pyExe = "$VenvPath\Scripts\python.exe"
 if ($uvCmd -eq "uv") {
-    cmd /c "pushd $RepoUnc && uv pip install --python $pyExe -e .[windows,dev] && popd"
+    cmd /c "pushd $Source && uv pip install --python $pyExe -e .[windows,dev] && popd"
 } else {
-    cmd /c "pushd $RepoUnc && py -3.12 -m uv pip install --python $pyExe -e .[windows,dev] && popd"
+    cmd /c "pushd $Source && py -3.12 -m uv pip install --python $pyExe -e .[windows,dev] && popd"
 }
 
-# 5. Smoke-test imports
+# 4. Smoke-test imports
 Write-Host ""
 Write-Host "==> Smoke-testing imports"
 & $pyExe -c "import faster_whisper, pystray, PyQt6.QtWidgets, keyboard, win32gui, psutil; print('OK')"
 
-# 6. Embed icon + version metadata into kira.exe / kira-once.exe.
-# pip just regenerated those wrappers without resource info, so Explorer
-# would show the generic Python icon. Re-run after every reinstall.
+# 5. Embed icon + version metadata into kira.exe / kira-once.exe.
 Write-Host ""
 Write-Host "==> Embedding Kira icon into entry-point EXEs"
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$RepoUnc\scripts\embed_icon.ps1" -VenvPath $VenvPath -RepoUnc $RepoUnc
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\embed_icon.ps1" -VenvPath $VenvPath -Source $Source
 
 Write-Host ""
 Write-Host "==> Done."
 Write-Host "Launcher: $VenvPath\Scripts\kira.exe"
-Write-Host "To install autostart: powershell -ExecutionPolicy Bypass -File $RepoUnc\scripts\install_autostart.ps1"
+Write-Host "To install autostart: powershell -ExecutionPolicy Bypass -File $PSScriptRoot\install_autostart.ps1"

@@ -49,26 +49,30 @@ Download von der [Releases-Seite](https://github.com/MikeGT4/kira/releases/lates
 
 - Windows 11
 - Python 3.12 installed on Windows (`py -3.12 --version` works from PowerShell)
-- WSL2 Ubuntu with NVIDIA CUDA-for-WSL driver (`nvidia-smi` returns the GPU inside WSL)
+- NVIDIA driver with CUDA support (`nvidia-smi` works in PowerShell)
 - `uv` (`py -3.12 -m pip install uv` if not on PATH)
-- Repo cloned in WSL at `/home/<user>/claude_kira` (current dev setup; the install scripts hardcode this path — porting them to a generic location is on the roadmap)
+- Ollama for Windows (`winget install Ollama.Ollama`) — needed for the LLM polish layer; pulls `gemma3:12b` automatically on first use
+- Git for Windows
 
-### Install (three scripts, run in order)
-
-```bash
-# 1. Ollama in WSL — pulls gemma3:12b (~7 GB)
-bash scripts/install_wsl_ollama.sh
-```
+### Install (clone + run)
 
 ```powershell
-# 2. Windows venv (runtime). Creates C:\Users\<user>\kira-venv,
+git clone https://github.com/MikeGT4/kira.git C:\Users\<user>\dev\kira
+cd C:\Users\<user>\dev\kira
+
+# 1. Windows venv (runtime). Creates %USERPROFILE%\kira-venv,
 #    installs faster-whisper / pystray / PyQt6, embeds the branded
 #    icon into kira.exe / kira-once.exe.
-powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\<user>\claude_kira\scripts\install_win.ps1
+.\scripts\install_win.ps1
+
+# 2. Pull Polish-LLM
+ollama pull gemma3:12b
 
 # 3. Autostart (optional)
-powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\<user>\claude_kira\scripts\install_autostart.ps1
+.\scripts\install_autostart.ps1
 ```
+
+The scripts default `-Source` to the repo containing them; pass `-Source <path>` to install from a different checkout (e.g. a UNC path during dual-tree dev).
 
 ### Run manually
 
@@ -97,7 +101,7 @@ py -3.12 scripts\regenerate_branded_icon.py
 | Tray icon never appears | Check `%LOCALAPPDATA%\Kira\kira.log` for boot errors; native crashes land in `%LOCALAPPDATA%\Kira\kira-faulthandler.log`. |
 | F8 press does nothing visible | Watch `kira.log` — every press logs either `Recorder.stop` (success) or `WARNING kira.app: Hotkey press but input device unavailable` (mic missing). Tray icon turns yellow-orange for 3 s in the second case; if your tray icons are auto-hidden in Windows 11 you may need to pin Kira's icon for the state-change to be visible. |
 | `faster-whisper` cuDNN error | `py -3.12 -m uv pip install --python C:\Users\<user>\kira-venv\Scripts\python.exe --force-reinstall nvidia-cudnn-cu12` |
-| „Ollama unreachable" toast | In WSL: `curl http://localhost:11434/api/tags` — if it fails, re-run `install_wsl_ollama.sh`. |
+| „Ollama unreachable" toast | `curl http://127.0.0.1:11434/api/tags` from PowerShell — if it fails, restart `ollama app.exe` from `%LOCALAPPDATA%\Programs\Ollama\` or reinstall via `winget install Ollama.Ollama`. Use `127.0.0.1` not `localhost` (Win11 24H2+ resolves localhost to IPv6, Ollama binds IPv4). |
 | Text lands in the wrong window | The foreground window at *release* time is the target — don't Alt+Tab while recording. |
 | Admin-elevated app doesn't react to F8 | The Windows keyboard hook can't see events in elevated windows unless Kira itself runs elevated. Trade-off; not planned to fix. |
 

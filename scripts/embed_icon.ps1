@@ -18,19 +18,23 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File embed_icon.ps1
 
+[CmdletBinding()]
 param(
     [string]$VenvPath = "$env:USERPROFILE\kira-venv",
-    [string]$RepoUnc  = "\\wsl.localhost\Ubuntu\home\mikepollow\claude_kira"
+    # Source repo (default: parent of this script's folder).
+    # Legacy alias -RepoUnc kept for backwards compatibility.
+    [Alias("RepoUnc")]
+    [string]$Source = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 )
 
 $ErrorActionPreference = "Stop"
 
 $Tools  = "$env:USERPROFILE\tools"
 $Rcedit = "$Tools\rcedit-x64.exe"
-$Icon   = Join-Path $RepoUnc "assets\icon-branded.ico"
+$Icon   = Join-Path $Source "assets\icon-branded.ico"
 
 if (-not (Test-Path $Icon)) {
-    Write-Error "Icon not found at $Icon"
+    Write-Error "Icon not found at $Icon (Source='$Source'). Pass -Source <repo-root>."
     exit 1
 }
 
