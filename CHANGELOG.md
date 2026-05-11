@@ -241,6 +241,38 @@ Neue Felder:
   + `on_edit_press()` Methode. State-Machine bleibt unverändert (kein
   neuer State), Pipeline-Verzweigung im `_run_pipeline` via Flag-Check.
 
+### Known issues / Configuration tips
+
+**USB-Mikrofone + ASUS AI Noise-Canceling Filter** (Diagnose 2026-05-11):
+Bei Autostart-Boot kann es vorkommen, dass das USB-Mikrofon noch nicht
+enumeriert ist und Windows den `AI Noise-Canceling Microphone (Intelligo
+VAC / ASUS Utility)` als Default aktiv hält. Dessen Filter killt
+gesprochenes Audio als Noise → `Recorder.stop` loggt `peak=0.0002 rms=0.0001`
+→ Whisper halluziniert „Vielen Dank." → Hallucination-Filter abort →
+kein Text injiziert. Aus User-Sicht: Kira reagiert nicht. Workaround
+in `%APPDATA%\Kira\config.yaml`:
+
+```yaml
+audio:
+  input_device: "Shure MV7+"   # Substring-Match, case-insensitive
+  # oder: "ROG Theta", "Headset Microphone", "Realtek" etc.
+```
+
+Bei Cold-Boot, wenn der USB-Mic noch nicht da ist, wirft der Recorder
+`DeviceUnavailable` → gelbes Tray-Icon 3 s. 5-10 s warten + nochmal
+Hotkey löst's dann sauber. `scripts/audio_diagnose.py` enumeriert
+verfügbare Devices.
+
+### Release-Info
+
+- **Tag:** `v0.2.0` auf Commit `a69e776` (Docs)
+- **Bundle-Source-Commit:** `a8c7dd2` (Phase F2-23)
+- **Release-Date:** 2026-05-11
+- **Bundle-Assets:** `Kira-Setup-v0.2.0.exe` (2 MB Stub) +
+  `Kira-Setup-v0.2.0-1.bin` (2.0 GiB) + `Kira-Setup-v0.2.0-2.bin`
+  (1.4 GiB) + `SHA256SUMS.txt`. Alle drei Setup-Files müssen in
+  denselben Ordner.
+
 ## v0.1.0 — 2026-04-29
 
 - Erste Public-Release auf [github.com/MikeGT4/kira](https://github.com/MikeGT4/kira)
