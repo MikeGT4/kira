@@ -112,7 +112,9 @@ py -3.12 scripts\regenerate_branded_icon.py
 
 `%APPDATA%\Kira\config.yaml`. Tray → „Einstellungen…" gives you a form for the common knobs (mic gain, mic device, language, polish model, hotkey).
 
-The `audio.input_device` value is a substring match — `'ROG Theta'` matches `Mikrofon (ROG Theta Ultimate 7.)`. If the configured device isn't currently enumerated, Kira logs a `WARNING kira.recorder` line listing every input device it *did* see, which makes it easy to spot whether you wrote the wrong substring or the device just isn't plugged in.
+The `audio.input_device` value is a substring match — `'ROG Theta'` matches `Mikrofon (ROG Theta Ultimate 7.)`, `'Shure MV7+'` matches `Mikrofon (2- Shure MV7+)`. If the configured device isn't currently enumerated, Kira logs a `WARNING kira.recorder` line listing every input device it *did* see, which makes it easy to spot whether you wrote the wrong substring or the device just isn't plugged in.
+
+**Pin your physical mic even if Windows shows it as the default.** On boxes with an ASUS Intelligo / „AI Noise-Canceling Microphone" filter installed, the Windows default can flip to that virtual filter device transiently — for example while a USB microphone is still enumerating during cold-boot — and the filter aggressively kills speech as noise. Symptom in `kira.log`: `Recorder.stop: ... peak=0.0002 rms=0.0001` followed by Whisper hallucinating „Vielen Dank." → Hallucination-Filter aborts the pipeline → no text injected. Pinning bypasses the filter. If the USB device isn't enumerated yet when you press the hotkey, you get `DeviceUnavailable` and a 3 s yellow tray icon — clearly visible — instead of a silent dictation.
 
 ---
 

@@ -4,8 +4,9 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.0 in Dev (commit `a8c7dd2`, `windows-port`, 2026-05-10 abends).
-v0.1.0 ist die letzte released Version auf GitHub Releases. v0.2 fuegt:
+**Version:** v0.2.0 released 2026-05-11 (Tag auf commit `a69e776`,
+Bundle-Source `a8c7dd2`, `windows-port`). v0.1.0 ist die vorige
+Release. v0.2 fuegt:
 Custom Dictionary (`whisper.replacements`), AI-Modes (per-Mode Override),
 F9 AI-Editing-Commands mit Silent-Failure-Haertung, File-Transcription,
 Multi-Asset In-App-Updater (SHA256-Verify + Resume + Path-Traversal-
@@ -38,6 +39,21 @@ Branding-Surfaces (Tray, Lnks, Setup-Wizard) bleiben gelb. Bundle
 verifiziert auf Mike's Box `C:\Users\mike\AppData\Local\Kira\`,
 Boot 7 s inkl. Tray + F8/F9 + Whisper-CUDA + Polish-Warmup.
 Volle Phasen-Liste in [`TODO.md`](TODO.md).
+
+**Mic-Pinning bei Cold-Boot 2026-05-11:** Mike hat heute einen Shure
+MV7+ als neues USB-Mikro bekommen. Beim Autostart nach Reboot lieferte
+das Mic stille Samples (peak=0.0002, rms=0.0001), Whisper halluzinierte
+"Vielen Dank.", Hallucination-Filter killte die Pipeline → kein Text.
+Manueller Kira-Restart nach ~90 s funktionierte. Root-Cause: USB-Mics
+enumerieren beim Cold-Boot später als die internen Devices, der
+Windows-Default zeigt transient auf die `AI Noise-Canceling Microphone
+(Intelligo VAC / ASUS Utility)`, deren Filter Mike's Speech als Noise
+killt. Selbe Falle wie 2026-04-28. Fix: `audio.input_device` per
+Substring auf den physischen Mic-Namen pinnen (`Shure MV7+` o.ä.).
+Wenn der USB-Mic beim Cold-Boot-Press noch nicht enumeriert ist,
+wirft Recorder `DeviceUnavailable` → gelbes Tray-Icon 3 s (klares
+Symptom statt stiller Aufnahme), 5-10 s warten + nochmal Fn löst's.
+Beispiele im README-Config-Abschnitt + `installer/config.yaml.template`.
 
 ## Branch strategy
 
