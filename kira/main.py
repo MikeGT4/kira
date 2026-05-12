@@ -501,7 +501,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     )
 
     if popup is not None:
-        recorder.set_level_callback(lambda lvl: popup.push_level(lvl))
+        recorder.set_samples_callback(lambda arr: popup.push_samples(arr))
 
     loop = asyncio.new_event_loop()
     threading.Thread(

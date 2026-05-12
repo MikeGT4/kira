@@ -88,6 +88,7 @@ class Recorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._on_level: Callable[[float], None] | None = None
+        self._on_samples: Callable[[np.ndarray], None] | None = None
         self._input_gain = float(input_gain)
         # Spec wird gespeichert, nicht resolved — das passiert in prewarm()
         # und (falls dort gescheitert) erneut in start(). Konstruktor ist
@@ -159,6 +160,15 @@ class Recorder:
         """Register a callback invoked with RMS level (float) for each audio block."""
         self._on_level = cb
 
+    def set_samples_callback(self, cb: Callable[[np.ndarray], None] | None) -> None:
+        """Register a callback invoked with the raw mono audio block (np.ndarray, 1-D float32) for each frame.
+
+        Used by the Windows oscilloscope HUD which needs the actual waveform,
+        not just the RMS level. Independent of `set_level_callback` — both can
+        be active.
+        """
+        self._on_samples = cb
+
     def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
         if status:
             # USB hot-unplug surfaces as input_underflow on the very next
@@ -197,6 +207,13 @@ class Recorder:
                 self._on_level(rms)
             except Exception:
                 log.exception("level callback raised")
+
+        if self._on_samples is not None:
+            try:
+                mono = audio[:, 0] if audio.ndim > 1 else audio
+                self._on_samples(mono)
+            except Exception:
+                log.exception("samples callback raised")
 
     def prewarm(self) -> None:
         """Open the input stream eagerly so the pre-roll buffer fills

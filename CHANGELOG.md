@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.2.1 — 2026-05-12
+
+### Pixel-Oszilloskop-HUD (2026-05-12)
+
+Recording-HUD-Look überarbeitet: statt der gelben Bar-Anzeige zeigt
+das HUD jetzt eine pixel-scharfe 2-px-Wellenform in digitalroots-Grün
+(Neon-Variante des Brand-Greens `#006F32`). Antialiasing für die
+Welle deaktiviert, damit die Linie auf nativer Auflösung scharf bleibt
+(SquareCap + MiterJoin). Status-Text + Hintergrund bleiben antialiased
+für Lesbarkeit.
+
+- **Recorder-API erweitert:** Neuer `set_samples_callback(cb)` neben
+  dem bestehenden `set_level_callback()`. Liefert pro Audio-Block den
+  rohen Mono-Sample-Array (np.ndarray, float32) statt nur RMS. Mac-
+  Pfad (popup.py + push_level) komplett unangetastet.
+- **HUD-Pipeline (`kira/ui/hud_qt.py`):** Peak-Downsampling auf 30
+  Punkte pro Audio-Block (Envelope bleibt erhalten, kein Stride-
+  Aliasing). Ringbuffer von 240 Punkten = ein Sample pro Pixel-Spalte
+  bei voller Belegung. `paintEvent` rendert eine `QPolygonF` mit
+  width=2 in `WAVE_COLOR = QColor(60, 220, 110)`.
+- **Win-Verdrahtung (`kira/main.py:504`):** `set_level_callback(...)`
+  → `set_samples_callback(...)`. Mac-Verdrahtung (line 190) bleibt
+  identisch.
+
 ## v0.2.0 — 2026-05-10
 
 ### WSL-Decoupling + Slim-Installer (2026-05-10)
