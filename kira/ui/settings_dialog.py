@@ -33,7 +33,7 @@ from kira.ui._dialog_style import (
 )
 
 from kira import __version__, UPDATE_REPO
-from kira.config import default_config_path, load_config
+from kira.config import default_config_path, effective_hotkey, load_config
 from kira.config_writer import update_scalars
 
 log = logging.getLogger(__name__)
@@ -402,7 +402,7 @@ class SettingsDialog(QDialog):
         card = _SectionCard("Hotkeys", icon_emoji="⌨")  # keyboard emoji
 
         self._hotkey = QLineEdit()
-        self._hotkey.setText(self._cfg.hotkey.combo)
+        self._hotkey.setText(effective_hotkey(self._cfg.hotkey.combo))
         self._hotkey.setPlaceholderText("z.B. f8, ctrl+shift+space")
         self._hotkey.setToolTip(
             "Push-to-Talk-Hotkey (Format der `keyboard`-lib).\n"
