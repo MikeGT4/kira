@@ -237,7 +237,12 @@ def verify_sha256sums(
     """
     errors: list[str] = []
     try:
-        content = sha256sums_path.read_text(encoding="utf-8")
+        # utf-8-sig: strippt einen fuehrenden BOM. PowerShell's
+        # `Set-Content -Encoding UTF8` (Windows PowerShell 5.1) schreibt
+        # SHA256SUMS.txt MIT BOM — plain "utf-8" wuerde den BOM an den
+        # Hash der ERSTEN Zeile kleben und nur deren Verify scheitern
+        # lassen (v0.2.1-Release, 2026-05-14).
+        content = sha256sums_path.read_text(encoding="utf-8-sig")
     except OSError as exc:
         return False, [f"SHA256SUMS lesefehler: {exc}"]
 
