@@ -326,7 +326,13 @@ $sumLines = $artifacts | ForEach-Object {
     $h = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
     "$h  $($_.Name)"
 }
-$sumLines | Set-Content -Encoding UTF8 $sumsFile
+# Set-Content -Encoding UTF8 schreibt auf Windows PowerShell 5.1 einen
+# BOM. Der Updater-Parser (kira/updater.py) klebte den dann an den Hash
+# der ERSTEN Zeile -> Verify scheiterte nur fuer Kira-Setup-vX-1.bin
+# (v0.2.1-Release, 2026-05-14). .NET WriteAllText mit UTF8Encoding($false)
+# = UTF-8 ohne BOM; "`n"-Joins halten das Format GNU-coreutils-kompatibel.
+$sumsText = ($sumLines -join "`n") + "`n"
+[System.IO.File]::WriteAllText($sumsFile, $sumsText, (New-Object System.Text.UTF8Encoding($false)))
 $sumLines | ForEach-Object { Write-Host "  $_" }
 Write-Host "Wrote $sumsFile"
 

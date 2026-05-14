@@ -294,3 +294,27 @@ def test_verify_sha256sums_handles_binary_marker_asterisk(tmp_path):
     ok, errors = verify_sha256sums(sums_path, tmp_path)
     assert ok is True
     assert errors == []
+
+
+def test_verify_sha256sums_tolerates_utf8_bom_and_crlf(tmp_path):
+    """PowerShell's `Set-Content -Encoding UTF8` (Windows PowerShell 5.1)
+    schreibt die Datei mit UTF-8-BOM + CRLF. Der BOM klebte am Hash der
+    ERSTEN Zeile und nur deren Verify scheiterte — echter v0.2.1-Release-
+    Bug (2026-05-14). read_text(encoding='utf-8-sig') muss den BOM
+    strippen, splitlines() das CRLF."""
+    a = tmp_path / "fileA"
+    b = tmp_path / "fileB"
+    a.write_bytes(b"content-A")
+    b.write_bytes(b"content-B")
+
+    sums = (
+        f"{hashlib.sha256(b'content-A').hexdigest()}  fileA\r\n"
+        f"{hashlib.sha256(b'content-B').hexdigest()}  fileB\r\n"
+    )
+    sums_path = tmp_path / "SHA256SUMS.txt"
+    # Roh-Bytes: BOM (ef bb bf) vorangestellt, wie im echten kaputten Asset.
+    sums_path.write_bytes(b"\xef\xbb\xbf" + sums.encode("utf-8"))
+
+    ok, errors = verify_sha256sums(sums_path, tmp_path)
+    assert ok is True
+    assert errors == []
