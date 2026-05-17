@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.2.2 — 2026-05-17
+
+### Schneller Polish-Modus (Settings-Toggle)
+
+Speed-Toggle in den Einstellungen fuer die Polish-Pipeline. Standard-
+LLM `gemma3:12b` rutscht bei VRAM-Druck (Chrome + Outlook + RDP +
+EdgeWebView gleichzeitig offen) in den CPU-Offload-Split und Polish-
+Latenz steigt von ~0,3 s auf 2–4 s. Toggle schaltet auf `gemma3:4b`
+(`styler.fast_model`), das auch bei vollem Desktop 100 % in GPU passt.
+
+- **`StylerConfig` (`kira/config.py`):** Neue Felder `fast_mode: bool`
+  (Default `False` — kein Verhaltens-Change beim Upgrade) und
+  `fast_model: str` (Default `gemma3:4b`). Power-User koennen das
+  Speed-Modell ueber `config.yaml` ueberschreiben.
+- **`Styler` (`kira/styler.py`):** Neuer `_resolve_model()`-Helper
+  zentralisiert die Modell-Auswahl-Hierarchie:
+  1. `ModeConfig.model` (Per-Mode-Override, hoechste Prioritaet)
+  2. `fast_model` wenn `fast_mode=True`
+  3. `model` als Default.
+  `warmup()`, `polish()` und `edit_command()` nutzen den Helper —
+  einheitliches Verhalten ueber alle Pfade.
+- **Settings-Dialog (`kira/ui/settings_dialog.py`):** Neue Checkbox
+  in der bestehenden "Polish-LLM"-Card. Tooltip listet die Trade-offs
+  (F9-Editing schwaecher, lange Briefings leicht inkonsistent).
+  Beim ersten Aktivieren: `_ollama_model_installed()`-Pre-Check, falls
+  Modell fehlt — Progress-Dialog `_pull_blocking()` mit QEventLoop
+  fuer synchrone Wartezeit + sauberer Cancel-Pfad. Bei Pull-Fehler
+  oder Abbruch: Toggle springt zurueck auf `False`, Save abgebrochen.
+- **Tests (`tests/test_styler.py`, `tests/test_config.py`):** 7 neue
+  Test-Cases: Defaults, YAML-Override, fast_mode-an/aus Branching,
+  Per-Mode-Override-Hierarchie, Warmup + Edit-Command-Pfade. Alle
+  33 styler/config-Tests gruen.
+
 ## v0.2.1 — 2026-05-12
 
 ### Pixel-Oszilloskop-HUD (2026-05-12)

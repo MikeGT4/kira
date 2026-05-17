@@ -4,12 +4,20 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.1 released 2026-05-12 (HUD-Pixel-Oszilloskop in
-digitalroots-Neon-Grün — gelbe Bars ersetzt durch 2-px Polyline auf
-Roh-Sample-Peaks, no-AA für pixel-scharfen Look. Recorder-API um
-`set_samples_callback` erweitert, Mac-Pfad unangetastet). v0.2.0
-released 2026-05-11 (Tag auf commit `a69e776`, Bundle-Source
-`a8c7dd2`, `windows-port`). v0.1.0 ist die vorige Release. v0.2 fuegt:
+**Version:** v0.2.2 released 2026-05-17 (Schneller Polish-Modus als
+Settings-Toggle. `StylerConfig.fast_mode: bool` + `fast_model: str`
+(Default `gemma3:4b`); `Styler._resolve_model()`-Helper zentralisiert
+Modell-Hierarchie Per-Mode > fast_mode > Default. Toggle in der
+Polish-LLM-Section-Card; bei Neu-Aktivierung `_pull_blocking()` mit
+QEventLoop falls Modell fehlt. Hintergrund: gemma3:12b rutschte bei
+vollem Desktop (Chrome + Outlook + RDP + EdgeWebView) in 49/51 CPU/
+GPU-Split → Polish 2–4 s; 4b passt 100 % GPU → 0,3–0,5 s. 7 neue
+Tests, 33 styler/config-Tests gruen). v0.2.1 released 2026-05-12
+(HUD-Pixel-Oszilloskop in digitalroots-Neon-Grün — gelbe Bars ersetzt
+durch 2-px Polyline auf Roh-Sample-Peaks, no-AA für pixel-scharfen
+Look. Recorder-API um `set_samples_callback` erweitert, Mac-Pfad
+unangetastet). v0.2.0 released 2026-05-11 (Tag auf commit `a69e776`,
+Bundle-Source `a8c7dd2`, `windows-port`). v0.1.0 ist die vorige Release. v0.2 fuegt:
 Custom Dictionary (`whisper.replacements`), AI-Modes (per-Mode Override),
 F9 AI-Editing-Commands mit Silent-Failure-Haertung, File-Transcription,
 Multi-Asset In-App-Updater (SHA256-Verify + Resume + Path-Traversal-
