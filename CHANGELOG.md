@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — Prompt-Härtung für `clean.md` und `email_formal.md`
+
+Nachdem `prompts/terminal.md` in v0.2.2 für 4B-Few-Shot-Schwäche
+gehärtet wurde, Audit aller Mode-Prompts — zwei weitere Files hatten
+das gleiche Inline-Beispiel-Pattern:
+
+- **`clean.md`**: hatte `Stotter-Wiederholungen ("ich, ich, ich denke"
+  -> "ich denke")` inline. Beispiele in separaten Block ausgelagert
+  (3 Varianten ohne Verb-Anker), plus explizite "NIEMALS umformulieren"-
+  Regel am Ende. Ohne den extra-Disclaimer halluzinierte 4B aus dem
+  ersten Test-Beispiel "Schau mal kurz" → "Schau mal jetzt machen" für
+  unverwandte Inputs.
+- **`email_formal.md`**: hatte das Du-zu-Sie-Beispiel `("kannst du mir
+  das schicken" -> "koennten Sie mir das zusenden")` inline. 3 Beispiele
+  in eigenem Block. **Bleibt fragile**: bei Statement-Inputs ("Der
+  Termin passt mir gut") kann 4B in Frage-Form halluzinieren
+  ("Koennten Sie den Termin bestaetigen"). Empfehlung für Praxis-
+  Workflows: Per-Mode-Override in `config.yaml` setzen, damit
+  `email_formal` immer mit 12B läuft auch wenn `fast_mode: true`:
+
+  ```yaml
+  styler:
+    fast_mode: true
+    modes:
+      email_formal:
+        model: gemma3:12b
+  ```
+
+- **`scripts/probes/probe_prompts_4b.py`**: neues Probe-Script, läuft
+  13 realistische Inputs durch gemma3:4b gegen alle drei Prompts.
+  Floort Halluzinationen via Regex. Aktuell 0/13 buggy.
+
+Nicht im v0.2.2-Bundle (Tag `v0.2.2 → 65e6cfc` ging vor diesen Fixes
+raus). Source-only, wirkt auf Editable-Installs. Wird mit dem
+nächsten Release-Bundle aktiv.
+
 ## v0.2.2 — 2026-05-17
 
 ### Schneller Polish-Modus (Settings-Toggle)
