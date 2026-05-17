@@ -24,16 +24,16 @@ Voice-to-text tray app for **Windows 11** with NVIDIA GPU. Hold a hotkey, speak,
 
 Download von der [Releases-Seite](https://github.com/MikeGT4/kira/releases/latest):
 
-1. Lade `Kira-Setup-v0.2.0.exe` (~2 MB Setup-Stub) und `SHA256SUMS.txt` in **denselben** Ordner herunter.
-   - Falls Inno bei diesem Build Disk-Spanning ausgelöst hat (Setup-Stub > 2 GiB Source), liegen daneben noch 1–2 `Kira-Setup-v0.2.0-N.bin`-Dateien — die müssen mit in den selben Ordner.
-2. Doppelklick auf `Kira-Setup-v0.2.0.exe`. Inno findet etwaige `.bin`-Slices automatisch.
+1. Lade `Kira-Setup-v0.2.2.exe` (~2 MB Setup-Stub) und `SHA256SUMS.txt` in **denselben** Ordner herunter.
+   - Bei diesem Build löst Inno Disk-Spanning aus — daneben liegen `Kira-Setup-v0.2.2-1.bin` und `Kira-Setup-v0.2.2-2.bin`, die müssen mit in den selben Ordner.
+2. Doppelklick auf `Kira-Setup-v0.2.2.exe`. Inno findet die `.bin`-Slices automatisch.
 3. Falls Windows Defender SmartScreen warnt: „Weitere Informationen" → „Trotzdem ausführen". (Kira ist nicht code-signed.)
 4. Inno-Wizard durchklicken (Welcome → Lizenz → Pfad → Installieren → Fertig).
 5. **Beim ersten Start** erscheint automatisch ein zweiter Wizard, der ~10 GB Modelle pullt: Whisper-large-v3 (~3 GB) von Hugging Face plus Gemma 3 12B (~8 GB) via Ollama. Das geht einmalig, danach ist alles offline.
 6. Nach „Fertigstellen" startet Kira automatisch in der Tray-Leiste — gelb gerahmtes Logo.
 7. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
 
-> **Tipp:** Mit `certutil -hashfile Kira-Setup-v0.2.0.exe SHA256` gegen die Hashes in `SHA256SUMS.txt` prüfen, falls du dem Download nicht traust (kein Code-Signing in v0.2.0).
+> **Tipp:** Mit `certutil -hashfile Kira-Setup-v0.2.2.exe SHA256` gegen die Hashes in `SHA256SUMS.txt` prüfen, falls du dem Download nicht traust (kein Code-Signing).
 
 ### Voraussetzungen
 
@@ -115,6 +115,12 @@ py -3.12 scripts\regenerate_branded_icon.py
 The `audio.input_device` value is a substring match — `'ROG Theta'` matches `Mikrofon (ROG Theta Ultimate 7.)`, `'Shure MV7+'` matches `Mikrofon (2- Shure MV7+)`. If the configured device isn't currently enumerated, Kira logs a `WARNING kira.recorder` line listing every input device it *did* see, which makes it easy to spot whether you wrote the wrong substring or the device just isn't plugged in.
 
 **Pin your physical mic even if Windows shows it as the default.** On boxes with an ASUS Intelligo / „AI Noise-Canceling Microphone" filter installed, the Windows default can flip to that virtual filter device transiently — for example while a USB microphone is still enumerating during cold-boot — and the filter aggressively kills speech as noise. Symptom in `kira.log`: `Recorder.stop: ... peak=0.0002 rms=0.0001` followed by Whisper hallucinating „Vielen Dank." → Hallucination-Filter aborts the pipeline → no text injected. Pinning bypasses the filter. If the USB device isn't enumerated yet when you press the hotkey, you get `DeviceUnavailable` and a 3 s yellow tray icon — clearly visible — instead of a silent dictation.
+
+### Schneller Modus (v0.2.2+)
+
+In den Einstellungen → Polish-LLM gibt's eine Checkbox **„Schneller Modus (gemma3:4b)"**. Wenn das 12B-Modell bei dir öfter in den CPU-Offload rutscht (sichtbar in `ollama ps` als `49/51 CPU/GPU`), schaltet die Box auf das schnellere 4B-Modell um. Beim ersten Aktivieren wird `gemma3:4b` einmalig nachgeladen (~3 GB, Progress-Dialog mit Cancel).
+
+Trade-offs: Standard-Polish (Punktuation, Filler) bleibt praktisch identisch, F9-AI-Editing-Commands werden merkbar schwächer, bei sehr langen Briefings (>250 Zeichen) wird der Stil leicht inkonsistenter. Default ist aus — bestehende User merken vom Upgrade nichts.
 
 ---
 
