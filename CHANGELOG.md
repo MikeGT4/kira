@@ -32,6 +32,17 @@ Latenz steigt von ~0,3 s auf 2–4 s. Toggle schaltet auf `gemma3:4b`
   Test-Cases: Defaults, YAML-Override, fast_mode-an/aus Branching,
   Per-Mode-Override-Hierarchie, Warmup + Edit-Command-Pfade. Alle
   33 styler/config-Tests gruen.
+- **`prompts/terminal.md` gehaertet:** Der Original-Prompt hatte
+  "get status -> git status" als einziges Beispiel inline. 12B
+  parst das korrekt als Illustration; 4B fixiert sich darauf (Few-
+  Shot-Schwaeche) und gibt fuer ALLE Inputs "git status" zurueck.
+  Im Live-Test mit Mike's PBX-Briefings repro'd vor Release. Fix:
+  separater "Beispiele"-Block mit explizitem Disclaimer
+  ("NICHT als Output-Vorlage verwenden"), 4 statt 1 Beispiel
+  (Konversation + Shell-Befehle gemischt), plus expliziter
+  Output-Regel "kein Kommentar, keine Erklaerung, kein Beispiel".
+  Verifiziert mit `scripts/probes/probe_terminal_prompt.py` (0/6
+  buggy outputs gegen gemma3:4b).
 
 ## v0.2.1 — 2026-05-12
 
