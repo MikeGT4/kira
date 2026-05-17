@@ -51,6 +51,39 @@ verifiziert auf Mike's Box `C:\Users\mike\AppData\Local\Kira\`,
 Boot 7 s inkl. Tray + F8/F9 + Whisper-CUDA + Polish-Warmup.
 Volle Phasen-Liste in [`TODO.md`](TODO.md).
 
+**Prompt-Härtung für 4B-Modelle 2026-05-17:** Beim Build von v0.2.2
+(fast_mode-Toggle) gemma3:4b gegen `prompts/terminal.md` live-getestet.
+Mike's PBX-Konversationen ("Heißt das, wir schauen zuerst mal, ob die
+880 irgendwo vergeben ist…", "Hallo?", "Okay, ich meine, wenn nichts
+Destruktives dabei ist…") wurden ALLE zu `git status` polished. Whisper
+korrekt, aber Polish gibt 10 chars `"git status"` aus statt 100+ chars
+Input. Pipeline unbrauchbar. Symptom in `kira.log`: jede `Polish out
+(mode=terminal, 10 chars): 'git status'`-Zeile direkt nach einer
+viel längeren Whisper-out-Zeile (siehe Commit `4daf74c` → `65e6cfc`).
+
+**Root Cause:** Der Original-`prompts/terminal.md` hatte das einzige
+konkrete Beispiel inline in der Regel-Liste:
+`Korrigiere NUR offensichtliche Transkriptionsfehler ("get status" -> "git status")`.
+12B parst das als reine Illustration. 4B (Few-Shot-Schwäche) fixiert
+sich darauf und gibt für ALLE Inputs `git status` zurück. Selbes
+Pattern erwartbar mit anderen kleinen Modellen (Q4-quantisierte
+3B–7B-Klasse).
+
+**Fix-Pattern für alle prompts/*.md die mit 4B/Speed-Modus laufen
+sollen:** Beispiele NIE inline in einer Regel-Bullet, sondern in einem
+separaten Block mit explizitem Disclaimer ("NICHT als Output-Vorlage
+verwenden — nur als Illustration"). Plus mehrere Beispiele die
+verschiedene Output-Typen abdecken (Konversation + Shell-Befehl
+gemischt für `terminal.md`), damit das Modell keinen einzelnen
+Anker hat. Plus explizite negative Output-Regel am Ende ("kein
+Kommentar, keine Erklärung, kein Beispiel").
+
+**Verifikation:** `scripts/probes/probe_terminal_prompt.py` läuft 6
+realistische Inputs durch gemma3:4b mit dem aktuellen `prompts/
+terminal.md` und floort Output != `"git status"` bei nicht-Befehl-
+Inputs. Nach Härten 0/6 buggy. Bei Änderungen an `terminal.md` oder
+neuen Mode-Prompts mit Inline-Beispielen erneut laufen.
+
 **Mic-Pinning bei Cold-Boot 2026-05-11:** Mike hat heute einen Shure
 MV7+ als neues USB-Mikro bekommen. Beim Autostart nach Reboot lieferte
 das Mic stille Samples (peak=0.0002, rms=0.0001), Whisper halluzinierte
