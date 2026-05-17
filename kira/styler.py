@@ -34,6 +34,24 @@ class Styler:
         self._config = config
         self._client = ollama.AsyncClient()
 
+    def _resolve_model(self, mode: str | None = None) -> str:
+        """Welches Modell faerbt der naechste LLM-Call.
+
+        Hierarchie (hoechste Prio zuerst):
+        1. Per-Mode-Override (styler.modes[mode].model) — User-explizit
+           in YAML eingestellt, schlaegt alles.
+        2. styler.fast_model bei fast_mode=True — Speed-Toggle aus
+           den Settings.
+        3. styler.model — Default.
+        """
+        if mode is not None:
+            mode_cfg = self._config.styler.modes.get(mode, ModeConfig())
+            if mode_cfg.model:
+                return mode_cfg.model
+        if self._config.styler.fast_mode:
+            return self._config.styler.fast_model
+        return self._config.styler.model
+
     async def warmup(self) -> None:
         """Issue a tiny chat request to force Ollama to load the model now.
 
@@ -43,7 +61,7 @@ class Styler:
         ``keep_alive`` on the polish path, this keeps the model resident
         from boot to quit.
         """
-        model = self._config.styler.model
+        model = self._resolve_model(None)
         keep_alive = self._config.styler.keep_alive
         try:
             await asyncio.wait_for(
@@ -78,14 +96,15 @@ class Styler:
         if not text.strip():
             return text
         prompt = load_prompt(mode).format(text=text)
-        # Per-Mode-Override: model + timeout + temperature koennen je
-        # Mode in StylerConfig.modes definiert sein. Fehlt der Mode dort
-        # oder ist ein Feld None, faellt's auf den globalen StylerConfig
-        # zurueck. temperature-Default 0.2 wird nur bei nicht-gesetztem
-        # Mode-Override angewendet (vorher war 0.2 hardcoded als
-        # Mode-Field-Default — code-reviewer Karpathy 2026-05-09).
+        # Per-Mode-Override: timeout + temperature koennen je Mode in
+        # StylerConfig.modes definiert sein. Fehlt der Mode dort oder ist
+        # ein Feld None, faellt's auf den globalen StylerConfig zurueck.
+        # temperature-Default 0.2 wird nur bei nicht-gesetztem Mode-Override
+        # angewendet (vorher war 0.2 hardcoded als Mode-Field-Default —
+        # code-reviewer Karpathy 2026-05-09). Modell-Resolution ist im
+        # _resolve_model()-Helper gekapselt: Per-Mode > fast_mode > model.
         mode_cfg = self._config.styler.modes.get(mode, ModeConfig())
-        model = mode_cfg.model or self._config.styler.model
+        model = self._resolve_model(mode)
         timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
         temperature = (
             mode_cfg.temperature if mode_cfg.temperature is not None else 0.2
@@ -165,9 +184,10 @@ class Styler:
         prompt = template.format(selection=selection, command=command)
         # Mode "edit_command" kann eigenes Modell + Timeout in
         # StylerConfig.modes haben (z.B. ein staerkeres Modell als
-        # gemma3:12b fuer komplexe Edits).
+        # gemma3:12b fuer komplexe Edits). Modell-Resolution via Helper
+        # respektiert auch fast_mode wenn kein Per-Mode-Override gesetzt.
         mode_cfg = self._config.styler.modes.get("edit_command", ModeConfig())
-        model = mode_cfg.model or self._config.styler.model
+        model = self._resolve_model("edit_command")
         timeout = mode_cfg.timeout_seconds or self._config.styler.timeout_seconds
         temperature = (
             mode_cfg.temperature if mode_cfg.temperature is not None else 0.2

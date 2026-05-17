@@ -20,8 +20,8 @@ from PIL.ImageQt import ImageQt
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-    QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressDialog,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressDialog,
     QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -147,6 +147,44 @@ def _load_branded_pixmap(size: int) -> QPixmap | None:
     except Exception:
         log.exception("failed to load icon-branded.ico for header")
         return None
+
+
+def _ollama_model_installed(model: str) -> bool:
+    """Best-effort check ob ein Modell schon im lokalen Ollama-Cache liegt.
+
+    Returns True wenn der Modellname (oder ein 'modellname:tag'-Match) in
+    ollama.list() auftaucht. Bei API-Hick-Ups / Library-Fehlern: False —
+    der Caller faellt dann auf ollama.pull() zurueck, was idempotent ist
+    (kein Schaden ausser ein paar Sekunden Hash-Verify).
+    """
+    try:
+        import ollama
+        result = ollama.list()
+        # API-Variation: result.models (neuere Versions, .model-Attribut)
+        # vs. result['models'] (alte dict-Form, 'name'-Key).
+        models = getattr(result, "models", None)
+        if models is None and isinstance(result, dict):
+            models = result.get("models", [])
+        names: list[str] = []
+        for m in (models or []):
+            name = (
+                getattr(m, "model", None)
+                or getattr(m, "name", None)
+                or (m.get("model") if isinstance(m, dict) else None)
+                or (m.get("name") if isinstance(m, dict) else None)
+                or ""
+            )
+            if name:
+                names.append(str(name))
+        if model in names:
+            return True
+        # Toleranz: "gemma3:4b" gegen "gemma3:4b-it-q4_K_M" als Substring-
+        # Treffer durchlassen. Verhindert dass wir bei einem schon
+        # vorhandenen Tag-Variant nochmal ziehen.
+        return any(n.startswith(model) for n in names)
+    except Exception:
+        log.exception("ollama.list() failed during model-installed check")
+        return False
 
 
 class _PullWorker(QObject):
@@ -382,7 +420,29 @@ class SettingsDialog(QDialog):
         )
         update_btn.clicked.connect(self._update_polish_model)
         polish_row.addWidget(update_btn)
-        card.add_row("Modell", polish_row)
+        card.add_row("Qualitätsmodell", polish_row)
+
+        # Speed-Toggle: schaltet beim Polish gegen styler.fast_model
+        # (Default gemma3:4b). Trade-off-Hinweis im Tooltip damit der User
+        # versteht warum's das Toggle gibt — nicht jeder weiß dass 4b bei
+        # F9-Editing und langen Briefings (>250 chars) leicht abfaellt.
+        self._fast_mode = QCheckBox(
+            f"Schneller Modus ({self._cfg.styler.fast_model})"
+        )
+        self._fast_mode.setChecked(self._cfg.styler.fast_mode)
+        self._fast_mode.setToolTip(
+            "Wenn aktiv, polished Kira mit dem schnellen Modell statt mit dem\n"
+            "Qualitaetsmodell. Empfohlen wenn dein VRAM eng ist (Chrome,\n"
+            "Outlook, RDP gleichzeitig offen) — sonst rutscht das 12B-Modell\n"
+            "in den CPU-Offload und Polish dauert 2-4 s statt 0,3 s.\n\n"
+            "Trade-offs:\n"
+            "  • Polish (Punktuation, Großschreibung, Filler) praktisch identisch\n"
+            "  • F9-Editing-Commands (Translate, Reformulate) merkbar schwaecher\n"
+            "  • Lange Briefings (>250 chars) leicht inkonsistenter Stil\n\n"
+            "Beim ersten Aktivieren wird das Modell ggf. heruntergeladen (~3 GB).\n"
+            "Per-Mode-Overrides in styler.modes haben weiterhin Vorrang."
+        )
+        card.add_row("", self._fast_mode)
 
         self._styler_timeout = QDoubleSpinBox()
         self._styler_timeout.setRange(1.0, 120.0)
@@ -621,11 +681,29 @@ class SettingsDialog(QDialog):
         device_value = self._device.currentData()
         # Edit-Hotkey: leerer String -> None (Feature deaktiviert).
         edit_hotkey_value: str | None = self._edit_hotkey.text().strip() or None
+        new_fast_mode = self._fast_mode.isChecked()
+
+        # Speed-Toggle eingeschaltet aber fast_model nicht installiert?
+        # → erst ollama pull mit Progress-Dialog, sonst kommt der User
+        # nach Restart in ein leises Polish-Failure (fallback_to_raw
+        # greift, aber er weiss nicht warum sein Toggle nichts bewirkt).
+        # Pre-Check NUR bei Neu-Aktivierung — wenn der Toggle eh schon an
+        # war (nur andere Felder geaendert), schenken wir uns den Pull.
+        if new_fast_mode and not self._cfg.styler.fast_mode:
+            fast_model = self._cfg.styler.fast_model
+            if not _ollama_model_installed(fast_model):
+                if not self._pull_blocking(fast_model):
+                    # User hat abgebrochen oder Pull failed -> Save
+                    # abbrechen, Toggle zurueck auf alten Stand
+                    self._fast_mode.setChecked(False)
+                    return
+
         updates = {
             "audio.input_gain": float(self._gain.value()),
             "audio.input_device": device_value,
             "whisper.language": self._language.currentText(),
             "styler.model": self._styler_model.text().strip(),
+            "styler.fast_mode": new_fast_mode,
             "styler.timeout_seconds": float(self._styler_timeout.value()),
             "injector.restore_clipboard_after_ms": int(self._restore_ms.value()),
             "hotkey.combo": self._hotkey.text().strip(),

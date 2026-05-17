@@ -93,3 +93,24 @@ def test_effective_hotkey_passes_explicit_combo_through(monkeypatch):
     monkeypatch.setattr(cfg_mod.sys, "platform", "win32")
     assert cfg_mod.effective_hotkey("ctrl+shift+space") == "ctrl+shift+space"
     assert cfg_mod.effective_hotkey("f10") == "f10"
+
+
+def test_styler_fast_mode_defaults_off():
+    """Beim Upgrade darf Default-Behavior nicht aendern — fast_mode muss aus sein."""
+    c = Config()
+    assert c.styler.fast_mode is False
+    assert c.styler.fast_model == "gemma3:4b"
+
+
+def test_styler_fast_mode_loaded_from_yaml(tmp_path):
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text(textwrap.dedent("""
+        styler:
+          model: gemma3:12b
+          fast_mode: true
+          fast_model: gemma3:4b
+    """))
+    cfg = load_config(yaml_file)
+    assert cfg.styler.fast_mode is True
+    assert cfg.styler.fast_model == "gemma3:4b"
+    assert cfg.styler.model == "gemma3:12b"

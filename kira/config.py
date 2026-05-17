@@ -89,6 +89,17 @@ class StylerConfig(BaseModel):
     # Pre-load the model at app startup with a tiny warmup request so the
     # very first user dictation doesn't pay the cold-start cost either.
     warmup_on_start: bool = True
+    # Schneller Polish-Modus: schaltet styler.model gegen styler.fast_model
+    # aus, wenn fast_mode True ist. Default OFF — bestehende User aendern
+    # ihr Behavior nicht beim Upgrade. Toggle ueber das Settings-Dialog.
+    # Hintergrund: 12B-Polish rutscht bei VRAM-Druck (Chrome + Outlook +
+    # mstsc + EdgeWebView gleichzeitig) in den CPU-Offload-Split und
+    # Polish-Latenz steigt auf 2-4 s. 4B passt 100 % in GPU auch bei
+    # vollem Desktop, Polish ~0,3-0,5 s. Per-Mode-Overrides in styler.modes
+    # haben Vorrang vor fast_mode — wer translate_en explizit auf qwen3:8b
+    # gepinnt hat, behaelt sein Modell auch bei aktivem Speed-Toggle.
+    fast_mode: bool = False
+    fast_model: str = "gemma3:4b"
     # Optional Per-Mode-Overrides. Key = Mode-Name (matched gegen
     # context_modes-Werte). Falls Mode hier nicht definiert oder Felder
     # None: Defaults aus StylerConfig oben.

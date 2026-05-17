@@ -227,3 +227,91 @@ async def test_edit_command_uses_per_mode_model_override():
 
     kwargs = fake_client.chat.call_args.kwargs
     assert kwargs["model"] == "qwen3:8b"
+
+
+@pytest.mark.asyncio
+async def test_polish_uses_fast_model_when_fast_mode_enabled():
+    """fast_mode=True schaltet auf fast_model (Speed-Toggle in Settings)."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = True
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    await styler.polish("text", mode="plain")
+
+    assert fake_client.chat.call_args.kwargs["model"] == "gemma3:4b"
+
+
+@pytest.mark.asyncio
+async def test_polish_uses_quality_model_when_fast_mode_disabled():
+    """fast_mode=False (Default) muss exakt das alte Behavior reproduzieren."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = False
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    await styler.polish("text", mode="plain")
+
+    assert fake_client.chat.call_args.kwargs["model"] == "gemma3:12b"
+
+
+@pytest.mark.asyncio
+async def test_polish_per_mode_override_beats_fast_mode():
+    """Hierarchie: Per-Mode-Override > fast_mode > Default. Per-Mode bleibt
+    immer der explizite User-Wille — sonst wuerde fast_mode-an silent das
+    in YAML eingestellte Translate-Modell ueberschreiben."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = True
+    cfg.styler.modes["translate_en"] = ModeConfig(model="qwen3:8b")
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "out"}})
+    styler._client = fake_client
+
+    await styler.polish("text", mode="translate_en")
+
+    assert fake_client.chat.call_args.kwargs["model"] == "qwen3:8b"
+
+
+@pytest.mark.asyncio
+async def test_warmup_uses_fast_model_when_fast_mode_enabled():
+    """Warmup beim Boot muss das tatsaechlich genutzte Modell laden, sonst
+    zahlt der erste F8 trotzdem den Cold-Start."""
+    cfg = Config()
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = True
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    await styler.warmup()
+
+    assert fake_client.chat.call_args.kwargs["model"] == "gemma3:4b"
+
+
+@pytest.mark.asyncio
+async def test_edit_command_uses_fast_model_when_fast_mode_enabled():
+    """fast_mode wirkt einheitlich auf alle Pfade — auch F9-Editing.
+    Wenn User explizit fast_mode toggelt, akzeptiert er den Trade-off."""
+    cfg = Config()
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = True
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "edited"}})
+    styler._client = fake_client
+
+    await styler.edit_command(selection="text", command="cmd")
+
+    assert fake_client.chat.call_args.kwargs["model"] == "gemma3:4b"
