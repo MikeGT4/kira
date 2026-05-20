@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.3 — 2026-05-20
 
 ### AI-Editing als Ein/Aus-Schalter (Settings-Dialog)
 
