@@ -470,19 +470,44 @@ class SettingsDialog(QDialog):
         )
         card.add_row("Diktat (PTT)", self._hotkey)
 
-        # Edit-Command-Hotkey: F9 default, leer = Feature deaktiviert.
+        # AI-Editing-Toggle: edit_combo=None deaktiviert den F9-Pfad
+        # komplett. Die Checkbox ist der Master-Schalter, das Textfeld
+        # darunter die Tastenwahl — bei abgeschalteter Checkbox ausgegraut.
+        edit_enabled = self._cfg.hotkey.edit_combo is not None
+        self._edit_enabled = QCheckBox("AI-Editing-Befehle aktiv")
+        self._edit_enabled.setChecked(edit_enabled)
+        self._edit_enabled.setToolTip(
+            "Schaltet die AI-Editing-Befehle ganz ab oder an.\n"
+            "Wenn aktiv: Text in der App markieren, den Hotkey halten,\n"
+            "einen Befehl sprechen ('mach das förmlich' / 'übersetz ins\n"
+            "Englische'), loslassen — das LLM überarbeitet die Markierung.\n"
+            "Änderung wirkt nach Kira-Neustart."
+        )
+        self._edit_enabled.toggled.connect(self._on_edit_toggle)
+        card.add_row("", self._edit_enabled)
+
+        # Edit-Command-Hotkey: bei edit_combo=None mit "f9" vorbefüllt
+        # (nur ausgegraut), damit das Feld beim Einschalten sofort einen
+        # brauchbaren Wert hat.
         self._edit_hotkey = QLineEdit()
-        self._edit_hotkey.setText(self._cfg.hotkey.edit_combo or "")
-        self._edit_hotkey.setPlaceholderText("z.B. f9 - leer = aus")
+        self._edit_hotkey.setText(self._cfg.hotkey.edit_combo or "f9")
+        self._edit_hotkey.setPlaceholderText("z.B. f9")
+        self._edit_hotkey.setEnabled(edit_enabled)
         self._edit_hotkey.setToolTip(
-            "AI-Editing-Command-Hotkey: Text in der App selektieren,\n"
-            "Hotkey halten, sprechen ('mach das förmlich' / 'übersetz\n"
-            "ins Englische'), loslassen. LLM überarbeitet die Selektion.\n"
-            "Leer lassen, um das Feature zu deaktivieren."
+            "Welche Taste die AI-Editing-Befehle auslöst (Standard: f9).\n"
+            "Nur aktiv, wenn die Checkbox oben gesetzt ist."
         )
         card.add_row("Edit-Command", self._edit_hotkey)
 
         return card
+
+    def _on_edit_toggle(self, checked: bool) -> None:
+        """AI-Editing-Checkbox umgeschaltet: Hotkey-Feld aus-/eingrauen.
+        Beim Einschalten ein leeres Feld mit dem Default 'f9' füllen,
+        damit der Toggle sofort einen gültigen Hotkey hat."""
+        self._edit_hotkey.setEnabled(checked)
+        if checked and not self._edit_hotkey.text().strip():
+            self._edit_hotkey.setText("f9")
 
     def _build_section_injector(self) -> _SectionCard:
         card = _SectionCard("Inject", icon_emoji="\U0001F4CB")  # clipboard emoji
@@ -558,6 +583,18 @@ class SettingsDialog(QDialog):
         wrapper = QWidget()
         wrapper.setLayout(layout)
         return wrapper
+
+    @staticmethod
+    def _resolve_edit_combo(enabled: bool, text: str) -> str | None:
+        """Checkbox-Zustand + Hotkey-Feld → Wert für hotkey.edit_combo.
+
+        Checkbox aus → None (Feature deaktiviert). Checkbox an → der
+        getrimmte Feldwert, oder None wenn das Feld leer ist. Reine
+        Funktion, damit die einzige Verhaltenslogik des F9-Toggles ohne
+        QApplication testbar bleibt (siehe tests/test_settings_dialog.py)."""
+        if not enabled:
+            return None
+        return text.strip() or None
 
     def _run_update_check(self) -> None:
         """Update-Flow aus dem Settings-Dialog. Auto-Quit-Callback ruft
@@ -679,8 +716,20 @@ class SettingsDialog(QDialog):
         # sonst der Original-Device-Name (Substring-resilient gegen
         # PortAudio-Index-Shuffles nach USB-Hot-Plug).
         device_value = self._device.currentData()
-        # Edit-Hotkey: leerer String -> None (Feature deaktiviert).
-        edit_hotkey_value: str | None = self._edit_hotkey.text().strip() or None
+        # AI-Editing: Checkbox aus → edit_combo=None. Checkbox an mit
+        # leerem Feld ist widersprüchlich — der User soll es korrigieren,
+        # statt still in ein deaktiviertes Feature zu laufen.
+        edit_enabled = self._edit_enabled.isChecked()
+        if edit_enabled and not self._edit_hotkey.text().strip():
+            light_warning(
+                self, "Kira",
+                "Bitte einen Hotkey für die AI-Editing-Befehle eintragen "
+                "oder das Häkchen bei „AI-Editing-Befehle aktiv“ entfernen.",
+            )
+            return
+        edit_hotkey_value = self._resolve_edit_combo(
+            edit_enabled, self._edit_hotkey.text(),
+        )
         new_fast_mode = self._fast_mode.isChecked()
 
         # Speed-Toggle eingeschaltet aber fast_model nicht installiert?
