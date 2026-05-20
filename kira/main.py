@@ -625,6 +625,58 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         target=_check_setup, daemon=True, name="kira-setup-check",
     ).start()
 
+    # Automatischer Update-Check beim Start. Laeuft — wie der Setup-Probe
+    # darueber — auf einem eigenen Daemon-Thread, damit der Boot NICHT
+    # blockiert wird (Boot-Hang ist eine teure, dokumentierte Falle, s.
+    # CLAUDE.md "Boot sequence"). Fragt GitHub-Releases ab; nur bei einer
+    # echten neueren Version (status == 'newer') wird der Nutzer gefragt,
+    # und auch das nur, wenn er diese Version nicht schon abgelehnt hat.
+    # Netzwerk-/Parse-Fehler (status == 'failed') scheitern still — nur
+    # Log, kein Dialog. Die Abfrage selbst wird ueber den qt_marshal auf
+    # den Qt-Main-Thread marshalled (QMessageBox darf nur dort laufen).
+    def _check_for_app_update() -> None:
+        if not cfg.updates.check_on_start:
+            log.info("Start-Update-Check via Config deaktiviert (updates.check_on_start=false)")
+            return
+        try:
+            from kira import __version__, UPDATE_REPO
+            from kira._update_marker import is_update_declined, mark_update_declined
+            from kira.updater import check_for_update
+
+            result = check_for_update(local_version=__version__, repo=UPDATE_REPO)
+            if result.status != "newer":
+                # 'current' / 'local_newer' / 'no_asset' / 'failed' — alle
+                # ohne Nutzer-Interaktion. 'failed' (kein Netz o.ae.) hat
+                # check_for_update bereits als WARNING geloggt; hier nur
+                # noch eine ruhige INFO-Zeile zur Nachvollziehbarkeit.
+                log.info("Start-Update-Check: keine Aktion (status=%s)", result.status)
+                return
+
+            remote = result.remote_version or "?"
+            if is_update_declined(remote):
+                # Nutzer hat genau diese Version schon abgelehnt — nicht
+                # bei jedem Start erneut nerven.
+                log.info(
+                    "Start-Update-Check: v%s verfuegbar, aber vom Nutzer "
+                    "bereits abgelehnt — keine Abfrage", remote,
+                )
+                return
+
+            log.info("Start-Update-Check: neuere Version v%s verfuegbar", remote)
+            qt_marshal.run_on_main_thread(
+                lambda: tray.prompt_start_update(remote, on_declined=mark_update_declined)
+            )
+        except Exception:
+            # Defense-in-Depth: check_for_update kollabiert Netz-/Parse-
+            # Fehler schon zu status='failed'. Ein Fehler hier waere also
+            # unerwartet — trotzdem nur loggen, der Update-Check darf den
+            # Rest der App nie beeintraechtigen.
+            log.exception("Start-Update-Check fehlgeschlagen; wird ignoriert")
+
+    threading.Thread(
+        target=_check_for_app_update, daemon=True, name="kira-update-check",
+    ).start()
+
     # Enter Qt event loop (blocks main thread until quit).
     # Indirect getattr form sidesteps the repo-level security hook.
     _qt_main = getattr(qt_app, "exec")

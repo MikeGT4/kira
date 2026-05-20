@@ -531,6 +531,51 @@ class KiraTray:
         from kira.ui._update_runner import run_update_flow
         run_update_flow(parent=None, on_quit_request=quit_callback)
 
+    def prompt_start_update(self, remote_version: str, on_declined=None) -> None:
+        """Proaktive Update-Abfrage beim App-Start.
+
+        Wird vom Start-Update-Check (kira/main.py::_check_for_app_update)
+        aufgerufen, NACHDEM dieser auf seinem Daemon-Thread festgestellt
+        hat dass eine neuere Version vorliegt. Der Aufruf MUSS bereits
+        ueber MainThreadMarshal auf den Qt-Main-Thread marshalled sein —
+        diese Methode konstruiert ein QMessageBox und darf daher nicht
+        vom Daemon-Thread laufen.
+
+        Sagt der Nutzer "Ja", uebernimmt run_update_flow den Rest
+        (Download + SHA256-Verify + Setup-Launch). Sagt er "Nein", wird
+        ``on_declined(remote_version)`` gerufen — main.py haengt dort das
+        Setzen des .update-declined-Markers ein, damit Kira fuer genau
+        diese Version beim naechsten Start nicht erneut fragt. Der Marker-
+        IO liegt bewusst im Callback (nicht hier), damit diese Methode
+        reine UI bleibt und ohne Dateisystem testbar ist.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+        from kira import __version__
+        from kira.ui._dialog_style import apply_light_theme
+
+        msg = QMessageBox(None)
+        msg.setWindowTitle("Kira — Update verfügbar")
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setText(f"Eine neue Version von Kira ist verfügbar: v{remote_version}.")
+        msg.setInformativeText(
+            f"Du verwendest v{__version__}.\n\n"
+            "Jetzt herunterladen und installieren?"
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        apply_light_theme(msg)
+        accepted = msg.exec() == QMessageBox.StandardButton.Yes
+
+        if accepted:
+            log.info("Start-Update-Check: Nutzer hat v%s akzeptiert", remote_version)
+            self._run_update_flow_marshalled(self._on_quit)
+        else:
+            log.info("Start-Update-Check: Nutzer hat v%s abgelehnt", remote_version)
+            if on_declined is not None:
+                on_declined(remote_version)
+
     def _quit(self, _icon, _item) -> None:
         try:
             self._on_quit()
