@@ -43,5 +43,9 @@ def make_splash() -> QSplashScreen | None:
     # without dominating the desktop on smaller laptop displays.
     pix = pix.scaledToWidth(720, Qt.TransformationMode.SmoothTransformation)
     splash = QSplashScreen(pix, Qt.WindowType.WindowStaysOnTopHint)
+    # kira-splash.png hat transparente, abgerundete Ecken — ohne
+    # WA_TranslucentBackground füllt QSplashScreen die Eck-Bereiche
+    # mit der System-Fensterfarbe statt sie durchsichtig zu lassen.
+    splash.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     splash.show()
     return splash
