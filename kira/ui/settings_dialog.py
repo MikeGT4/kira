@@ -21,8 +21,8 @@ from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressDialog,
-    QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QProgressDialog, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from kira.ui._dialog_style import (
@@ -44,6 +44,14 @@ _ASSETS = _assets_dir()
 # beim _save() als input_device=None (= leerer String in der alten
 # QLineEdit-Variante).
 _DEVICE_DEFAULT_LABEL = "Windows-Default (automatisch)"
+
+# Optionales unzensiertes Polish-LLM. Abliteriertes Qwen3.6 27B — die
+# Inhaltsfilter des Modells sind entfernt. ~17 GB im Ollama-Cache, braucht
+# ~16 GB VRAM beim Laden. Auf 16-GB-Karten passt es nicht neben Whisper
+# (führt zu CPU-Offload und lahmem Polish), darum vor dem Pull ein
+# GPU-Check. Wird per "Unzensiertes Modell laden…"-Button in der
+# Polish-LLM-Card angeboten.
+_UNCENSORED_MODEL = "huihui_ai/Qwen3.6-abliterated:27b"
 
 
 class _SectionCard(QWidget):
@@ -456,6 +464,29 @@ class SettingsDialog(QDialog):
         )
         card.add_row("Timeout", self._styler_timeout)
 
+        # Optionales unzensiertes Modell: ein zusaetzlicher Button (kein
+        # Umbau des _styler_model-Felds zu einer ComboBox) plus ein roter
+        # Klartext-Hinweis darueber, was "unzensiert" bedeutet. Der rote
+        # Hinweis ist ausdruecklich gewuenscht — sachlich, gut lesbar.
+        uncensored_btn = QPushButton("Unzensiertes Modell laden…")
+        uncensored_btn.setToolTip(
+            "Laedt ein zusaetzliches, unzensiertes Polish-LLM "
+            f"({_UNCENSORED_MODEL}, ~17 GB) via ollama pull und traegt es\n"
+            "als Qualitaetsmodell ein. Vor dem Download laeuft ein GPU-Check —\n"
+            "das 27B-Modell braucht ~16 GB VRAM und passt auf 16-GB-Karten\n"
+            "nicht neben Whisper."
+        )
+        uncensored_btn.clicked.connect(self._offer_uncensored_model)
+        card.add_row("", uncensored_btn)
+
+        uncensored_hint = QLabel(
+            "Unzensiert — die Inhaltsfilter des Modells sind entfernt. "
+            "Es lehnt keine Eingaben ab und gibt ungefilterte Ausgaben zurück."
+        )
+        uncensored_hint.setStyleSheet("color: #c0392b; font-size: 11px;")
+        uncensored_hint.setWordWrap(True)
+        card.add_widget(uncensored_hint)
+
         return card
 
     def _build_section_hotkeys(self) -> _SectionCard:
@@ -595,6 +626,20 @@ class SettingsDialog(QDialog):
         if not enabled:
             return None
         return text.strip() or None
+
+    @staticmethod
+    def _uncensored_gpu_blocks(status: str) -> bool:
+        """GPU-Check-Status → muss vor dem 27B-Pull eine Warnung mit
+        Abbruch-Option gezeigt werden?
+
+        'insufficient'/'tight' → True (zu wenig bzw. knapper VRAM für ein
+        ~16-GB-Modell neben Whisper). 'ok'/'no_gpu' → False: 'ok' ist
+        unkritisch, 'no_gpu' bedeutet keine NVIDIA-Karte — dafür hat der
+        GPU-Check-Button schon einen eigenen Hinweis, hier nicht doppelt
+        nerven. Reine Funktion, damit die Entscheidungslogik des
+        Uncensored-Buttons ohne QApplication testbar bleibt (siehe
+        tests/test_settings_dialog.py)."""
+        return status in ("insufficient", "tight")
 
     def _run_update_check(self) -> None:
         """Update-Flow aus dem Settings-Dialog. Auto-Quit-Callback ruft
@@ -881,12 +926,27 @@ class SettingsDialog(QDialog):
         if not model_name:
             light_warning(self, "Kira", "Bitte erst ein Polish-Modell eintragen.")
             return
+        self._start_model_pull(model_name, "Kira — Modell-Update")
 
+    def _start_model_pull(
+        self,
+        model_name: str,
+        window_title: str,
+        on_success=None,
+    ) -> None:
+        """Gemeinsamer Modell-Pull mit QProgressDialog + QThread + _PullWorker.
+
+        Genutzt von `_update_polish_model` (Polish-Modell aktualisieren)
+        und `_offer_uncensored_model` (unzensiertes Modell laden) — die
+        Pull-Mechanik ist identisch, nur der Erfolgs-Folgeschritt
+        unterscheidet sich. `on_success`, falls gesetzt, wird nach einem
+        erfolgreichen Pull statt der Standard-light_information aufgerufen
+        (z.B. um das Modell als Qualitaetsmodell einzutragen)."""
         progress = QProgressDialog(
             f"Lade {model_name}…", "Abbrechen", 0, 0, self,
         )
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setWindowTitle("Kira — Modell-Update")
+        progress.setWindowTitle(window_title)
         progress.setMinimumDuration(0)
         # QProgressDialog is a QDialog subclass — apply_light_theme flips
         # palette + QSS so the label/cancel button stay readable in
@@ -917,7 +977,10 @@ class SettingsDialog(QDialog):
             thread.quit()
             thread.wait()
             if success:
-                light_information(self, "Kira", message)
+                if on_success is not None:
+                    on_success()
+                else:
+                    light_information(self, "Kira", message)
             else:
                 light_critical(self, "Kira", message)
 
@@ -927,3 +990,87 @@ class SettingsDialog(QDialog):
         # Keep refs alive until the worker finishes.
         self._pull_thread = thread
         self._pull_worker = worker
+
+    def _offer_uncensored_model(self) -> None:
+        """Bietet das optionale unzensierte Polish-LLM an: GPU-Check,
+        dann Pull, dann als Qualitaetsmodell eintragen.
+
+        Ablauf:
+          1. gpu_check.assess() gegen das 27B-Modell. Bei knappem/zu
+             wenig VRAM eine Warnung mit Ja/Nein — der User kann
+             abbrechen (CPU-Offload macht Polish unbrauchbar lahm).
+          2. Wenn das Modell schon im Ollama-Cache liegt: Pull
+             ueberspringen, direkt eintragen.
+          3. Sonst: Pull via gemeinsamem _start_model_pull-Helper.
+          4. Nach Erfolg: ins _styler_model-Feld eintragen + Hinweis,
+             dass mit 'Speichern' bestaetigt werden muss.
+        """
+        from kira.gpu_check import assess
+
+        result = assess(
+            whisper_model=self._cfg.whisper.model,
+            polish_model=_UNCENSORED_MODEL,
+        )
+        if self._uncensored_gpu_blocks(result.status):
+            severity = (
+                QMessageBox.Icon.Critical
+                if result.status == "insufficient"
+                else QMessageBox.Icon.Warning
+            )
+            box = QMessageBox(self)
+            box.setIcon(severity)
+            box.setWindowTitle("Kira — Unzensiertes Modell")
+            box.setText(
+                f"{result.message}\n\n"
+                f"Das unzensierte Modell ({_UNCENSORED_MODEL}) braucht "
+                "~16 GB VRAM. Reicht der VRAM nicht, lagert Ollama Teile "
+                "auf die CPU aus und der Polish-Schritt wird deutlich "
+                "langsamer (mehrere Sekunden statt Sekundenbruchteilen).\n\n"
+                "Trotzdem herunterladen?"
+            )
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            yes = box.button(QMessageBox.StandardButton.Yes)
+            if yes is not None:
+                yes.setText("Trotzdem laden")
+            no = box.button(QMessageBox.StandardButton.No)
+            if no is not None:
+                no.setText("Abbrechen")
+            apply_light_theme(box)
+            if box.exec() != QMessageBox.StandardButton.Yes.value:
+                return
+
+        if _ollama_model_installed(_UNCENSORED_MODEL):
+            # Schon lokal vorhanden — Pull ueberspringen, direkt eintragen.
+            self._apply_uncensored_model()
+            return
+
+        self._start_model_pull(
+            _UNCENSORED_MODEL,
+            "Kira — Unzensiertes Modell",
+            on_success=self._apply_uncensored_model,
+        )
+
+    def _apply_uncensored_model(self) -> None:
+        """Traegt das unzensierte Modell als Qualitaetsmodell ein und
+        informiert den User. Weist auf die fast_mode-Falle hin: bei
+        aktivem 'Schneller Modus' polished Kira gegen styler.fast_model —
+        das hier eingetragene 27B-Modell haette dann keinen Effekt."""
+        self._styler_model.setText(_UNCENSORED_MODEL)
+        message = (
+            "Das unzensierte Modell ist bereit und wurde als "
+            f"Qualitaetsmodell eingetragen ({_UNCENSORED_MODEL}).\n\n"
+            "Klick auf 'Speichern', damit die Aenderung uebernommen wird."
+        )
+        if self._fast_mode.isChecked():
+            message += (
+                "\n\nHinweis: Der 'Schnelle Modus' ist aktiv. Solange er "
+                "eingeschaltet ist, polished Kira mit dem schnellen Modell "
+                f"({self._cfg.styler.fast_model}) — das unzensierte "
+                "Qualitaetsmodell hat dann keinen Effekt. Schalte den "
+                "Schnellen Modus aus, wenn das unzensierte Modell genutzt "
+                "werden soll."
+            )
+        light_information(self, "Kira", message)

@@ -36,3 +36,37 @@ def test_resolve_edit_combo_strips_surrounding_whitespace():
     """Umgebenden Whitespace trimmen, damit ' f9 ' sauber als 'f9' landet."""
     from kira.ui.settings_dialog import SettingsDialog
     assert SettingsDialog._resolve_edit_combo(True, "  f9  ") == "f9"
+
+
+# ----- unzensiertes Modell --------------------------------------------------
+
+
+def test_uncensored_model_constant_is_verified_ollama_name():
+    """Die Modul-Konstante zeigt auf das abliterierte Qwen3.6 27B."""
+    from kira.ui.settings_dialog import _UNCENSORED_MODEL
+    assert _UNCENSORED_MODEL == "huihui_ai/Qwen3.6-abliterated:27b"
+
+
+def test_uncensored_gpu_blocks_warns_on_tight_and_insufficient():
+    """Knapper / zu wenig VRAM -> vor dem 27B-Pull eine Warnung mit
+    Abbruch-Option zeigen."""
+    from kira.ui.settings_dialog import SettingsDialog
+    assert SettingsDialog._uncensored_gpu_blocks("insufficient") is True
+    assert SettingsDialog._uncensored_gpu_blocks("tight") is True
+
+
+def test_uncensored_gpu_blocks_passes_on_ok_and_no_gpu():
+    """Status 'ok' ist unkritisch; 'no_gpu' hat schon einen eigenen
+    GPU-Check-Hinweis -> hier nicht doppelt warnen."""
+    from kira.ui.settings_dialog import SettingsDialog
+    assert SettingsDialog._uncensored_gpu_blocks("ok") is False
+    assert SettingsDialog._uncensored_gpu_blocks("no_gpu") is False
+
+
+def test_uncensored_model_gpu_estimate_is_27b_class():
+    """Sanity-Check der Integration mit gpu_check: der Modellname muss
+    von estimate_polish_vram als ~16-GB-Klasse erkannt werden (sonst
+    liefe der GPU-Check vor dem Pull ins Leere)."""
+    from kira.gpu_check import estimate_polish_vram
+    from kira.ui.settings_dialog import _UNCENSORED_MODEL
+    assert estimate_polish_vram(_UNCENSORED_MODEL) >= 15.0
