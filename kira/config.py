@@ -122,6 +122,23 @@ class UIConfig(BaseModel):
     sound_feedback: bool = False
 
 
+class UpdatesConfig(BaseModel):
+    """Konfiguration fuer den automatischen Update-Check beim App-Start.
+
+    check_on_start=True (Default): Kira fragt beim Boot non-blocking auf
+    einem Daemon-Thread die GitHub-Releases-API ab und fragt den Nutzer
+    proaktiv, falls eine neuere Version vorliegt. Lehnt der Nutzer eine
+    Version ab, wird sie in %APPDATA%\\Kira\\.update-declined gemerkt und
+    nicht erneut angeboten (siehe kira/_update_marker.py).
+
+    Auf False gesetzt deaktiviert das den Start-Check komplett — der
+    manuelle "Updates suchen…"-Eintrag im Tray-Menue bleibt davon
+    unberuehrt. Nur unter Windows relevant; der Mac-Build ignoriert das
+    Feld (kein Start-Check-Pfad in _run_mac)."""
+
+    check_on_start: bool = True
+
+
 DEFAULT_CONTEXT_MODES_MAC: dict[str, str] = {
     "com.apple.mail": "email",
     "com.microsoft.Outlook": "email",
@@ -193,6 +210,7 @@ class Config(BaseModel):
     styler: StylerConfig = Field(default_factory=StylerConfig)
     injector: InjectorConfig = Field(default_factory=InjectorConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
     context_modes: dict[str, str] = Field(default_factory=platform_context_modes)
 
 

@@ -114,3 +114,29 @@ def test_styler_fast_mode_loaded_from_yaml(tmp_path):
     assert cfg.styler.fast_mode is True
     assert cfg.styler.fast_model == "gemma3:4b"
     assert cfg.styler.model == "gemma3:12b"
+
+
+def test_updates_check_on_start_defaults_on():
+    """Default: der automatische Start-Update-Check ist aktiv."""
+    c = Config()
+    assert c.updates.check_on_start is True
+
+
+def test_updates_check_on_start_can_be_disabled_via_yaml(tmp_path):
+    """Nutzer kann den Start-Update-Check via config.yaml abschalten."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text(textwrap.dedent("""
+        updates:
+          check_on_start: false
+    """))
+    cfg = load_config(yaml_file)
+    assert cfg.updates.check_on_start is False
+
+
+def test_updates_section_optional_in_yaml(tmp_path):
+    """Fehlt die updates-Section komplett (alte config.yaml), greift der
+    Default — kein Validierungsfehler beim Upgrade auf diese Version."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("styler:\n  model: gemma3:12b\n")
+    cfg = load_config(yaml_file)
+    assert cfg.updates.check_on_start is True
