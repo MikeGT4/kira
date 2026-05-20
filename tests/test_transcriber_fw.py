@@ -271,9 +271,11 @@ def test_warmup_swallows_exceptions(monkeypatch, fake_config):
 
 
 def test_transcribe_file_uses_quality_settings(monkeypatch, fake_config):
-    """File-Mode muss QUALITY-Settings nutzen (vad_filter=True, beam_size=5,
-    condition_on_previous_text=True), nicht die PTT-anti-Halluzinations-
-    Settings."""
+    """File-Mode muss die hardcodeten QUALITY-Settings nutzen (beam_size=5,
+    vad_filter=True), nicht die PTT-anti-Halluzinations-Settings (beam_size=1,
+    vad_filter=False). condition_on_previous_text ist seit Commit 30dd02c
+    config-getrieben statt hardcoded — separat in
+    test_transcribe_file_respects_condition_on_previous_text geprueft."""
     from kira.transcriber_fw import Transcriber
 
     seen: dict = {}
@@ -300,11 +302,46 @@ def test_transcribe_file_uses_quality_settings(monkeypatch, fake_config):
     assert result.language == "de"
     # Path durchgereicht (als String):
     assert seen_path["val"] == "C:\\Users\\mike\\test.mp4"
-    # Quality-Settings statt PTT-Settings:
+    # Hardcodete Quality-Settings statt PTT-Settings:
     assert seen["beam_size"] == 5, "File-Mode soll beam_size=5 nutzen"
     assert seen["vad_filter"] is True, "File-Mode soll Silero-VAD nutzen"
-    assert seen["condition_on_previous_text"] is True, \
-        "File-Mode soll Context-Tracking nutzen"
+
+
+def test_transcribe_file_respects_condition_on_previous_text(monkeypatch, fake_config):
+    """File-Mode reicht condition_on_previous_text aus der Config durch,
+    statt es hart auf True zu setzen. Seit Commit 30dd02c (code-reviewer-
+    Fix): wer's fuer PTT aus hat, will's fuer File-Mode meist auch aus —
+    sonst zieht eine fehlinterpretierte Fruehphase die ganze Spaetphase mit.
+    Beide Werte werden geprueft, damit der Test echtes Durchreichen
+    nachweist und nicht nur einen zufaellig passenden Default."""
+    from kira.transcriber_fw import Transcriber
+
+    seen: dict = {}
+
+    class FakeInfo:
+        language = "de"
+
+    class FakeSegment:
+        def __init__(self, text): self.text = text
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            return iter([FakeSegment("Hallo Welt")]), FakeInfo()
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    t = Transcriber(fake_config)
+
+    # Config True -> True muss bei faster-whisper ankommen.
+    fake_config.whisper.condition_on_previous_text = True
+    t.transcribe_file("/tmp/a.wav")
+    assert seen["condition_on_previous_text"] is True
+
+    # Config False -> False muss ankommen (kein hardcoded True mehr).
+    fake_config.whisper.condition_on_previous_text = False
+    t.transcribe_file("/tmp/b.wav")
+    assert seen["condition_on_previous_text"] is False
 
 
 def test_transcribe_file_applies_replacements(monkeypatch, fake_config):
