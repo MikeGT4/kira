@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased — Prompt-Härtung für `clean.md` und `email_formal.md`
+## Unreleased
+
+### AI-Editing als Ein/Aus-Schalter (Settings-Dialog)
+
+Die AI-Editing-Befehle (F9: Text markieren, Hotkey halten, Sprach-
+befehl sprechen, das LLM überarbeitet die Selektion) ließen sich
+bisher nur abschalten, indem man das Edit-Command-Textfeld in den
+Einstellungen leerte — versteckt im Tooltip. Jetzt gibt es dafür
+eine explizite Checkbox.
+
+- **Settings-Dialog (`kira/ui/settings_dialog.py`):** Neue Checkbox
+  „AI-Editing-Befehle aktiv" in der Hotkeys-Section. Checkbox aus →
+  gespeichert wird `hotkey.edit_combo: null`. Das Edit-Command-Feld
+  wird ausgegraut, wenn die Checkbox aus ist, und beim Wieder-
+  Einschalten mit „f9" vorbefüllt. Eine Warnung beim Speichern
+  verhindert den widersprüchlichen Zustand „Checkbox an, Feld leer".
+- Keine Config-Schema-Änderung — `hotkey.edit_combo: str | None`
+  existierte bereits; die Checkbox ist reine UI darüber.
+- Resolve-Logik als testbare Staticmethod `_resolve_edit_combo`
+  herausgezogen; 4 neue Tests in `tests/test_settings_dialog.py`.
+
+### idna 3.15 — Dependabot-Security-Fix
+
+`installer/requirements-bundle.txt`: `idna` von `3.13` auf `3.15`
+gebumpt (CVE-2026-45409 / GHSA-65pc-fj4g-8rjx, medium — ein DoS-
+Bypass in `idna.encode()` bei präparierten Eingaben). Für Kira
+praktisch nicht ausnutzbar — Kira spricht nur mit festen, ver-
+trauenswürdigen Hosts (`localhost`, `github.com`) —, aber `idna`
+3.15 ist ein reiner Security-Patch-Release: risikoloser Bump, der
+den Dependabot-Alert schließt. `kira-venv` mitgezogen.
+
+### Prompt-Härtung für `clean.md` und `email_formal.md`
 
 Nachdem `prompts/terminal.md` in v0.2.2 für 4B-Few-Shot-Schwäche
 gehärtet wurde, Audit aller Mode-Prompts — zwei weitere Files hatten
