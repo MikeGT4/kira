@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.3 — 2026-05-20
+## v0.2.3 — 2026-05-21
 
 ### AI-Editing als Ein/Aus-Schalter (Settings-Dialog)
 
@@ -66,6 +66,92 @@ das gleiche Inline-Beispiel-Pattern:
 Nicht im v0.2.2-Bundle (Tag `v0.2.2 → 65e6cfc` ging vor diesen Fixes
 raus). Source-only, wirkt auf Editable-Installs. Wird mit dem
 nächsten Release-Bundle aktiv.
+
+### Automatischer Update-Check beim App-Start
+
+Kira prüft beim Start selbst, ob auf GitHub eine neuere Version
+vorliegt, und fragt proaktiv nach („Neue Version vX.Y.Z verfügbar —
+herunterladen?"). Bei Zustimmung läuft der bestehende Update-Flow
+(Download + SHA256-Verifikation + Setup-Start).
+
+- Der Check läuft auf einem eigenen Daemon-Thread
+  (`kira-update-check`), analog zum Setup-Probe — der Boot bleibt
+  unblockiert.
+- Nur eine echte neuere Version löst die Abfrage aus. Netz- und
+  Parse-Fehler scheitern still (nur Log-Eintrag, kein Dialog).
+- „Nicht erneut nerven": Lehnt der Nutzer eine Version ab, wird sie
+  in `%APPDATA%\Kira\.update-declined` gemerkt — dieselbe Version
+  fragt beim nächsten Start nicht erneut, eine neuere schon. Neues
+  Modul `kira/_update_marker.py` mit demselben Resolve-Muster wie
+  `kira/firstrun.py`.
+- Neues optionales Config-Feld `updates.check_on_start` (Default
+  `true`) schaltet den Start-Check ab. Der manuelle „Updates
+  suchen…"-Eintrag im Tray bleibt davon unberührt.
+- 10 neue Tests (`test_update_marker.py` plus Ergänzungen in
+  `test_config.py` und `test_tray_update_handler.py`).
+
+### Unzensiertes Polish-LLM optional ladbar
+
+Neuer Button „Unzensiertes Modell laden…" in der Polish-LLM-Section-
+Card der Einstellungen. Lädt das abliterierte Qwen3.6 27B
+(`huihui_ai/Qwen3.6-abliterated:27b`, ~17 GB) per `ollama pull` und
+trägt es als Qualitätsmodell ein.
+
+- Vor dem Pull ein GPU-Check gegen das 27B-Modell. Bei knappem oder
+  unzureichendem VRAM erscheint ein Ja/Nein-Dialog mit dem Trade-off
+  (27B braucht ~16 GB und passt auf 16-GB-Karten nicht neben Whisper
+  → CPU-Offload, langsamerer Polish); der Nutzer kann abbrechen.
+- Liegt das Modell schon im Ollama-Cache, wird der Pull übersprungen.
+- Roter Klartext-Hinweis in der Card („Unzensiert — die Inhaltsfilter
+  des Modells sind entfernt …").
+- `fast_mode`-Falle: Ist der Schnelle Modus aktiv, überschreibt
+  `styler.fast_model` das eingetragene Qualitätsmodell — der Dialog
+  weist darauf hin.
+- 5 neue Tests in `test_settings_dialog.py`.
+
+### Neuer Boot-Splash
+
+Der Start-Splash hat ein neues dunkles Design: dunkles Panel mit
+gerundeten, transparenten Ecken, gelbes Icon mit Glow, „KIRA" als
+Pinsel-Kalligrafie-Schriftzug, technische Mono-Tagline „VOICE TO
+TEXT", rotes „UNCENSORED"-Label und ein feiner Amber-Rahmen.
+`splash.py` setzt `WA_TranslucentBackground`, damit die gerundeten
+Ecken durchsichtig sind.
+
+### GPU-Prüfung repariert + animierte Statusanzeige
+
+Der GPU-Check (Einstellungen → „Über Kira" → „GPU prüfen") meldete auf
+einer RTX 5090 hartnäckig „keine NVIDIA-GPU". Ursache: `detect_gpu`
+rief `nvidia-smi` mit `subprocess.run(timeout=5.0)` auf — unter GPU-Last
+(aktive CUDA-Kontexte von Whisper + Ollama) braucht `nvidia-smi` aber
+regelmäßig länger als 5 s, der Aufruf lief in `TimeoutExpired` und wurde
+als „keine GPU" gewertet.
+
+- `detect_gpu`-Timeout von 5 s auf 30 s erhöht, dazu `stdin=DEVNULL`
+  (Best Practice für subprocess in GUI-Prozessen ohne Konsole).
+- Per-Kandidat-Logging: jeder nvidia-smi-Pfad loggt nun Existenz und
+  exakten Fehler einzeln. Die alte Sammel-Logzeile zeigte nur den
+  zuletzt probierten Pfad und verschleierte die eigentliche Ursache.
+- Der GPU-Check läuft jetzt auf einem `QThread` — ein bis zu 30 s
+  langer Aufruf im Qt-Main-Thread würde das Settings-Fenster einfrieren.
+- Neuer animierter Wartedialog (`kira/ui/_gpu_scan_dialog.py`):
+  scrollende Neon-Sinuswelle auf dunklem Panel, pixel-scharf im Stil
+  des HUD-Oszilloskops.
+
+### Settings-Dialog: kein doppeltes Fenster
+
+„Einstellungen…" ist die Default-Aktion beim Tray-Links-/Doppelklick.
+Ein erneuter Klick bei bereits offenem Settings-Fenster öffnete einen
+zweiten, modal darübergestapelten Dialog. `KiraTray._show_settings_dialog`
+hat jetzt einen Single-Instance-Guard: ist ein Fenster offen, wird es
+nach vorn geholt (`raise_` + `activateWindow`) statt ein zweites zu
+erzeugen. 3 neue Tests in `test_tray_settings_guard.py`.
+
+### Uncensored-Hinweis: 🔞-Kennzeichnung
+
+Der rote Hinweis zum unzensierten Polish-Modell trägt jetzt ein 🔞-
+Symbol (in Section-Card-Emoji-Größe) und ist fett sowie zentriert
+gesetzt — eine deutlichere Kennzeichnung für 18+-Inhalte.
 
 ## v0.2.2 — 2026-05-17
 

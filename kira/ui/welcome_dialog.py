@@ -157,13 +157,24 @@ whisper:
     "java skript": "JavaScript"
 </pre>
 
-<h3>5. Updates</h3>
-<p>Tray → <b>„Updates suchen..."</b> oder Settings → „Über Kira" → Update-Button.
-Kira prüft GitHub Releases, lädt das Multi-Asset-Bundle (Stub + Splits),
-verifiziert SHA256-Hashes (falls im Release vorhanden), und startet den
-Setup-Wizard. Kira beendet sich dafür kurz.</p>
+<h3>5. Unzensiertes Polish-Modell (optional)</h3>
+<p>Standardmäßig poliert Kira mit <code>gemma3:12b</code>. In Settings →
+„Polish-LLM" kannst du über <b>„Unzensiertes Modell laden..."</b> optional
+ein abliteriertes Modell (Qwen3.6 27B, ~17 GB) nachladen, dessen
+Inhaltsfilter entfernt sind — nützlich, wenn der Standard-Polish
+Formulierungen abschwächt oder zurückweist. Kira prüft vorher deinen
+verfügbaren VRAM.</p>
 
-<h3>6. Tray &amp; Status</h3>
+<h3>6. Updates</h3>
+<p>Kira prüft beim Start automatisch, ob auf GitHub eine neuere Version
+vorliegt, und fragt dann nach. Abschaltbar in der Rohconfig über
+<code>updates.check_on_start</code>.</p>
+<p>Manuell: Tray → <b>„Updates suchen..."</b> oder Settings → „Über Kira" →
+Update-Button. Kira prüft GitHub Releases, lädt das Multi-Asset-Bundle
+(Stub + Splits), verifiziert SHA256-Hashes (falls im Release vorhanden),
+und startet den Setup-Wizard. Kira beendet sich dafür kurz.</p>
+
+<h3>7. Tray &amp; Status</h3>
 <p>Das Tray-Icon zeigt den Zustand:</p>
 <ul>
   <li><b>Grau</b>: bereit (Idle)</li>
