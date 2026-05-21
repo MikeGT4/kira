@@ -104,15 +104,23 @@ def _nvidia_smi_candidates() -> list[str]:
 
 
 def detect_gpu() -> GpuInfo | None:
-    """nvidia-smi parsen. Return None wenn:
-    - nvidia-smi nicht auffindbar (keine NVIDIA-Treiber)
-    - nvidia-smi crasht (Treiber kaputt)
-    - Output unparsable
+    """nvidia-smi parsen. Return None wenn nvidia-smi nicht auffindbar,
+    crasht, oder Output unparsable.
 
     Format: 'NVIDIA GeForce RTX 5090, 32607 MiB'.
+
+    Jeder Kandidat wird einzeln geloggt (Pfad + Existenz + Fehler-repr).
+    Die alte Sammel-Logzeile zeigte nur den zuletzt probierten Kandidaten
+    und verschleierte damit, woran der eigentliche System32-Pfad
+    scheiterte — im Feld war der Fehlschlag dadurch nicht diagnostizierbar.
+
+    stdin=DEVNULL: in einem pythonw.exe-GUI-Prozess ohne Konsole hat der
+    Parent kein gueltiges stdin-Handle; subprocess ohne explizite stdin-
+    Umleitung ist dort fragil (capture_output deckt nur stdout/stderr ab).
     """
-    last_exc: Exception | None = None
+    result = None
     for executable in _nvidia_smi_candidates():
+        exists = os.path.exists(executable)
         try:
             result = subprocess.run(  # noqa: S603 - list-args, kein shell
                 [
@@ -122,16 +130,24 @@ def detect_gpu() -> GpuInfo | None:
                 ],
                 capture_output=True,
                 text=True,
-                timeout=5.0,
+                timeout=30.0,  # nvidia-smi ist unter GPU-Last zaeh — 5 s zu knapp
                 check=True,
+                stdin=subprocess.DEVNULL,
             )
+            log.info("nvidia-smi OK via %s", executable)
             break
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            last_exc = exc
+        except Exception as exc:  # noqa: BLE001 - jeder Fehlschlag soll ins Log
+            log.warning(
+                "nvidia-smi-Kandidat gescheitert: %s "
+                "(os.path.exists=%s) -> %r",
+                executable, exists, exc,
+            )
             continue
     else:
-        log.info("nvidia-smi not available (tried %d paths): %s",
-                 len(_nvidia_smi_candidates()), last_exc)
+        log.warning(
+            "nvidia-smi nicht verfuegbar — alle %d Kandidaten gescheitert",
+            len(_nvidia_smi_candidates()),
+        )
         return None
 
     output = result.stdout.strip()

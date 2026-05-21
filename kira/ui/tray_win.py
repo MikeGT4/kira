@@ -270,6 +270,10 @@ class KiraTray:
         self._state = State.IDLE
         self._status_label = "Status: Idle"
         self._icon: pystray.Icon | None = None
+        # Single-Instance-Referenz auf den offenen SettingsDialog (oder
+        # None). Verhindert, dass ein zweiter Tray-Klick einen weiteren
+        # modalen Dialog über den ersten stapelt — s. _show_settings_dialog.
+        self._settings_dlg = None
 
     def set_transcriber(self, transcriber) -> None:
         """Wird im main.py nach Tray-Konstruktion gerufen — die Tray
@@ -338,11 +342,26 @@ class KiraTray:
         complex fields lives inside the dialog as 'Rohconfig öffnen…'."""
         self._marshal_to_qt(self._show_settings_dialog, "settings dialog")
 
-    @staticmethod
-    def _show_settings_dialog() -> None:
+    def _show_settings_dialog(self) -> None:
+        # Single-Instance-Guard: ist bereits ein Settings-Fenster offen,
+        # nur nach vorn holen statt ein zweites modal drüberzustapeln.
+        # „Einstellungen…" ist die default-Action am Tray-Links-/Doppel-
+        # klick — ohne Guard öffnet jeder weitere Klick einen weiteren
+        # Dialog. Der zweite, gemarshallte Aufruf läuft in der nested,
+        # modalen Event-Loop des ersten Dialogs; _settings_dlg ist dann
+        # gesetzt und der Guard greift. Alles auf dem Qt-Main-Thread,
+        # daher kein Lock nötig.
+        if self._settings_dlg is not None:
+            self._settings_dlg.raise_()
+            self._settings_dlg.activateWindow()
+            return
         from kira.ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog()
-        getattr(dlg, "exec")()
+        self._settings_dlg = dlg
+        try:
+            getattr(dlg, "exec")()
+        finally:
+            self._settings_dlg = None
 
     def _open_log(self, _icon, _item) -> None:
         log_path = Path(os.environ["LOCALAPPDATA"]) / "Kira" / "kira.log"
