@@ -358,7 +358,17 @@ class KiraTray:
         from kira.ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog()
         self._settings_dlg = dlg
+        # Kira ist eine Tray-App (Hintergrund-Prozess) ohne Hauptfenster.
+        # Windows' Fokus-Stealing-Prevention laesst so einen Prozess ein
+        # neues Fenster oft NICHT in den Vordergrund holen — der modale
+        # Dialog landet dann hinter dem aktiven Fenster und der User
+        # sieht "Klick tut nichts" (kira.log: isVisible=True, active=
+        # False). show()+raise_()+activateWindow() vor exec() holen ihn
+        # aktiv nach vorn. 2026-05-21.
         try:
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
             getattr(dlg, "exec")()
         finally:
             self._settings_dlg = None

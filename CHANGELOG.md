@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.4 — 2026-05-21
+
+### Settings-Dialog kommt zuverlässig in den Vordergrund
+
+Der „Einstellungen…"-Eintrag im Tray-Menü öffnete den Dialog
+manchmal **hinter** dem gerade aktiven Fenster — für den Nutzer sah
+es aus, als „passiere nichts". Das Log bestätigte: Der Dialog wurde
+korrekt erzeugt (`isVisible=True`), kam aber nicht in den Vordergrund
+(`active=False`).
+
+**Ursache:** Kira ist eine Tray-App (Hintergrund-Prozess) ohne
+Hauptfenster. Windows' Fokus-Stealing-Prevention lässt so einen
+Prozess ein neu geöffnetes Fenster nicht zuverlässig nach vorn
+bringen — mal landete der modale Dialog vorne, mal verdeckt.
+
+**Fix (`kira/ui/tray_win.py`):** `_show_settings_dialog` ruft vor
+dem modalen Loop explizit `show()` + `raise_()` + `activateWindow()`
+auf und holt den Dialog so aktiv in den Vordergrund. Test
+`tests/test_tray_settings_guard.py` entsprechend erweitert.
+
 ## v0.2.3 — 2026-05-21
 
 ### AI-Editing als Ein/Aus-Schalter (Settings-Dialog)
