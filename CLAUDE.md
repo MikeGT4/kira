@@ -4,7 +4,21 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.2 released 2026-05-17 (Schneller Polish-Modus als
+**Version:** v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
+Toggle, idna 3.15 (CVE-2026-45409), Prompt-Härtung clean.md/
+email_formal.md, automatischer Update-Check beim Start
+(`updates.check_on_start`, `kira/_update_marker.py`), optionales
+unzensiertes Polish-LLM (abliteriertes Qwen3.6 27B, 🔞-gekennzeichnet),
+neuer dunkler Splash, Settings-Dialog Single-Instance-Guard gegen
+Doppel-Fenster beim Tray-Klick. **GPU-Check-Fix:** `detect_gpu`s
+`nvidia-smi`-Aufruf lief in Kiras pythonw-Prozess unter GPU-Last
+(aktive CUDA-Kontexte von Whisper + Ollama) regelmäßig in
+`TimeoutExpired` — `timeout=5.0` war zu knapp, der Check meldete
+fälschlich `no_gpu`. Fix: 30 s Timeout + `stdin=DEVNULL` + Per-
+Kandidat-Logging; `_run_gpu_check` läuft jetzt auf einem QThread mit
+animiertem Scan-Dialog (`kira/ui/_gpu_scan_dialog.py`, Neon-Welle im
+HUD-Oszilloskop-Stil). 327 Tests gruen). v0.2.2 released 2026-05-17
+(Schneller Polish-Modus als
 Settings-Toggle. `StylerConfig.fast_mode: bool` + `fast_model: str`
 (Default `gemma3:4b`); `Styler._resolve_model()`-Helper zentralisiert
 Modell-Hierarchie Per-Mode > fast_mode > Default. Toggle in der
