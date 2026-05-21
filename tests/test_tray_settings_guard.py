@@ -54,6 +54,10 @@ def test_second_click_during_open_does_not_stack(tray, monkeypatch):
             created.append(self)
             self.raised = 0
             self.activated = 0
+            self.shown = 0
+
+        def show(self):
+            self.shown += 1
 
         def raise_(self):
             self.raised += 1
@@ -73,6 +77,10 @@ def test_second_click_during_open_does_not_stack(tray, monkeypatch):
     tray._show_settings_dialog()
 
     assert len(created) == 1, "nur ein Dialog darf erzeugt worden sein"
-    assert created[0].raised == 1, "bestehender Dialog nach vorn geholt"
-    assert created[0].activated == 1
+    # Beim Öffnen läuft der Vordergrund-Fix (show + raise_ + activateWindow),
+    # beim zweiten Klick zusätzlich der Guard (raise_ + activateWindow) —
+    # daher shown==1 und raised/activated==2.
+    assert created[0].shown == 1, "Dialog wurde sichtbar gemacht"
+    assert created[0].raised == 2, "Öffnen-Fix + Guard holen je nach vorn"
+    assert created[0].activated == 2
     assert tray._settings_dlg is None, "Referenz nach Schließen zurückgesetzt"

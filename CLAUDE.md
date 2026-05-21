@@ -4,7 +4,22 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
+**Version:** v0.2.4 released 2026-05-21 (Settings-Dialog-
+Vordergrund-Fix. Der „Einstellungen…"-Tray-Eintrag öffnete den
+modalen Dialog manchmal HINTER dem aktiven Fenster — der User sah
+„Klick tut nichts". `kira.log` (mit temporärer TRAY-DIAG-
+Instrumentierung) zeigte: Dialog wird konstruiert, die modale
+Schleife läuft, `isVisible=True` — aber `active=False`; Win32-
+`EnumWindows` bestätigte `IsWindowVisible=False` beim verdeckten
+Fenster. Root Cause: Kira ist eine Tray-App ohne Hauptfenster —
+Windows' Fokus-Stealing-Prevention bringt ein frisch geöffnetes
+Fenster eines Hintergrund-Prozesses nicht zuverlässig in den
+Vordergrund (mal vorne, mal verdeckt). Fix: `_show_settings_dialog`
+in `tray_win.py` ruft vor dem modalen Loop explizit `show()` +
+`raise_()` + `activateWindow()`. `tests/test_tray_settings_guard.py`
+erweitert (`_FakeDialog.show`, Assertions). **Wenn du neue Tray-
+getriggerte Qt-Fenster hinzufügst, dasselbe Muster anwenden.**).
+v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
 Toggle, idna 3.15 (CVE-2026-45409), Prompt-Härtung clean.md/
 email_formal.md, automatischer Update-Check beim Start
 (`updates.check_on_start`, `kira/_update_marker.py`), optionales
