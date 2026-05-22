@@ -24,16 +24,16 @@ Voice-to-text tray app for **Windows 11** with NVIDIA GPU. Hold a hotkey, speak,
 
 Download von der [Releases-Seite](https://github.com/MikeGT4/kira/releases/latest):
 
-1. Lade `Kira-Setup-v0.2.4.exe` (~2 MB Setup-Stub) und `SHA256SUMS.txt` in **denselben** Ordner herunter.
-   - Bei diesem Build löst Inno Disk-Spanning aus — daneben liegen `Kira-Setup-v0.2.4-1.bin` und `Kira-Setup-v0.2.4-2.bin`, die müssen mit in den selben Ordner.
-2. Doppelklick auf `Kira-Setup-v0.2.4.exe`. Inno findet die `.bin`-Slices automatisch.
+1. Lade `Kira-Setup-v0.2.5.exe` (~2 MB Setup-Stub) und `SHA256SUMS.txt` in **denselben** Ordner herunter.
+   - Bei diesem Build löst Inno Disk-Spanning aus — daneben liegen `Kira-Setup-v0.2.5-1.bin` und `Kira-Setup-v0.2.5-2.bin`, die müssen mit in den selben Ordner.
+2. Doppelklick auf `Kira-Setup-v0.2.5.exe`. Inno findet die `.bin`-Slices automatisch.
 3. Falls Windows Defender SmartScreen warnt: „Weitere Informationen" → „Trotzdem ausführen". (Kira ist nicht code-signed.)
 4. Inno-Wizard durchklicken (Welcome → Lizenz → Pfad → Installieren → Fertig).
 5. **Beim ersten Start** erscheint automatisch ein zweiter Wizard, der ~10 GB Modelle pullt: Whisper-large-v3 (~3 GB) von Hugging Face plus Gemma 3 12B (~8 GB) via Ollama. Das geht einmalig, danach ist alles offline.
 6. Nach „Fertigstellen" startet Kira automatisch in der Tray-Leiste — gelb gerahmtes Logo.
 7. **F8 halten → sprechen → loslassen.** Polierter Text erscheint im aktiven Eingabefeld.
 
-> **Tipp:** Mit `certutil -hashfile Kira-Setup-v0.2.4.exe SHA256` gegen die Hashes in `SHA256SUMS.txt` prüfen, falls du dem Download nicht traust (kein Code-Signing).
+> **Tipp:** Mit `certutil -hashfile Kira-Setup-v0.2.5.exe SHA256` gegen die Hashes in `SHA256SUMS.txt` prüfen, falls du dem Download nicht traust (kein Code-Signing).
 
 ### Voraussetzungen
 
