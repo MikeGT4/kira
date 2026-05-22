@@ -53,6 +53,21 @@ _INPUT_QSS = (
 _QSS = (
     "QLabel { color: #222; background: transparent; }"
     "QCheckBox { color: #222; background: transparent; }"
+    # Ohne explizite ::indicator-Regel rendert eine per Stylesheet gestylte
+    # QCheckBox ihr Kaestchen unsichtbar — Qt zeichnet es transparent auf
+    # der hellen Card. Sichtbares Kaestchen ausbuchstabieren: weiss wenn
+    # leer, blau gefuellt wenn aktiv.
+    "QCheckBox::indicator {"
+    " width: 15px; height: 15px;"
+    " border: 1px solid #888888;"
+    " border-radius: 3px;"
+    " background: #ffffff;"
+    "}"
+    "QCheckBox::indicator:checked {"
+    " background: #1976d2;"
+    " border: 1px solid #1976d2;"
+    "}"
+    "QCheckBox::indicator:hover { border: 1px solid #1976d2; }"
     f"QLineEdit {{{_INPUT_QSS}}}"
     f"QSpinBox, QDoubleSpinBox {{{_INPUT_QSS}}}"
     f"QComboBox {{{_INPUT_QSS}}}"

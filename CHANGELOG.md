@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.2.5 — 2026-05-22
+
+### Einstellungen-Dialog: Rendering-Bug endlich behoben
+
+Der seit v0.2.3 „nicht öffnende" Einstellungen-Dialog rendert wieder
+korrekt. v0.2.4 hatte den Bug fälschlich als behoben gemeldet.
+
+- **Kern-Ursache (`kira/ui/settings_dialog.py`):** Ein `QScrollArea`
+  um die Section-Cards bricht unter Qt 6.11 die Theme-Vererbung — die
+  Cards rendern mit dunklem Hintergrund, der `QLabel`-Text wird
+  dunkel-auf-dunkel und damit unsichtbar. Isoliert verifiziert (eine
+  Section-Card ohne QScrollArea rendert sauber, mit QScrollArea
+  kaputt). Der QScrollArea ist entfernt.
+- **2-Spalten-Layout:** Die sechs Section-Cards liegen jetzt in zwei
+  Spalten (links Audio/Whisper/Polish-LLM, rechts Hotkeys/Inject/Über
+  Kira) statt gestapelt. Dialog ~770 statt ~1270 px hoch.
+
+### Einstellungen-Dialog: Checkbox-Kästchen sichtbar
+
+Die Checkboxen („AI-Editing-Befehle aktiv", „Schneller Modus") zeigten
+nur Text, kein Kästchen. `kira/ui/_dialog_style.py`: das Theme-QSS
+stylt `QCheckBox`, aber ohne `QCheckBox::indicator`-Regel rendert Qt
+das Kästchen transparent → unsichtbar auf der hellen Card. `_QSS`
+buchstabiert das Kästchen jetzt aus (weiß umrandet, blau gefüllt wenn
+aktiv).
+
+### Styler: Qwen-3-Modelle als Polish-LLM nutzbar
+
+`kira/styler.py`: Qwen-3 sind Hybrid-Reasoning-Modelle und geben per
+Default `<think>`-Blöcke aus — für eine treue Polish-/Edit-Task
+falsch. Neuer `_thinking_kwargs()`-Helper setzt `think=False` an den
+Ollama-Chat-Aufrufen, aber nur für `qwen3*`-Modelle (Gemma & Co.
+bleiben unberührt). `scripts/probes/probe_terminal_prompt.py` nimmt
+jetzt optional ein Modell-Argument; 0/6 buggy gegen `qwen3:8b`.
+
+### Settings-Dialog: kein doppeltes Modal-Setup beim Öffnen
+
+`kira/ui/tray_win.py`: `_show_settings_dialog` ruft nur noch die
+modale Event-Loop-Methode des Dialogs direkt auf. Der v0.2.4-Versuch
+rief davor zusätzlich `show()` + `raise_()` + `activateWindow()` — das
+löste ein doppeltes Modal-Setup aus. Test
+`tests/test_tray_settings_guard.py` angepasst.
+
 ## v0.2.4 — 2026-05-21
 
 ### Settings-Dialog kommt zuverlässig in den Vordergrund
