@@ -27,6 +27,18 @@ def load_prompt(mode: str) -> str:
     return candidate.read_text(encoding="utf-8")
 
 
+def _thinking_kwargs(model: str) -> dict:
+    """Extra ``ollama.chat`` kwargs to suppress hybrid-reasoning output.
+
+    Qwen 3 models default to a 'thinking' mode that emits ``<think>`` blocks
+    and tends to over-rewrite the input — wrong for a faithful polish/edit
+    step. ``think=False`` turns it off. Gemma and other non-thinking models
+    don't need the flag, so we omit it there rather than rely on every
+    Ollama build accepting ``think`` for a model without thinking support.
+    """
+    return {"think": False} if "qwen3" in model.lower() else {}
+
+
 class Styler:
     """Async Ollama-based text polisher."""
 
@@ -70,6 +82,7 @@ class Styler:
                     messages=[{"role": "user", "content": "ok"}],
                     options={"temperature": 0.0, "num_predict": 1},
                     keep_alive=keep_alive,
+                    **_thinking_kwargs(model),
                 ),
                 timeout=60.0,
             )
@@ -116,6 +129,7 @@ class Styler:
                     messages=[{"role": "user", "content": prompt}],
                     options={"temperature": temperature},
                     keep_alive=self._config.styler.keep_alive,
+                    **_thinking_kwargs(model),
                 ),
                 timeout=timeout,
             )
@@ -199,6 +213,7 @@ class Styler:
                     messages=[{"role": "user", "content": prompt}],
                     options={"temperature": temperature},
                     keep_alive=self._config.styler.keep_alive,
+                    **_thinking_kwargs(model),
                 ),
                 timeout=timeout,
             )

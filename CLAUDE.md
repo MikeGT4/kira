@@ -4,21 +4,27 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.4 released 2026-05-21 (Settings-Dialog-
-Vordergrund-Fix. Der „Einstellungen…"-Tray-Eintrag öffnete den
-modalen Dialog manchmal HINTER dem aktiven Fenster — der User sah
-„Klick tut nichts". `kira.log` (mit temporärer TRAY-DIAG-
-Instrumentierung) zeigte: Dialog wird konstruiert, die modale
-Schleife läuft, `isVisible=True` — aber `active=False`; Win32-
-`EnumWindows` bestätigte `IsWindowVisible=False` beim verdeckten
-Fenster. Root Cause: Kira ist eine Tray-App ohne Hauptfenster —
-Windows' Fokus-Stealing-Prevention bringt ein frisch geöffnetes
-Fenster eines Hintergrund-Prozesses nicht zuverlässig in den
-Vordergrund (mal vorne, mal verdeckt). Fix: `_show_settings_dialog`
-in `tray_win.py` ruft vor dem modalen Loop explizit `show()` +
-`raise_()` + `activateWindow()`. `tests/test_tray_settings_guard.py`
-erweitert (`_FakeDialog.show`, Assertions). **Wenn du neue Tray-
-getriggerte Qt-Fenster hinzufügst, dasselbe Muster anwenden.**).
+**Version:** v0.2.5 (Code-Stand 2026-05-22, `windows-port`). Das
+letzte gebaute Binär-Release ist v0.2.4; ein v0.2.5-Bundle steht noch
+aus. v0.2.5 behebt den seit v0.2.3 kaputten Einstellungen-Dialog:
+Kern-Ursache war ein `QScrollArea` um die Section-Cards, der unter
+Qt 6.11 die Theme-Vererbung bricht (Cards dunkel, `QLabel`-Text
+unsichtbar) — entfernt. Dazu 2-Spalten-Layout (Dialog ~770 statt
+~1270 px hoch), sichtbares `QCheckBox::indicator`-Kästchen im
+`_dialog_style`-QSS und Qwen-3-Thinking-Mode-Support im Styler
+(`_thinking_kwargs()` → `think=False` nur für `qwen3*`). Details:
+`CHANGELOG.md`.
+
+⚠️ **Offen — Polish-Latenz:** Auf Mike's Box (RTX 5090, 32 GB) lädt
+Ollama das Polish-Modell auf die CPU statt GPU, sobald der Desktop
+den VRAM weitgehend belegt (~23/32 GB) — Polish dann 5–14 s statt
+<1 s. Beim frischen Windows-Boot (VRAM frei) lädt es korrekt auf die
+GPU; das Problem entsteht bei späteren Reloads. NICHT modellgrößen-
+abhängig — auch ein auf 6,5 GB geschrumpftes `qwen3:8b` ging zu
+100 % CPU bei ~9 GB freiem VRAM. Mike recherchiert selbst weiter;
+Ansatzpunkt `OLLAMA_DEBUG=1` (loggt die Placement-Entscheidung).
+`OLLAMA_CONTEXT_LENGTH` ist per User-Env-Var auf 8192 gesetzt
+(Ollama-0.23-Default war 65536).
 v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
 Toggle, idna 3.15 (CVE-2026-45409), Prompt-Härtung clean.md/
 email_formal.md, automatischer Update-Check beim Start

@@ -287,7 +287,7 @@ class SettingsDialog(QDialog):
         icon_path = _ASSETS / "icon-branded.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(960)
         self.setModal(True)
         apply_light_theme(self)
 
@@ -360,16 +360,34 @@ class SettingsDialog(QDialog):
         return wrapper
 
     def _build_form(self) -> QWidget:
+        # Zwei-Spalten-Layout: links die Sprach-Pipeline (Audio,
+        # Whisper, Polish-LLM), rechts Bedienung & Meta (Hotkeys,
+        # Inject, Über Kira). Hält den Dialog kompakt (~780 statt
+        # ~1270 px hoch). KEINE QScrollArea um die Cards — die bricht
+        # unter Qt 6.11 die Theme-Vererbung, die Cards rendern dann
+        # dunkel und der Label-Text wird unsichtbar (verifiziert
+        # 2026-05-22, Repro Variant B vs C).
         host = QWidget()
-        layout = QVBoxLayout(host)
-        layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(12)
-        layout.addWidget(self._build_section_audio())
-        layout.addWidget(self._build_section_whisper())
-        layout.addWidget(self._build_section_polish())
-        layout.addWidget(self._build_section_hotkeys())
-        layout.addWidget(self._build_section_injector())
-        layout.addWidget(self._build_section_about())
+        columns = QHBoxLayout(host)
+        columns.setContentsMargins(0, 4, 0, 4)
+        columns.setSpacing(14)
+
+        left = QVBoxLayout()
+        left.setSpacing(12)
+        left.addWidget(self._build_section_audio())
+        left.addWidget(self._build_section_whisper())
+        left.addWidget(self._build_section_polish())
+        left.addStretch()
+
+        right = QVBoxLayout()
+        right.setSpacing(12)
+        right.addWidget(self._build_section_hotkeys())
+        right.addWidget(self._build_section_injector())
+        right.addWidget(self._build_section_about())
+        right.addStretch()
+
+        columns.addLayout(left, 1)
+        columns.addLayout(right, 1)
         return host
 
     def _build_section_audio(self) -> _SectionCard:

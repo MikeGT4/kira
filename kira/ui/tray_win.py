@@ -358,17 +358,19 @@ class KiraTray:
         from kira.ui.settings_dialog import SettingsDialog
         dlg = SettingsDialog()
         self._settings_dlg = dlg
-        # Kira ist eine Tray-App (Hintergrund-Prozess) ohne Hauptfenster.
-        # Windows' Fokus-Stealing-Prevention laesst so einen Prozess ein
-        # neues Fenster oft NICHT in den Vordergrund holen — der modale
-        # Dialog landet dann hinter dem aktiven Fenster und der User
-        # sieht "Klick tut nichts" (kira.log: isVisible=True, active=
-        # False). show()+raise_()+activateWindow() vor exec() holen ihn
-        # aktiv nach vorn. 2026-05-21.
+        # exec() calls show() + enters the Qt event loop. Do NOT call
+        # show() manually before exec(): with setModal(True) already set
+        # in __init__, a manual show() triggers enterModal() immediately,
+        # and then exec() sets WA_ShowModal again on the already-visible
+        # window — the double modal-setup causes Windows (via Qt 6.7's
+        # requestActivate path) to hide the window for unauthorised
+        # foreground requests from this background tray process, leaving
+        # WS_VISIBLE=0 while Qt's isVisible()=True. exec() alone handles
+        # modality correctly without this double-trigger. The "behind other
+        # windows" focus issue is solved at the window-placement level by
+        # the QScrollArea in _build_form() which keeps the dialog on-screen
+        # and therefore in the Win32 Z-order. 2026-05-21.
         try:
-            dlg.show()
-            dlg.raise_()
-            dlg.activateWindow()
             getattr(dlg, "exec")()
         finally:
             self._settings_dlg = None

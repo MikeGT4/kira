@@ -77,10 +77,12 @@ def test_second_click_during_open_does_not_stack(tray, monkeypatch):
     tray._show_settings_dialog()
 
     assert len(created) == 1, "nur ein Dialog darf erzeugt worden sein"
-    # Beim Öffnen läuft der Vordergrund-Fix (show + raise_ + activateWindow),
-    # beim zweiten Klick zusätzlich der Guard (raise_ + activateWindow) —
-    # daher shown==1 und raised/activated==2.
-    assert created[0].shown == 1, "Dialog wurde sichtbar gemacht"
-    assert created[0].raised == 2, "Öffnen-Fix + Guard holen je nach vorn"
-    assert created[0].activated == 2
-    assert tray._settings_dlg is None, "Referenz nach Schließen zurückgesetzt"
+    # _show_settings_dialog ruft NUR die event-loop-Methode des Dialogs —
+    # kein show()/raise_()/activateWindow() vor der event-loop-Methode
+    # (der v0.2.4-Versuch hat die WS_VISIBLE=False-Falle ausgeloest).
+    # Nur der Guard-Pfad beim zweiten Klick zieht raise_() +
+    # activateWindow() durch.
+    assert created[0].shown == 0, "kein show() vor event-loop — wird intern handled"
+    assert created[0].raised == 1, "nur der Guard-Pfad holt nach vorn"
+    assert created[0].activated == 1
+    assert tray._settings_dlg is None, "Referenz nach Schliessen zurueckgesetzt"
