@@ -560,11 +560,12 @@ The Windows venv was created with this fallback form.
 
 ## Build / Distribution
 
-The Windows installer (`installer/kira.iss`, Inno Setup 6) bundles an
-embedded Python 3.12, pinned wheels, the Whisper model files, the
-Ollama setup, and a Gemma model — total ~13 GB compressed as one
-2 MB `.exe` stub + 7 `.bin` splits (Inno DiskSpanning,
-`DiskSliceSize=2147483647` → 1.998 GiB per slice).
+The Windows installer (`installer/kira.iss`, Inno Setup 6) is the
+Slim-Bundle (since v0.2.0): an embedded Python 3.12, pinned wheels
+and the Ollama setup — total ~3.5 GB compressed as one 2 MB `.exe`
+stub + 2 `.bin` splits (Inno DiskSpanning, `DiskSliceSize=2147483647`
+→ 1.998 GiB per slice). The Whisper + Gemma models are NOT bundled;
+the first-run wizard (`kira/setup_wizard.py`) pulls them at runtime.
 
 Build orchestrator: `scripts/build_installer.ps1`. Pre-flights for
 Inno Setup, WSL Ollama, and the local Whisper model. Build output
@@ -576,17 +577,22 @@ automated, fix the script and this note).
 ### Distribution via GitHub Releases (since v0.1.0)
 
 GitHub's per-asset limit is 2 GiB and Inno's 1.998 GiB slices fit
-under it with ~0.002 GiB to spare. The whole bundle goes up as 8
-release assets, the user downloads them all into the same folder
-and double-clicks the `.exe` — Inno picks up the splits by name.
+under it with ~0.002 GiB to spare. The whole bundle goes up as 4
+release assets (`.exe` stub + 2 `.bin` splits + `SHA256SUMS.txt`),
+the user downloads them all into the same folder and double-clicks
+the `.exe` — Inno picks up the splits by name.
 
 ```bash
-# from the WSL shell with `gh` authenticated as MikeGT4:
-gh release create v0.1.0 \
-  --title "Kira v0.1.0 — Windows 11 Installer" \
+# from the WSL shell with `gh` authenticated as MikeGT4.
+# --target needs the FULL 40-char commit SHA — an abbreviated SHA is
+# rejected with "HTTP 422: target_commitish is invalid".
+gh release create v0.2.5 \
+  --target "$(git rev-parse HEAD)" \
+  --title "Kira v0.2.5 — Windows 11" \
   --notes-file <release-notes.md> \
-  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.1.0.exe \
-  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.1.0-{1..7}.bin
+  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.2.5.exe \
+  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/Kira-Setup-v0.2.5-{1,2}.bin \
+  /mnt/c/Users/mike/OneDrive/Digitalroots/Kira/SHA256SUMS.txt
 ```
 
 Tag-Strategie: tags point at the source commit that matched the
@@ -598,11 +604,12 @@ will land in v0.1.1 as a rebuilt bundle. Make this explicit in
 the release notes so users know what's *not* in the binary they
 just downloaded.
 
-Upload speed observed on Mike's box: ~1.3 MB/s over 60 min for the
-full ~13 GB. `gh release create` parallelises asset uploads; the
+Upload speed is bottlenecked by Mike's home uplink (~1.3 MB/s
+observed) — the ~3.5 GB Slim-Bundle takes roughly 30–45 min. `gh
+release create` / `gh release upload` parallelise asset uploads; the
 GitHub API only lists assets after their individual upload finishes,
-so don't read "1 of 8 visible after 30 min" as "stuck" — it's just
-that one asset crossed the line first while the others race.
+so don't read "1 of 4 visible" as "stuck" — it's just that one
+asset crossed the line first while the others race.
 
 ### Why GitHub Releases instead of the old OneDrive share
 
