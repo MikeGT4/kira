@@ -4,9 +4,8 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.5 (Code-Stand 2026-05-22, `windows-port`). Das
-letzte gebaute Binär-Release ist v0.2.4; ein v0.2.5-Bundle steht noch
-aus. v0.2.5 behebt den seit v0.2.3 kaputten Einstellungen-Dialog:
+**Version:** v0.2.5 released 2026-05-22 (`windows-port`).
+v0.2.5 behebt den seit v0.2.3 kaputten Einstellungen-Dialog:
 Kern-Ursache war ein `QScrollArea` um die Section-Cards, der unter
 Qt 6.11 die Theme-Vererbung bricht (Cards dunkel, `QLabel`-Text
 unsichtbar) — entfernt. Dazu 2-Spalten-Layout (Dialog ~770 statt
@@ -15,25 +14,20 @@ unsichtbar) — entfernt. Dazu 2-Spalten-Layout (Dialog ~770 statt
 (`_thinking_kwargs()` → `think=False` nur für `qwen3*`). Details:
 `CHANGELOG.md`.
 
-⚠️ **Offen — Polish-Latenz (Root Cause geklärt 2026-05-22, Windows-
-seitiger Fix angewandt, Reboot-Verifikation ausstehend):** Ollama
-0.23.2 lädt das Polish-Modell auf Mike's Box (RTX 5090, Win 11) beim
-Modell-Load oft auf die **CPU statt GPU** → Polish 5–14 s statt <1 s.
-**Kein VRAM-Platzproblem** — widerlegt: ein 10-GB-Modell ging bei
-22 GB freiem VRAM zu 100 % CPU, und `num_gpu=999` erzwingt nichts.
-Root Cause = bekannter Ollama-on-Windows-Bug: die GPU-Discovery-Probe
-läuft beim Load in einen Timeout (Windows Defender scannt die Probe-
-Subprozesse; brandneue Blackwell-GPU verschärft) → Ollama liest
-„0 VRAM" → CPU. Frischer Boot gewinnt das Timeout-Rennen (server.log:
-49/49 Layer auf GPU), spätere Reloads verlieren es. Belegt per
-Web-Recherche (Ollama-Issues #13308/#13765/#13002) + Gemini-Gegencheck.
-**Fix (2026-05-22 angewandt):** HAGS aus (`HwSchMode=1`), Windows-
-Defender-Ausnahmen für `ollama.exe`/`ollama app.exe`/`ollama_llama_
-server.exe` + Ollama-Programmordner, `CUDA_VISIBLE_DEVICES=0` als
-User-Env-Var. Greift nach Windows-Reboot — Verifikation per
-`ollama ps` (PROCESSOR GPU vs CPU) steht aus. Bleibt es CPU: Ollama
-auf 0.24+ updaten (winget hatte am 2026-05-22 noch kein Upgrade).
-Polish-Modell ist `gemma3:12b` (Mike's `config.yaml`).
+**Polish-Latenz (Root Cause geklärt + Fix verifiziert 2026-05-22):**
+Ollama lud das Polish-Modell auf Mike's Box (RTX 5090, Win 11) beim
+Modell-Load zeitweise auf die **CPU statt GPU** → Polish 5–14 s statt
+<1 s. Kein VRAM-Platzproblem (widerlegt: ein 10-GB-Modell ging bei
+22 GB freiem VRAM zu 100 % CPU). Root Cause = bekannter Ollama-on-
+Windows-Bug: die GPU-Discovery-Probe läuft beim Modell-Load in einen
+Timeout → Ollama liest „0 VRAM" → CPU; frischer Boot gewinnt das
+Rennen, spätere Reloads verlieren es (Ollama-Issues #13308/#13765/
+#13002). **Fix (2026-05-22, nach Reboot verifiziert):** HAGS aus
+(`HwSchMode=1`), Windows-Defender-Ausnahmen für die Ollama-Binaries,
+`CUDA_VISIBLE_DEVICES=0` als User-Env-Var. `ollama ps` zeigt seither
+`gemma3:12b` zu 100 % GPU, Polish wieder <1 s. Bei Rückfall auf CPU:
+`ollama ps` prüfen, Ollama auf 0.24+ updaten. Polish-Modell ist
+`gemma3:12b` (Mike's `config.yaml`).
 v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
 Toggle, idna 3.15 (CVE-2026-45409), Prompt-Härtung clean.md/
 email_formal.md, automatischer Update-Check beim Start
