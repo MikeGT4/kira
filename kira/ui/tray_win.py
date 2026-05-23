@@ -639,3 +639,23 @@ class KiraTray:
             daemon=True, name="kira-tray-title",
         ).start()
         return t
+
+    def notify(self, title: str, message: str) -> None:
+        """Win11-Notification ueber den Tray (pystray.Icon.notify).
+
+        No-op wenn _icon noch None ist (Tray noch nicht gestartet) — der
+        Caller soll keine Race-Bedingung ausloesen koennen, weil der erste
+        Polish nach v0.2.6-Detection erst nach `run_detached()` kommt.
+        Exceptions werden geschluckt damit ein kaputter Notification-
+        Subsystem (Win-DoNotDisturb, Fokus-Modus, fehlende WinRT-Komponenten)
+        nicht den Polish-Pfad umhaut.
+        """
+        if self._icon is None:
+            log.warning(
+                "tray.notify called before tray is up — dropping %r", title,
+            )
+            return
+        try:
+            self._icon.notify(message, title)
+        except Exception:
+            log.exception("tray notification failed (title=%r)", title)

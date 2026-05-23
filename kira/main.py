@@ -479,6 +479,17 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             qt_marshal=qt_marshal,
             transcriber=transcriber,
         )
+        # v0.2.6: Polish-Latenz-Detection — wenn das Polish-Modell auf
+        # CPU rutscht (Ollama-on-Win11-Bug), feuert der Styler nach 3
+        # Slow-Polishes in Folge einen Tray-Toast. Setter statt ctor-
+        # kwarg, weil Styler in run() vor Tray erzeugt wird.
+        styler.set_on_slow_polish_detected(
+            lambda: tray.notify(
+                "Kira — Polish auf CPU",
+                "Polish-Latenz hoch. Temporaer auf schnelles Modell "
+                "umgeschaltet. Pruefe Settings → GPU-Check.",
+            )
+        )
     else:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 

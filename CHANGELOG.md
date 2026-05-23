@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.2.6 — 2026-05-23
+
+### Polish-Latenz-Detection + Auto-Fallback auf fast_model
+
+Wenn Ollama das Polish-Modell auf CPU statt GPU lädt (bekannter
+Ollama-on-Win11-Bug, siehe v0.2.5-Notiz), stieg die Polish-Latenz
+in v0.2.5 stillschweigend auf 10–15 s und blieb dort, bis der User
+Ollama oder den Rechner neu startete. v0.2.6 detected das selbst:
+
+- **`kira/styler.py`:** Jeder `polish()`-Roundtrip wird wallclock-
+  gemessen. Bei drei Calls in Folge > 3 s greift ein temporärer
+  Auto-Switch auf `styler.fast_model` (Default `gemma3:4b`) für
+  5 Minuten — das Modell passt auch unter VRAM-Druck in die GPU,
+  Polish wieder < 1 s.
+- **Tray-Toast:** Pystray-Notification „Polish auf CPU —
+  temporär auf schnelles Modell umgeschaltet. Settings → GPU-Check".
+  Re-Trigger wird unterdrückt, solange der Override aktiv ist, damit
+  der User keinen Toast-Spam bekommt.
+- **Per-Mode-Overrides** (`styler.modes[mode].model`) bleiben Vorrang
+  — wer translate_en explizit auf `qwen3:8b` gepinnt hat, behält das
+  Modell auch während des Auto-Switches.
+- **Manueller `fast_mode=True`:** Auto-Switch wird übersprungen
+  (wäre no-op), Toast feuert trotzdem — wenn das schnelle Modell
+  selbst schlapp macht, ist Ollama/GPU komplett am Boden und der
+  Hinweis wichtig.
+- 11 neue Tests in `tests/test_styler.py`.
+
+### Konstanten
+
+`SLOW_POLISH_THRESHOLD_SEC = 3.0`, `SLOW_POLISH_TRIGGER_COUNT = 3`,
+`FORCE_FAST_DURATION_SEC = 300`. Hartkodiert, nicht via config.yaml —
+das sind Heuristik-Werte, kein User-Setting. Wer das tunen will,
+editiert `kira/styler.py` direkt.
+
 ## v0.2.5 — 2026-05-22
 
 ### Einstellungen-Dialog: Rendering-Bug endlich behoben
