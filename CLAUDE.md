@@ -46,20 +46,35 @@ unsichtbar) — entfernt. Dazu 2-Spalten-Layout (Dialog ~770 statt
 (`_thinking_kwargs()` → `think=False` nur für `qwen3*`). Details:
 `CHANGELOG.md`.
 
-**Polish-Latenz (Root Cause geklärt + Fix verifiziert 2026-05-22):**
-Ollama lud das Polish-Modell auf Mike's Box (RTX 5090, Win 11) beim
-Modell-Load zeitweise auf die **CPU statt GPU** → Polish 5–14 s statt
-<1 s. Kein VRAM-Platzproblem (widerlegt: ein 10-GB-Modell ging bei
-22 GB freiem VRAM zu 100 % CPU). Root Cause = bekannter Ollama-on-
-Windows-Bug: die GPU-Discovery-Probe läuft beim Modell-Load in einen
-Timeout → Ollama liest „0 VRAM" → CPU; frischer Boot gewinnt das
-Rennen, spätere Reloads verlieren es (Ollama-Issues #13308/#13765/
-#13002). **Fix (2026-05-22, nach Reboot verifiziert):** HAGS aus
-(`HwSchMode=1`), Windows-Defender-Ausnahmen für die Ollama-Binaries,
-`CUDA_VISIBLE_DEVICES=0` als User-Env-Var. `ollama ps` zeigt seither
-`gemma3:12b` zu 100 % GPU, Polish wieder <1 s. Bei Rückfall auf CPU:
-`ollama ps` prüfen, Ollama auf 0.24+ updaten. Polish-Modell ist
-`gemma3:12b` (Mike's `config.yaml`).
+**Polish-Latenz (echte Root Cause 2026-05-23, Fix in Code):**
+Lange als „GPU-Discovery-Race" + „HwSchMode" diagnostiziert
+(s. Verlauf weiter unten); **echte Root Cause war Ollama's Auto-Layer-
+Allocator**, der bei `gemma3:12b` (Q4_K_M, 12 GB) auf der RTX 5090 mit
+28 GiB freiem VRAM gelegentlich entschied, ~787 MiB Weights (Embedding-
+Tensor) auf CPU zu lassen. `ollama ps` zeigte dann `49%/51% CPU/GPU`
+statt `100% GPU`. Folge: jeder Token-Generate griff via PCIe zum
+CPU-Speicher → **14 tok/s statt 114 tok/s** = 8× Slowdown. Auto-
+Allocator-Entscheidung ist nicht-deterministisch — Reboot würfelte
+neu, manchmal traf er es richtig (= „früher war's schnell"), oft nicht.
+
+**Fix (commit, styler.py):** `num_gpu=999` als Option in ALLE drei
+`ollama.chat()`-Calls (`warmup`, `polish`, `edit_command`). Forciert
+Ollama, alle Layer auf GPU zu legen. Konstante `FORCE_ALL_LAYERS_ON_GPU
+= 999` oben im Modul. Muss konsistent überall stehen, sonst reloadet
+Ollama das Modell bei jedem Options-Wechsel (~7 s pro Reload). Sicher
+für alle Default-Polish-Modelle (≤16 GB) auf 32-GB-Karten; für User
+mit größeren Modellen / kleineren GPUs würde ein OOM-Fail statt
+graceful CPU-Fallback resultieren. Verifiziert 2026-05-23: identischer
+Direct-Call mit num_gpu=999 → 100% GPU, Polish-Roundtrip <1 s wieder
+Standard. Tests: `tests/test_styler.py::test_*_forces_num_gpu_999`.
+
+**Frühere Diagnose (überholt):** HAGS aus (`HwSchMode=1`), Windows-
+Defender-Ausnahmen für Ollama-Binaries und `CUDA_VISIBLE_DEVICES=0`
+bleiben sinnvoll als Hygiene, sind aber NICHT der eigentliche Fix.
+Reboots, die das Problem „lösten", haben es nicht behoben — sie haben
+nur die Auto-Allocator-Entscheidung neu gewürfelt. Mit dem Code-Fix
+ist Reboot-Würfeln raus. Polish-Modell bleibt `gemma3:12b` (Mike's
+`config.yaml`).
 v0.2.3 released 2026-05-21 (F9-AI-Editing als Settings-
 Toggle, idna 3.15 (CVE-2026-45409), Prompt-Härtung clean.md/
 email_formal.md, automatischer Update-Check beim Start
