@@ -2,11 +2,25 @@
 from __future__ import annotations
 import asyncio
 import logging
+import time
 from pathlib import Path
+from typing import Callable
 import ollama
 from kira.config import Config, ModeConfig
 
 log = logging.getLogger(__name__)
+
+# Wallclock-Schwelle ab der ein Polish-Roundtrip als „langsam" zaehlt.
+# gemma3:12b auf RTX 5090 GPU liefert <1s; alles >3s deutet auf CPU-
+# Offload oder gravierende GPU-Probleme.
+SLOW_POLISH_THRESHOLD_SEC = 3.0
+# Slow-Polishes in Folge bis ein Tray-Toast + Auto-Switch greift.
+SLOW_POLISH_TRIGGER_COUNT = 3
+# Wie lange der temporaere force_fast-Switch hält (Sekunden).
+# 5 Min ist genug damit der User merkt "es ist wieder schnell", aber
+# kurz genug damit ein vorbeigehender VRAM-Engpass danach nicht
+# permanent das schwaechere Modell anbleiben laesst.
+FORCE_FAST_DURATION_SEC = 5 * 60
 
 from kira._resources import prompts_dir as _prompts_dir
 PROMPT_DIR = _prompts_dir()
@@ -42,9 +56,32 @@ def _thinking_kwargs(model: str) -> dict:
 class Styler:
     """Async Ollama-based text polisher."""
 
-    def __init__(self, config: Config):
+    def __init__(
+        self,
+        config: Config,
+        on_slow_polish_detected: Callable[[], None] | None = None,
+    ):
         self._config = config
         self._client = ollama.AsyncClient()
+        # Polish-Latenz-Detection (v0.2.6): Wenn das Polish-Modell auf
+        # CPU rutscht (Ollama-Bug auf Win11, bekannt seit v0.2.5), dauert
+        # Polish 10-15s statt <1s. Wir zaehlen Slow-Polishes in Folge
+        # und triggern bei SLOW_POLISH_TRIGGER_COUNT einen Tray-Toast +
+        # temporaeren Switch auf fast_model. Reset auf 0 bei jedem
+        # schnellen Polish, sodass voruebergehende Spikes (z.B. eine
+        # einzelne 4s-Antwort bei langem Input) nicht den Override
+        # ausloesen.
+        self._on_slow_polish_detected = on_slow_polish_detected
+        self._slow_polish_count = 0
+        self._force_fast_until: float | None = None
+
+    def set_on_slow_polish_detected(
+        self, callback: Callable[[], None] | None,
+    ) -> None:
+        """Late-Binding-Setter — der Tray-Callback wird in main.py erst
+        nach KiraTray-Konstruktion verfuegbar, der Styler selbst wird
+        davor in run() erzeugt und reicht nur die Instanz durch."""
+        self._on_slow_polish_detected = callback
 
     def _resolve_model(self, mode: str | None = None) -> str:
         """Welches Modell faerbt der naechste LLM-Call.
@@ -52,17 +89,73 @@ class Styler:
         Hierarchie (hoechste Prio zuerst):
         1. Per-Mode-Override (styler.modes[mode].model) — User-explizit
            in YAML eingestellt, schlaegt alles.
-        2. styler.fast_model bei fast_mode=True — Speed-Toggle aus
-           den Settings.
+        2. styler.fast_model bei fast_mode=True ODER aktivem temporaeren
+           force_fast (v0.2.6 Auto-Switch nach SLOW_POLISH_TRIGGER_COUNT
+           langsamen Polishes in Folge).
         3. styler.model — Default.
         """
         if mode is not None:
             mode_cfg = self._config.styler.modes.get(mode, ModeConfig())
             if mode_cfg.model:
                 return mode_cfg.model
-        if self._config.styler.fast_mode:
+        if self._config.styler.fast_mode or self._is_force_fast_active():
             return self._config.styler.fast_model
         return self._config.styler.model
+
+    def _is_force_fast_active(self) -> bool:
+        """True wenn der temporaere force_fast-Override noch laeuft.
+
+        Bei Ablauf wird _force_fast_until auf None gesetzt, damit der
+        naechste Aufruf wieder direkt False liefert und nicht weiter
+        time.monotonic() vergleicht.
+        """
+        if self._force_fast_until is None:
+            return False
+        if time.monotonic() < self._force_fast_until:
+            return True
+        self._force_fast_until = None
+        return False
+
+    def _activate_force_fast(self) -> None:
+        self._force_fast_until = time.monotonic() + FORCE_FAST_DURATION_SEC
+        log.warning(
+            "Polish-Latenz ueber Schwelle (%d in Folge > %.1fs) — switche "
+            "temporaer auf fast_model=%s fuer %d s. Pruefe `ollama ps` und "
+            "GPU-Auslastung (Polish-Modell duerfte auf CPU geladen sein).",
+            SLOW_POLISH_TRIGGER_COUNT,
+            SLOW_POLISH_THRESHOLD_SEC,
+            self._config.styler.fast_model,
+            FORCE_FAST_DURATION_SEC,
+        )
+
+    def _observe_polish_duration(self, duration: float) -> None:
+        """Counter fuehren + ggf. Tray-Toast & force_fast triggern.
+
+        Reset auf 0 bei schnellem Polish, sodass nur echte Stroms von
+        langsamen Polishes (CPU-Offload) den Switch ausloesen.
+        """
+        if duration <= SLOW_POLISH_THRESHOLD_SEC:
+            self._slow_polish_count = 0
+            return
+        self._slow_polish_count += 1
+        if (
+            self._slow_polish_count < SLOW_POLISH_TRIGGER_COUNT
+            or self._is_force_fast_active()
+        ):
+            return
+        # Nur switchen wenn User fast_mode nicht eh schon manuell an hat;
+        # sonst waere der Override no-op. Toast feuern wir trotzdem,
+        # damit User merkt dass auch das schnelle Modell langsam ist —
+        # dann ist Ollama/GPU komplett am Boden und manueller Eingriff
+        # noetig.
+        if not self._config.styler.fast_mode:
+            self._activate_force_fast()
+        if self._on_slow_polish_detected is not None:
+            try:
+                self._on_slow_polish_detected()
+            except Exception:
+                log.exception("on_slow_polish_detected callback raised")
+        self._slow_polish_count = 0
 
     async def warmup(self) -> None:
         """Issue a tiny chat request to force Ollama to load the model now.
@@ -122,6 +215,7 @@ class Styler:
         temperature = (
             mode_cfg.temperature if mode_cfg.temperature is not None else 0.2
         )
+        start = time.monotonic()
         try:
             response = await asyncio.wait_for(
                 self._client.chat(
@@ -178,6 +272,8 @@ class Styler:
             if self._config.styler.fallback_to_raw:
                 return text
             raise
+        finally:
+            self._observe_polish_duration(time.monotonic() - start)
 
     async def edit_command(self, selection: str, command: str) -> str:
         """Apply an AI-Editing-Command auf eine Selektion.

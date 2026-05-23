@@ -4,7 +4,39 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.5 released 2026-05-22 (`windows-port`).
+**Version:** v0.2.6 released 2026-05-23 (`windows-port`).
+v0.2.6 baut eine Selbst-Detection für den in v0.2.5 dokumentierten
+Polish-CPU-Fallback ein. Wenn drei `polish()`-Calls in Folge > 3 s
+brauchen (`SLOW_POLISH_THRESHOLD_SEC`, `SLOW_POLISH_TRIGGER_COUNT`
+in `kira/styler.py`), feuert der Styler einen Tray-Toast und
+switcht für 5 Min (`FORCE_FAST_DURATION_SEC`) temporär auf
+`styler.fast_model` (Default `gemma3:4b`). Per-Mode-Overrides
+behalten Vorrang, manueller `fast_mode=True` überspringt den Switch
+aber feuert trotzdem den Toast. Wiring: `Styler.__init__` nimmt
+optional einen `on_slow_polish_detected`-Callback, `set_on_slow_polish_detected()`
+ist die Late-Binding-Setter-Methode (Styler wird in `run()` vor dem
+Tray erzeugt). `KiraTray.notify(title, msg)` in `kira/ui/tray_win.py`
+ruft `pystray.Icon.notify` und schluckt Exceptions, damit ein
+kaputtes Notification-Subsystem den Polish-Pfad nicht umhaut. 11
+neue Tests in `tests/test_styler.py`.
+
+**HwSchMode-Verlust-Pattern (Anlass für v0.2.6):** Mike's
+2026-05-22-Fix `HwSchMode=1` (HAGS aus) ist nach der v0.2.5-
+Installation am 2026-05-23 wieder verschwunden — der Reg-Wert
+existierte nicht mehr in `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers`,
+HAGS war wieder default = on. Wahrscheinliche Ursache:
+Treiber/Windows-Update überschreibt den Wert. Konsequenz: GPU-
+Discovery-Race-Bug schlug wieder zu, gemma3:12b landete auf
+CPU. Diagnose-Befund klar: `ollama ps` zeigte 100% CPU, Server-Log
+zeigte `available="9.9 GiB"` beim Boot um 11:15 (zu wenig für
+11 GB Modell), Polish-Roundtrip 10–15 s. `ollama stop` + Reload
+hat NICHT geholfen, das Modell blieb auch mit 19 GB freiem VRAM
+auf CPU — das ist nicht „knapper VRAM beim Boot", das ist ein
+tieferes 0.24.0-Verhalten, das Mike manuell mit HwSchMode-Reset
++ Reboot fixen muss. v0.2.6 mitigiert für den User: Kira merkt
+selbst und switcht.
+
+v0.2.5 released 2026-05-22 (`windows-port`).
 v0.2.5 behebt den seit v0.2.3 kaputten Einstellungen-Dialog:
 Kern-Ursache war ein `QScrollArea` um die Section-Cards, der unter
 Qt 6.11 die Theme-Vererbung bricht (Cards dunkel, `QLabel`-Text
