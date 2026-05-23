@@ -480,3 +480,54 @@ async def test_polish_observes_duration_via_finally(monkeypatch):
     await styler.polish("hi", mode="plain")
     assert len(observed) == 1
     assert observed[0] >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# num_gpu=999 forciert alle Modell-Layer auf GPU (Fix fuer Polish-Latenz
+# 2026-05-23): Ollama 0.23.x entscheidet bei gemma3:12b auf einer 32GB-GPU
+# manchmal fehlerhaft, einen ~787 MiB Embedding-Tensor (Q4_K_M) auf CPU
+# zu lassen trotz reichlich freiem VRAM — Resultat: 14 tok/s statt 114
+# tok/s, Polish 5-15s statt <1s. Mit explizitem num_gpu=999 ("alle
+# Layer auf GPU") laedt Ollama 100% in VRAM. Hardcoded an allen 3 chat-
+# Sites, damit Ollama nicht zwischen Calls das Modell mit anderen Options
+# reloadet (ein Mix aus mit/ohne num_gpu wuerde bei jedem Wechsel einen
+# Model-Reload kosten ~7s).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_polish_forces_num_gpu_999():
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    await styler.polish("text", mode="plain")
+
+    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+
+
+@pytest.mark.asyncio
+async def test_warmup_forces_num_gpu_999():
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    await styler.warmup()
+
+    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+
+
+@pytest.mark.asyncio
+async def test_edit_command_forces_num_gpu_999():
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "edited"}})
+    styler._client = fake_client
+
+    await styler.edit_command(selection="text", command="cmd")
+
+    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999

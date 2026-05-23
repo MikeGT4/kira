@@ -22,6 +22,17 @@ SLOW_POLISH_TRIGGER_COUNT = 3
 # permanent das schwaechere Modell anbleiben laesst.
 FORCE_FAST_DURATION_SEC = 5 * 60
 
+# Forciert alle Modell-Layer auf die GPU. Ollama 0.23.x trifft auf
+# Win11 + RTX 5090 bei gemma3:12b (Q4_K_M) gelegentlich die falsche
+# Auto-Layer-Decision und laesst ~787 MiB Embedding-Tensor auf CPU
+# trotz 28+ GiB freiem VRAM. Folge: jeder Token-Generate geht via
+# PCIe zum CPU-Speicher → 14 tok/s statt 114 tok/s, Polish 5-15s
+# statt <1s. Verifiziert 2026-05-23: identischer Call mit num_gpu=999
+# → 100% GPU, 8x speedup. Muss konsistent an allen 3 chat-Sites
+# stehen, sonst reloadet Ollama das Modell bei jedem Options-Wechsel
+# (~7s pro Reload).
+FORCE_ALL_LAYERS_ON_GPU = 999
+
 from kira._resources import prompts_dir as _prompts_dir
 PROMPT_DIR = _prompts_dir()
 # Modi mit eingebauten prompt-Files. User koennen weitere Modi via eigene
@@ -173,7 +184,11 @@ class Styler:
                 self._client.chat(
                     model=model,
                     messages=[{"role": "user", "content": "ok"}],
-                    options={"temperature": 0.0, "num_predict": 1},
+                    options={
+                        "temperature": 0.0,
+                        "num_predict": 1,
+                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
+                    },
                     keep_alive=keep_alive,
                     **_thinking_kwargs(model),
                 ),
@@ -221,7 +236,10 @@ class Styler:
                 self._client.chat(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
-                    options={"temperature": temperature},
+                    options={
+                        "temperature": temperature,
+                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
+                    },
                     keep_alive=self._config.styler.keep_alive,
                     **_thinking_kwargs(model),
                 ),
@@ -307,7 +325,10 @@ class Styler:
                 self._client.chat(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
-                    options={"temperature": temperature},
+                    options={
+                        "temperature": temperature,
+                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
+                    },
                     keep_alive=self._config.styler.keep_alive,
                     **_thinking_kwargs(model),
                 ),

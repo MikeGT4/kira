@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.2.7 — 2026-05-23
+
+### Polish-Latenz: echter Root-Cause-Fix (`num_gpu=999`)
+
+Die in v0.2.5/v0.2.6 als „GPU-Discovery-Race + HwSchMode-Verlust"
+diagnostizierte Polish-Latenz hatte eine andere, tieferliegende
+Ursache: **Ollamas Auto-Layer-Allocator** legte bei `gemma3:12b`
+(Q4_K_M) auf der RTX 5090 nicht-deterministisch ~787 MiB Weights
+(Embedding-Tensor) auf CPU — trotz 28 GiB freiem VRAM. Folge: jeder
+Token-Generate griff via PCIe auf CPU-Speicher → **14 tok/s statt
+114 tok/s = 8× Slowdown**.
+
+Verifiziert mit zwei identischen Direct-API-Calls am 2026-05-23:
+identischer Prompt + Modell + Hardware, einmal mit Default-Options
+(14 tok/s, 49/51 CPU/GPU), einmal mit `num_gpu=999` (114 tok/s,
+100% GPU). Reboot hat in v0.2.5 nur deshalb manchmal geholfen, weil
+er die Auto-Allocator-Entscheidung neu würfelte. HwSchMode=1 / HAGS
+aus bleibt als generelle Hygiene sinnvoll, war aber NICHT der Fix.
+
+- **`kira/styler.py`:** Neue Konstante `FORCE_ALL_LAYERS_ON_GPU = 999`
+  oben im Modul, plus `num_gpu=FORCE_ALL_LAYERS_ON_GPU` als Option
+  an allen drei `ollama.chat()`-Sites (`warmup`, `polish`,
+  `edit_command`). Muss überall konsistent stehen — ein Mix aus
+  mit/ohne würde Ollama bei jedem Wechsel das Modell mit anderen
+  Settings reloaden (~7 s pro Reload).
+- **3 neue Tests** (`tests/test_styler.py::test_*_forces_num_gpu_999`),
+  35/35 grün.
+- **Trade-off:** Sicher für alle Default-Polish-Modelle (≤16 GB) auf
+  32-GB-Karten. Für User mit größeren Modellen auf kleineren GPUs
+  würde `num_gpu=999` einen OOM-Fehler werfen statt graceful CPU-
+  Fallback. Mike's Setup (RTX 5090 + gemma3:12b/4b) ist sicher.
+- **v0.2.6's Slow-Polish-Detection bleibt drin** als Defense-in-
+  Depth, sollte aber nicht mehr greifen müssen.
+
 ## v0.2.6 — 2026-05-23
 
 ### Polish-Latenz-Detection + Auto-Fallback auf fast_model
