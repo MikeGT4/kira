@@ -6,5 +6,5 @@ GitHub Releases tag) and for the release repo coordinates.
 """
 from __future__ import annotations
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 UPDATE_REPO = "MikeGT4/kira"
