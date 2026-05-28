@@ -4,7 +4,39 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.6 released 2026-05-23 (`windows-port`).
+**Version:** v0.2.8 released 2026-05-28 (`windows-port`).
+
+v0.2.8 fixt den Modell-Pull-Dialog im Settings (unzensiertes Polish-
+Modell „Trotzdem laden"). Drei zusammenhängende Bugs, alle in
+`kira/ui/settings_dialog.py`:
+
+1. **Minusprozente:** `_PullWorker.progress = pyqtSignal(str, int, int)`
+   marshalled C int (32-bit signed). Das unzensierte Qwen3.6-27B
+   hat einen 17.4-GB-Blob — sobald `completed` zwischen 2 und 4 GiB
+   lag, wrappte der Wert negativ. `_update_runner` zeigt das gleiche
+   Pattern, dort fällt's nie auf weil Inno's DiskSlice exakt INT32_MAX
+   ist und kein einzelnes Bundle-File die Grenze sprengt. Fix:
+   `pyqtSignal(str, 'qint64', 'qint64')`.
+2. **Toter Abbrechen-Knopf:** `_PullWorker` hatte keine `cancel()`-
+   Methode und `progress.canceled` war nie an irgendwas verbunden.
+   Fix: `_cancelled`-Flag + `cancel()`-Method + `progress.canceled.connect(worker.cancel)`,
+   Loop-Check beim nächsten yield.
+3. **Programm-Hänger beim Settings-Close während Pull:** `closeEvent`
+   rief `thread.terminate()` nach 3 s — Qt-Doku markiert das explizit
+   als unsafe (kann Mutexe halten / Heap kaputtmachen). Fix: kein
+   terminate mehr, stattdessen Worker cancel-flaggen, UI-Signals
+   trennen, und falls der Worker noch im `ollama.pull()`-Socket
+   hängt: in Modul-Level `_orphan_pull_threads` parken.
+
+Bonus-Fix: `_pull_blocking` (auf Line 880 vom `_save`-Pfad gerufen)
+war nirgends definiert — AttributeError beim Aktivieren von „Schneller
+Modus" wenn `fast_model` fehlte. Jetzt als QEventLoop-Wrapper über
+`_start_model_pull(..., on_done=...)`. 8 neue `_PullWorker`-Tests
+in `tests/test_settings_dialog.py`. Voller Eintrag in `CHANGELOG.md`.
+
+v0.2.7 released 2026-05-23 (`windows-port`). Polish-Latenz-Fix
+(`num_gpu=999`); Doku in CHANGELOG.
+
 v0.2.6 baut eine Selbst-Detection für den in v0.2.5 dokumentierten
 Polish-CPU-Fallback ein. Wenn drei `polish()`-Calls in Folge > 3 s
 brauchen (`SLOW_POLISH_THRESHOLD_SEC`, `SLOW_POLISH_TRIGGER_COUNT`

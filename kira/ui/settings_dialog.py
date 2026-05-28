@@ -195,14 +195,41 @@ def _ollama_model_installed(model: str) -> bool:
         return False
 
 
+# Adoptierte Pull-Worker-Threads, die nach Dialog-Close noch laufen.
+# Wir halten Referenzen hier, damit der GC die QThread+QObject-Paare
+# nicht einkassiert während run() im Hintergrund noch in ollama.pull()
+# blockt — sonst Use-After-Free im Worker-Thread. Wird in
+# SettingsDialog.closeEvent() befüllt, wenn ein Worker nach 3 s
+# Cancel-Wait noch nicht beendet ist. Liste wird nie geleert — kosten
+# ist vernachlässigbar (max. ein Eintrag pro Settings-Session) und der
+# Cleanup beim Quit erledigt der Prozess-Tod ohnehin.
+_orphan_pull_threads: list = []
+
+
 class _PullWorker(QObject):
-    """Background ollama.pull(model) — streams events back to the GUI."""
-    progress = pyqtSignal(str, int, int)   # status, completed, total
-    finished = pyqtSignal(bool, str)       # success, message
+    """Background ollama.pull(model) — streams events back to the GUI.
+
+    Signal-Typ ist `qint64` (nicht `int`) für completed/total. PyQt6
+    marshalled `int` auf C `int` (32-bit signed) — sobald ein Modell-
+    Layer > 2 GiB ist (z.B. das unzensierte Qwen3.6-27B mit mehreren
+    GB-Layern), wrappt der Wert in den negativen Bereich und der User
+    sieht Minusprozente im QProgressDialog.
+    """
+    progress = pyqtSignal(str, 'qint64', 'qint64')  # status, completed, total
+    finished = pyqtSignal(bool, str)                # success, message
 
     def __init__(self, model_name: str) -> None:
         super().__init__()
         self._model = model_name
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Vom UI-Thread aufgerufen, wenn der User „Abbrechen" klickt
+        oder den Dialog schließt. ollama.pull(stream=True) ist ein
+        blocking Generator — wir können ihn nicht von außen unter-
+        brechen. Stattdessen setzen wir ein Flag, das die Loop beim
+        nächsten yield prüft und sauber aussteigt."""
+        self._cancelled = True
 
     def run(self) -> None:
         try:
@@ -212,6 +239,9 @@ class _PullWorker(QObject):
             return
         try:
             for event in ollama.pull(self._model, stream=True):
+                if self._cancelled:
+                    self.finished.emit(False, "Abgebrochen.")
+                    return
                 status = getattr(event, "status", None) or (
                     event.get("status", "") if isinstance(event, dict) else ""
                 )
@@ -226,6 +256,9 @@ class _PullWorker(QObject):
                     or 0
                 )
                 self.progress.emit(str(status), int(completed), int(total))
+            if self._cancelled:
+                self.finished.emit(False, "Abgebrochen.")
+                return
             self.finished.emit(True, f"{self._model} ist auf dem aktuellen Stand.")
         except Exception as e:
             log.exception("ollama.pull failed")
@@ -836,15 +869,51 @@ class SettingsDialog(QDialog):
         """Beim Dialog-Close den ggf. laufenden Polish-Pull-Worker
         sauber beenden — sonst feuert das thread-Worker-Signal an einen
         bereits zerstoerten Dialog (Segfault unter Qt6). best-practice
-        2026-05-09."""
+        2026-05-09.
+
+        Aktualisiert 2026-05-28: KEIN thread.terminate() mehr. Die
+        Qt-Doku markiert QThread::terminate() explizit als unsafe —
+        es kann Mutexe halten oder den Heap inkonsistent lassen und
+        den ganzen Prozess crashen. Symptom bei Mike: „Programm hängt
+        sich auf", weil der Worker im socket.recv() auf das nächste
+        ollama-Stream-Event wartete (langer Layer-Download) und nach
+        3 s Timeout terminate() den Tray-Prozess mit-ins-Grab nahm.
+
+        Neue Strategie: cancel flag setzen, UI-Signals trennen (damit
+        spätere emit()s nicht in zerstörte Widgets schreiben), kurz
+        warten, und falls der Worker hängt: Thread+Worker in eine
+        Modul-Level-Liste „adoptieren" lassen, damit GC sie nicht
+        einkassiert während run() noch läuft. Wenn ollama.pull
+        irgendwann doch returnt (Netz wieder da / Pull fertig),
+        beendet sich der Worker dann sauber von selbst."""
         thread = self._pull_thread
+        worker = self._pull_worker
+        if worker is not None:
+            worker.cancel()
         if thread is not None and thread.isRunning():
-            log.info("Settings dialog closing while polish-pull running — waiting up to 3s")
+            if worker is not None:
+                # Nach Disconnect kommen keine Updates mehr durch —
+                # selbst wenn der Worker noch lebt und emittiert, fängt
+                # ihn niemand mehr auf einem zerstörten Dialog ab.
+                try:
+                    worker.progress.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+                try:
+                    worker.finished.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            log.info(
+                "Settings dialog closing while polish-pull running — "
+                "cancel flagged, waiting up to 3s for clean exit",
+            )
             thread.quit()
             if not thread.wait(3000):
-                log.warning("polish-pull thread did not exit in 3s; terminating")
-                thread.terminate()
-                thread.wait(1000)
+                log.warning(
+                    "polish-pull thread did not exit in 3s; orphaning "
+                    "(no terminate — would risk process-wide crash)",
+                )
+                _orphan_pull_threads.append((thread, worker))
         super().closeEvent(event)
 
     def _save(self) -> None:
@@ -1024,6 +1093,7 @@ class SettingsDialog(QDialog):
         model_name: str,
         window_title: str,
         on_success=None,
+        on_done=None,
     ) -> None:
         """Gemeinsamer Modell-Pull mit QProgressDialog + QThread + _PullWorker.
 
@@ -1032,7 +1102,12 @@ class SettingsDialog(QDialog):
         Pull-Mechanik ist identisch, nur der Erfolgs-Folgeschritt
         unterscheidet sich. `on_success`, falls gesetzt, wird nach einem
         erfolgreichen Pull statt der Standard-light_information aufgerufen
-        (z.B. um das Modell als Qualitaetsmodell einzutragen)."""
+        (z.B. um das Modell als Qualitaetsmodell einzutragen).
+
+        `on_done(success: bool)` wird IMMER aufgerufen, wenn der Pull
+        finisht (success oder fail/abgebrochen) — vom blocking Save-
+        Path benutzt, der das Ergebnis abwarten und in eine QEventLoop
+        weiterleiten muss."""
         progress = QProgressDialog(
             f"Lade {model_name}…", "Abbrechen", 0, 0, self,
         )
@@ -1051,11 +1126,16 @@ class SettingsDialog(QDialog):
         thread.started.connect(worker.run)
 
         def on_progress(status: str, completed: int, total: int) -> None:
+            # Defense-in-depth: ollama-Stream kann beim Layer-Switch
+            # oder in der Verifikations-Phase completed > total senden.
+            # Ohne Clamp landet setValue() über setMaximum() und Qt
+            # zeigt eine Endlos-Animation statt der echten Prozent.
             if total > 0:
-                progress.setMaximum(total)
-                progress.setValue(completed)
-                pct = (completed / total) * 100
-                mb_done = completed / (1024 * 1024)
+                safe_completed = max(0, min(completed, total))
+                progress.setMaximum(int(total))
+                progress.setValue(int(safe_completed))
+                pct = (safe_completed / total) * 100
+                mb_done = safe_completed / (1024 * 1024)
                 mb_total = total / (1024 * 1024)
                 progress.setLabelText(
                     f"{status}\n{mb_done:.1f} / {mb_total:.1f} MB ({pct:.0f}%)"
@@ -1073,14 +1153,58 @@ class SettingsDialog(QDialog):
                 else:
                     light_information(self, "Kira", message)
             else:
-                light_critical(self, "Kira", message)
+                # Vom User abgebrochene Pulls sind kein Fehler — nur
+                # echte Fail-Cases (Ollama down, Netz weg, Modell-Name
+                # falsch) verdienen das rote Critical-Dialog.
+                if message != "Abgebrochen.":
+                    light_critical(self, "Kira", message)
+            if on_done is not None:
+                on_done(success)
 
         worker.progress.connect(on_progress)
         worker.finished.connect(on_finished)
+        # Cancel-Button im QProgressDialog flaggt den Worker. Der
+        # Generator-Loop checkt das Flag beim nächsten yield und
+        # steigt mit finished.emit(False, "Abgebrochen.") aus —
+        # ohne diese Verdrahtung hatte der Abbrechen-Knopf keinerlei
+        # Wirkung und der User saß stundenlang vor einem laufenden
+        # 27-GB-Download fest.
+        progress.canceled.connect(worker.cancel)
         thread.start()
         # Keep refs alive until the worker finishes.
         self._pull_thread = thread
         self._pull_worker = worker
+
+    def _pull_blocking(self, model_name: str) -> bool:
+        """Synchroner Modell-Pull mit Progress-Dialog — blockt bis fertig.
+
+        Vom Save-Pfad benutzt: wenn der User „Schneller Modus"
+        aktiviert und das fast_model fehlt, muss es VOR dem Speichern
+        da sein — sonst polished Kira nach Restart in einen leeren
+        Fallback (raw Whisper) ohne dass der User die Ursache sieht.
+
+        Verschachtelt _start_model_pull mit einer lokalen QEventLoop,
+        die im on_done-Callback quittiert wird. So bleibt die Pull-
+        Mechanik (QProgressDialog, qint64-Signale, Cancel-Wiring,
+        Orphan-Cleanup) zentral an einer Stelle und die blocking
+        Variante teilt sich alle Bug-Fixes mit der Fire-and-Forget-
+        Variante.
+        """
+        from PyQt6.QtCore import QEventLoop
+        loop = QEventLoop()
+        state = {"success": False}
+
+        def on_pull_done(success: bool) -> None:
+            state["success"] = success
+            loop.quit()
+
+        self._start_model_pull(
+            model_name,
+            "Kira — Modell wird geladen",
+            on_done=on_pull_done,
+        )
+        loop.exec()
+        return state["success"]
 
     def _offer_uncensored_model(self) -> None:
         """Bietet das optionale unzensierte Polish-LLM an: GPU-Check,

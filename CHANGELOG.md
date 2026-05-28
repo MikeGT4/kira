@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.2.8 — 2026-05-28
+
+### Modell-Pull-Dialog: Minusprozente, toter Cancel-Knopf, Programm-Hänger
+
+Beim Aktivieren des „unzensierten Polish-Modells" (huihui_ai/
+Qwen3.6-abliterated:27b, 17.4 GB-Layer) im Settings-Dialog zeigte
+der Fortschrittsdialog wirre Zahlen — manchmal **negative** Prozente
+— lud endlos, der Abbrechen-Knopf war ohne Wirkung, und beim
+Schließen des Settings-Dialogs riss es regelmäßig den ganzen Tray-
+Prozess mit. Drei zusammenhängende Bugs:
+
+- **Negative Prozente:** `_PullWorker.progress = pyqtSignal(str, int, int)`
+  marshalled C `int` (32-bit signed). Ein 27-GB-Modell hat einen
+  17.4-GB-Blob; sobald `completed` zwischen 2 GiB und 4 GiB lag,
+  wrappte der Wert in den negativen Bereich → `pct = completed/total
+  * 100` wurde negativ. Im `_update_runner` (Update-Bundle-Download)
+  fiel das Pattern nie auf, weil Inno's Slice-Size genau INT32_MAX
+  = 2 147 483 647 Bytes ist und kein einzelnes Bundle-File die
+  Grenze sprengt.
+  **Fix:** `pyqtSignal(str, 'qint64', 'qint64')` (settings_dialog.py:200).
+- **Cancel ohne Wirkung:** `_start_model_pull` verdrahtete den
+  `progress.canceled`-Slot nicht, und `_PullWorker` hatte überhaupt
+  keine `cancel()`-Methode. Der Knopf zeigte den Default-Hide-
+  Effekt von `QProgressDialog`, der Worker lief im Hintergrund weiter.
+  **Fix:** `_PullWorker._cancelled`-Flag + `cancel()`-Methode, Loop-
+  Check beim nächsten yield, `progress.canceled.connect(worker.cancel)`
+  in `_start_model_pull` (settings_dialog.py:227, 240, 1172).
+- **Programm-Hänger beim Settings-Close:** Der `closeEvent` rief
+  `thread.terminate()` nach 3 s Timeout — Qt-Doku markiert das
+  explizit als unsafe (kann Mutexe halten / Heap inkonsistent
+  lassen → Prozess crashed). Symptom: nach Klick auf Abbrechen +
+  Schließen war auch das Tray-Icon weg.
+  **Fix:** Kein `terminate()` mehr. Stattdessen Worker cancel-
+  flaggen, UI-Signals trennen (sonst Use-After-Free), 3 s warten,
+  und falls der Worker noch im `ollama.pull()`-Socket hängt:
+  Thread+Worker in eine Modul-Level-Liste `_orphan_pull_threads`
+  parken, damit GC sie nicht einkassiert während `run()` noch
+  läuft. `closeEvent` (settings_dialog.py:836–887).
+
+### Defense-in-Depth + Bonus-Fix
+
+- **UI-Clamping:** `on_progress` clampt `completed` auf `[0, total]`
+  bevor `setValue` aufgerufen wird. Schützt vor `setValue > setMaximum`
+  beim Layer-Switch oder in der Verifikations-Phase, wo Ollama
+  occasionally `completed > total` schickt.
+- **`_pull_blocking` neu definiert:** `_save()` rief die Methode für
+  den Fast-Mode-Toggle auf (Line 880), sie existierte aber nirgends
+  im Repo — AttributeError beim Aktivieren wenn `fast_model` fehlt.
+  Implementiert als QEventLoop-Wrapper über `_start_model_pull(...,
+  on_done=...)`. So teilen sich blocking + fire-and-forget alle
+  Bug-Fixes.
+
+### Tests
+
+8 neue `_PullWorker`-Tests in `tests/test_settings_dialog.py`:
+Cancel-Flag-Default, `cancel()`-Setter, Loop-Abort beim Cancel,
+qint64-Overflow-Schutz (mit echten 5-GiB / 17.4-GiB-Werten), Clean-
+Stream-Success, Exception-Fail, Pydantic-Style-Event-Parsing, No-
+Progress-After-Cancel. Lokal verifizieren via:
+
+```bash
+cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\claude_kira \
+  && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest \
+     tests/test_settings_dialog.py -v && popd'
+```
+
 ## v0.2.7 — 2026-05-23
 
 ### Polish-Latenz: echter Root-Cause-Fix (`num_gpu=999`)
