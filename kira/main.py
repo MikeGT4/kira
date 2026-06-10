@@ -490,6 +490,12 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
                 "umgeschaltet. Pruefe Settings → GPU-Check.",
             )
         )
+        # v0.3.0: deterministischer CPU-Fallback-Toast aus verify_gpu_placement
+        # (size_vram=0 nach Warmup). Die msg traegt den actionablen Hinweis
+        # (Ollama neu starten -> VRAM-Tuning greift).
+        styler.set_on_cpu_fallback_detected(
+            lambda msg: tray.notify("Kira — Polish auf CPU", msg)
+        )
     else:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 
@@ -714,6 +720,18 @@ def run() -> None:
                 0x40,  # MB_ICONINFORMATION
             )
             return
+
+    # VRAM-Tuning fuer den Ollama-Polish-Pfad persistent setzen (Windows-only +
+    # idempotent, no-op auf Mac). Flash-Attention + q8-KV-Cache senken den
+    # VRAM-Bedarf, statt die GPU-Platzierung mit num_gpu=999 zu erzwingen.
+    # Greift nach dem naechsten Ollama-Neustart; ein laufender Server wird
+    # bewusst nicht neu gestartet (geteilt mit anderen Clients). S. ollama_env.
+    if cfg.styler.provider == "ollama":
+        try:
+            from kira.ollama_env import apply_tuning_env
+            apply_tuning_env()
+        except Exception:
+            log.exception("Ollama-VRAM-Tuning fehlgeschlagen; continuing")
 
     # Mac runs welcome checks here (rumps owns the loop, no Qt to wait for).
     # Windows defers them into _run_windows() so the Qt SetupHintDialog can
