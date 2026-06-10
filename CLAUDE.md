@@ -4,7 +4,9 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.3.0 (`windows-port`, in Arbeit). Vorher: v0.2.8 released 2026-05-28.
+**Version:** v0.3.0 (`windows-port`) — Code gepusht + Installer gebaut,
+GitHub-Release noch ausstehend (latest-Release ist daher noch v0.2.8, bis das
+v0.3.0-Release mit den Setup-Assets veröffentlicht ist). Vorher: v0.2.8 released 2026-05-28.
 
 v0.3.0 bringt das Polish-Modell zuverlässig auf die GPU. Persistentes
 VRAM-Tuning (`kira/ollama_env.py`) setzt beim Start
