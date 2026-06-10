@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.3.0 — 2026-06-10
+
+### Polish-Modell zuverlässig auf der GPU: VRAM-Tuning + CPU-Fallback-Detection
+
+Auf 32-GB-Karten rutschte das Polish-Modell — besonders das große
+unzensierte Qwen3.6-27B — neben dem CUDA-Kontext von Whisper
+gelegentlich teilweise oder ganz auf die CPU. Polish wurde dadurch
+5–10× langsamer. Der bisherige Workaround `num_gpu=999` erzwingt zwar
+alle Layer auf die GPU, ist aber ab Ollama 0.30.x serverseitig
+wirkungslos (Regression, GitHub #16610) und nagelt Kira damit auf
+Ollama 0.24.0 fest. v0.3.0 löst das an der Wurzel.
+
+- **Persistentes VRAM-Tuning (`kira/ollama_env.py`, neu).** Kira setzt
+  beim Start zwei serverseitige Ollama-Env-Vars dauerhaft in
+  `HKCU\Environment`: `OLLAMA_FLASH_ATTENTION=1` +
+  `OLLAMA_KV_CACHE_TYPE=q8_0`. Der q8-KV-Cache halbiert den mit dem
+  Kontext wachsenden KV-Speicher bei praktisch unveränderter Qualität;
+  Flash-Attention verkleinert den Compute-Buffer. Das senkt den realen
+  VRAM-Bedarf, statt die Platzierung zu erzwingen — auf einer RTX 5090
+  gemessen: 66 % → 100 % GPU-Anteil für ein 35B-Modell. Idempotent,
+  Windows-only (No-op auf Mac), schluckt Registry-Fehler fail-safe.
+  Wichtig: das sind SERVER-Env-Vars (nicht per-request wie `num_gpu`);
+  sie greifen erst nach dem nächsten Ollama-Neustart/Reboot. Kira
+  startet den Server bewusst NICHT selbst neu — er wird mit anderen
+  Ollama-Clients geteilt.
+- **Deterministische CPU-Fallback-Detection
+  (`styler.verify_gpu_placement`).** Nach dem Warmup fragt Kira
+  `ollama.ps()` ab und liest `size_vram` direkt — landet das Modell
+  trotz freiem VRAM auf der CPU (`size_vram=0`), feuert ein actionabler
+  Tray-Toast. Das ersetzt die unzuverlässige Latenz-Heuristik (kurze
+  Inputs polishen auch auf CPU unter der 3-s-Schwelle). Der Hinweis
+  empfiehlt jetzt primär den Ollama-Neustart (Tuning greift), den
+  Downgrade nur noch als Fallback.
+- **Tests:** 12 neue für `verify_gpu_placement`, 11 für `ollama_env`
+  (winreg-I/O gemockt, in CI/WSL lauffähig).
+
 ## v0.2.8 — 2026-05-28
 
 ### Modell-Pull-Dialog: Minusprozente, toter Cancel-Knopf, Programm-Hänger

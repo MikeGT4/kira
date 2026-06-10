@@ -4,7 +4,21 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.2.8 released 2026-05-28 (`windows-port`).
+**Version:** v0.3.0 (`windows-port`, in Arbeit). Vorher: v0.2.8 released 2026-05-28.
+
+v0.3.0 bringt das Polish-Modell zuverlässig auf die GPU. Persistentes
+VRAM-Tuning (`kira/ollama_env.py`) setzt beim Start
+`OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0` in
+`HKCU\Environment` — der q8-KV-Cache halbiert den KV-Speicher, das senkt
+den realen VRAM-Bedarf, statt die Platzierung mit `num_gpu=999` zu
+erzwingen (ab Ollama 0.30.x wirkungslos, GitHub #16610). Auf einer
+32-GB-Karte landet damit auch das große unzensierte Qwen3.6-27B neben
+Whisper komplett im VRAM. Das sind Server-Env-Vars (nicht per-request) →
+greifen nach Ollama-Neustart; Kira startet den geteilten Server bewusst
+nicht selbst neu. Dazu deterministische CPU-Fallback-Detection
+(`styler.verify_gpu_placement` via `ollama.ps()` → `size_vram`), die bei
+CPU-Load einen actionablen Tray-Toast feuert. 12 + 11 neue Tests. Voller
+Eintrag in `CHANGELOG.md`.
 
 v0.2.8 fixt den Modell-Pull-Dialog im Settings (unzensiertes Polish-
 Modell „Trotzdem laden"). Drei zusammenhängende Bugs, alle in

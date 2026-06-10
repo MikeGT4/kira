@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+from ollama import ProcessResponse
 from kira.config import Config, ModeConfig
 from kira.styler import (
     Styler,
@@ -7,6 +8,14 @@ from kira.styler import (
     SLOW_POLISH_THRESHOLD_SEC,
     SLOW_POLISH_TRIGGER_COUNT,
 )
+
+
+def _ps(model_name, size, size_vram, *, name=None):
+    """Baue eine ollama-ps()-Response mit einem laufenden Modell."""
+    return ProcessResponse(models=[ProcessResponse.Model(
+        model=model_name, name=name if name is not None else model_name,
+        size=size, size_vram=size_vram,
+    )])
 
 
 @pytest.mark.asyncio
@@ -531,3 +540,227 @@ async def test_edit_command_forces_num_gpu_999():
     await styler.edit_command(selection="text", command="cmd")
 
     assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+
+
+# ---------------------------------------------------------------------------
+# CPU-Fallback-Detection (v0.3.0): num_gpu=999 ist ab Ollama 0.30.x wirkungslos
+# (Server-seitige Regression, GitHub #16610) — das Polish-Modell landet trotz
+# freiem VRAM komplett auf CPU (size_vram=0). Die alte Latenz-Heuristik
+# (_observe_polish_duration) ist unzuverlaessig: kurze Inputs polishen auch
+# auf CPU unter 3 s. verify_gpu_placement() fragt nach dem Warmup ollama.ps()
+# ab und liest size_vram direkt — deterministisch. Bei CPU-Load feuert ein
+# actionabler Tray-Toast (Downgrade-Hinweis). Da Whisper hardcoded auf
+# device="cuda" laeuft, HAT ein Kira-User immer eine CUDA-GPU — size_vram=0
+# ist deshalb immer ein Fehler, kein "kein-GPU"-False-Positive.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_detects_cpu_fallback():
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=11_779_775_936, size_vram=0)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "cpu"
+    callback.assert_called_once()
+    # Die Toast-Meldung muss den User handlungsfaehig machen: Modellname +
+    # primaerer Hinweis (Ollama neu starten, VRAM-Tuning greift) + Downgrade
+    # als Fallback.
+    msg = callback.call_args.args[0]
+    assert "gemma3:12b" in msg
+    assert "neu starten" in msg.lower()
+    assert "0.24" in msg
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_returns_gpu_when_resident_in_vram():
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=11_779_775_936, size_vram=11_779_775_936)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "gpu"
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_model_not_running_returns_none():
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    # Ein anderes Modell laeuft — unser Polish-Modell ist nicht in ps.
+    styler._client.ps = AsyncMock(
+        return_value=_ps("llama3:8b", size=4_000_000_000, size_vram=0)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result is None
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_handles_ps_exception():
+    """ps() darf nie den Boot/Polish-Pfad umhauen — Fehler -> None, kein Toast."""
+    cfg = Config()
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(side_effect=Exception("ollama unreachable"))
+
+    result = await styler.verify_gpu_placement()
+
+    assert result is None
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_none_size_vram_is_unknown():
+    """size_vram=None (alte Server / unklare Antwort) -> kein False-Positive."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=11_779_775_936, size_vram=None)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result is None
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_matches_by_name_field():
+    """Manche ps-Antworten fuellen nur 'name', nicht 'model'."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    resp = ProcessResponse(models=[ProcessResponse.Model(
+        model=None, name="gemma3:12b", size=11_779_775_936, size_vram=0,
+    )])
+    styler._client.ps = AsyncMock(return_value=resp)
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "cpu"
+    callback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_checks_active_model_under_fast_mode():
+    """Bei fast_mode muss das tatsaechlich gewarmte fast_model geprueft werden,
+    nicht das Default-Modell."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    cfg.styler.fast_model = "gemma3:4b"
+    cfg.styler.fast_mode = True
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:4b", size=3_300_000_000, size_vram=0)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "cpu"
+    callback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_callback_exception_swallowed():
+    """Kaputtes Tray/notify darf die Detection nicht crashen."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock(side_effect=RuntimeError("tray dead"))
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=11_779_775_936, size_vram=0)
+    )
+
+    # Darf NICHT raisen
+    result = await styler.verify_gpu_placement()
+    assert result == "cpu"
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_no_callback_configured():
+    """Ohne gesetzten Callback (z.B. vor Late-Binding) trotzdem kein Crash."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    styler = Styler(cfg)  # kein Callback
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=11_779_775_936, size_vram=0)
+    )
+
+    result = await styler.verify_gpu_placement()
+    assert result == "cpu"
+
+
+def test_set_on_cpu_fallback_detected_late_binding():
+    """Setter analog zu set_on_slow_polish_detected — Tray entsteht nach Styler."""
+    cfg = Config()
+    styler = Styler(cfg)
+    callback = MagicMock()
+    styler.set_on_cpu_fallback_detected(callback)
+    assert styler._on_cpu_fallback_detected is callback
+
+
+@pytest.mark.asyncio
+async def test_warmup_triggers_gpu_placement_check(monkeypatch):
+    """warmup() loest die Placement-Pruefung aus, nachdem das Modell geladen ist."""
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+    calls = []
+
+    async def fake_verify():
+        calls.append(True)
+        return "gpu"
+
+    monkeypatch.setattr(styler, "verify_gpu_placement", fake_verify)
+
+    await styler.warmup()
+
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_warmup_gpu_check_failure_does_not_break_warmup(monkeypatch):
+    """Wenn die Placement-Pruefung wirft, darf warmup() trotzdem sauber durchlaufen."""
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+
+    async def boom():
+        raise RuntimeError("ps blew up")
+
+    monkeypatch.setattr(styler, "verify_gpu_placement", boom)
+
+    # Darf NICHT raisen
+    await styler.warmup()

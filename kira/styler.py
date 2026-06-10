@@ -71,6 +71,7 @@ class Styler:
         self,
         config: Config,
         on_slow_polish_detected: Callable[[], None] | None = None,
+        on_cpu_fallback_detected: Callable[[str], None] | None = None,
     ):
         self._config = config
         self._client = ollama.AsyncClient()
@@ -83,6 +84,7 @@ class Styler:
         # einzelne 4s-Antwort bei langem Input) nicht den Override
         # ausloesen.
         self._on_slow_polish_detected = on_slow_polish_detected
+        self._on_cpu_fallback_detected = on_cpu_fallback_detected
         self._slow_polish_count = 0
         self._force_fast_until: float | None = None
 
@@ -93,6 +95,14 @@ class Styler:
         nach KiraTray-Konstruktion verfuegbar, der Styler selbst wird
         davor in run() erzeugt und reicht nur die Instanz durch."""
         self._on_slow_polish_detected = callback
+
+    def set_on_cpu_fallback_detected(
+        self, callback: Callable[[str], None] | None,
+    ) -> None:
+        """Late-Binding-Setter analog zu set_on_slow_polish_detected — der
+        Tray-Callback ist erst nach KiraTray-Konstruktion verfuegbar, der
+        Styler wird davor in run() erzeugt."""
+        self._on_cpu_fallback_detected = callback
 
     def _resolve_model(self, mode: str | None = None) -> str:
         """Welches Modell faerbt der naechste LLM-Call.
@@ -194,10 +204,6 @@ class Styler:
                 ),
                 timeout=60.0,
             )
-            log.info(
-                "Styler warmup complete (model=%s, keep_alive=%s)",
-                model, keep_alive,
-            )
         except asyncio.TimeoutError:
             log.warning(
                 "Styler warmup timed out after 60 s (model=%s). "
@@ -205,6 +211,7 @@ class Styler:
                 "may still be slow. Check `ollama list` for the model.",
                 model,
             )
+            return
         except Exception as exc:
             log.warning(
                 "Styler warmup failed (%s). First dictation will pay the "
@@ -212,6 +219,90 @@ class Styler:
                 "errors, so this is non-fatal.",
                 exc,
             )
+            return
+        log.info(
+            "Styler warmup complete (model=%s, keep_alive=%s)",
+            model, keep_alive,
+        )
+        # Nach erfolgreichem Load pruefen, ob das Modell wirklich im VRAM
+        # liegt — num_gpu=999 ist ab Ollama 0.30.x serverseitig wirkungslos
+        # (s. verify_gpu_placement). Eigener Schutz: ein Fehler im Check darf
+        # den erfolgreichen Warmup nicht nachtraeglich zum Fehler machen.
+        try:
+            await self.verify_gpu_placement()
+        except Exception:
+            log.exception("GPU-Placement-Check nach Warmup fehlgeschlagen")
+
+    async def verify_gpu_placement(self) -> str | None:
+        """Prueft nach dem Warmup via ``ollama.ps()``, ob das Polish-Modell
+        im VRAM liegt oder komplett auf die CPU gefallen ist.
+
+        Hintergrund: ``num_gpu=999`` (FORCE_ALL_LAYERS_ON_GPU) ist ab
+        Ollama 0.30.x serverseitig wirkungslos (Regression, GitHub #16610) —
+        das Modell landet trotz freiem VRAM komplett auf CPU. Die alte
+        Latenz-Heuristik (_observe_polish_duration) erkennt das unzuverlaessig,
+        weil kurze Inputs auch auf CPU unter SLOW_POLISH_THRESHOLD_SEC bleiben
+        koennen. ``size_vram`` aus ps() ist dagegen ein direktes,
+        deterministisches Signal.
+
+        Returns ``"cpu"`` (geladen, 0 Byte im VRAM), ``"gpu"`` (im VRAM) oder
+        ``None`` (Modell laeuft nicht / ps nicht erreichbar / size_vram unklar).
+        Bei ``"cpu"`` feuert ein actionabler Tray-Toast-Callback + WARNING-Log.
+
+        Kira setzt eine CUDA-GPU voraus (Whisper laeuft hardcoded auf
+        device="cuda"), darum ist size_vram=0 hier immer ein echter Fehler
+        und nie ein "kein-GPU"-False-Positive.
+        """
+        model = self._resolve_model(None)
+        try:
+            resp = await self._client.ps()
+        except Exception as exc:
+            log.warning(
+                "GPU-Placement-Check uebersprungen — ollama.ps() "
+                "fehlgeschlagen (%s)", exc,
+            )
+            return None
+        for m in getattr(resp, "models", None) or []:
+            if model not in (getattr(m, "model", None), getattr(m, "name", None)):
+                continue
+            size = m.size
+            vram = m.size_vram
+            if size is None or vram is None:
+                # Unklare Antwort — lieber nicht warnen als falsch warnen.
+                return None
+            if int(size) > 0 and int(vram) == 0:
+                log.warning(
+                    "Polish-Modell %s liegt KOMPLETT auf CPU (size=%.1f GB, "
+                    "size_vram=0). Polish ist dadurch ~5-10x langsamer. "
+                    "Abhilfe: Ollama neu starten — Kira setzt "
+                    "OLLAMA_FLASH_ATTENTION=1 + OLLAMA_KV_CACHE_TYPE=q8_0 "
+                    "persistent, das senkt den VRAM-Bedarf und bringt das "
+                    "Modell in den VRAM. Bleibt es auf CPU: num_gpu=999 ist ab "
+                    "Ollama 0.30.x wirkungslos (Regression GitHub #16610) -> "
+                    "Ollama auf 0.24.0 downgraden.",
+                    model, int(size) / 1e9,
+                )
+                if self._on_cpu_fallback_detected is not None:
+                    msg = (
+                        f"Polish-Modell {model} laeuft auf CPU statt GPU — "
+                        f"stark verlangsamt. Ollama neu starten (Kira hat das "
+                        f"VRAM-Tuning gesetzt, es greift nach dem Neustart). "
+                        f"Hilft das nicht: Ollama auf 0.24.0 downgraden."
+                    )
+                    try:
+                        self._on_cpu_fallback_detected(msg)
+                    except Exception:
+                        log.exception(
+                            "on_cpu_fallback_detected callback raised"
+                        )
+                return "cpu"
+            if int(vram) > 0:
+                log.info(
+                    "Polish-Modell %s liegt im VRAM (%.1f/%.1f GB auf GPU)",
+                    model, int(vram) / 1e9, int(size) / 1e9,
+                )
+                return "gpu"
+        return None
 
     async def polish(self, text: str, mode: str) -> str:
         if not text.strip():
