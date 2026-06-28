@@ -1,6 +1,6 @@
 [project]
 name = "kira"
-version = "0.3.0"
+version = "0.3.1"
 description = "Voice-to-text menubar app — macOS + Windows 11"
 requires-python = ">=3.12"
 dependencies = [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import faulthandler
 import logging
+import logging.handlers
 import os
 import sys
 import threading
@@ -50,14 +51,35 @@ def _log_path() -> Path:
 
 LOG_PATH = _log_path()
 
+# kira.log hard cap: 15 MB pro Datei × (1 aktuelle + 1 Backup) = 30 MB
+# gesamt. Vorher wuchs kira.log unbegrenzt (13 MB nach ~7 Wochen Laufzeit,
+# 2026-06-28). faulthandler.log rotiert bewusst NICHT mit — es ist winzig
+# (~10 KB) und umgeht die logging-Maschinerie absichtlich (siehe run()).
+LOG_MAX_BYTES = 15 * 1024 * 1024
+LOG_BACKUP_COUNT = 1
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def _build_log_handler(path: Path) -> logging.Handler:
+    """Rotierender File-Handler mit hartem 30-MB-Gesamtcap, UTF-8.
+
+    UTF-8 explizit gesetzt: ohne das schreibt Python auf Windows in der
+    ANSI-Codepage (cp1252) und deutsche Umlaute landen als Mojibake in
+    kira.log (z. B. "M�ll" statt "Müll").
+    """
+    handler = logging.handlers.RotatingFileHandler(
+        str(path),
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    return handler
+
 
 def _configure_logging() -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        filename=str(LOG_PATH),
-    )
+    logging.basicConfig(level=logging.INFO, handlers=[_build_log_handler(LOG_PATH)])
 
 
 log = logging.getLogger("kira.main")
