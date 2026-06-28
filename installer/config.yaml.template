@@ -16,7 +16,13 @@ audio:
   #   peak 0.3-0.9, rms 0.05-0.15 → sweet spot
   # If Whisper still hallucinates "Vielen Dank." despite good levels,
   # see input_device below.
-  input_gain: 5.0
+  #
+  # 1.8 = kalibriert für Mike's Shure MV7+ bei Standard-Sprechabstand
+  # (gemessen 2026-06-28: peak ~0.62, rms ~0.099). Anderes Mic / anderer
+  # Abstand → nach obiger Regel anpassen. Ganz nah ans Mikro clippt auch
+  # bei 1.8, weil der Rohpegel ~2x mit dem Abstand schwankt — ein Compressor
+  # (Mic-DSP-App, beim MV7+ die ShurePlus-MOTIV-App) gleicht das aus.
+  input_gain: 1.8
 
   # Pin sounddevice to a specific input device. null = let Windows pick
   # the default — works on most setups. BUT: if Kira keeps transcribing
