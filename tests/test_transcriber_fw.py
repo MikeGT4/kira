@@ -123,7 +123,10 @@ def test_transcribe_passes_whisper_tuning_kwargs(monkeypatch, fake_config):
     """All Whisper tuning knobs must reach faster-whisper.
 
     Hardcoded knobs (PTT-specific, not user-tunable):
-      - beam_size=1
+      - beam_size=5 (2026-06-28: war 1; auf der RTX 5090 ist die ~5x
+        Decoder-Zeit latenzneutral, der breitere Beam fängt undeutlich
+        gesprochene Wörter besser ab — "nuschele" wurde mit beam=1 zu
+        "nur schließe" trotz sauberem, nicht-geclipptem Audio)
       - vad_filter=False (Silero swallowed Mike's audio at every threshold)
       - no_speech_threshold=0.9, compression_ratio_threshold=2.0
         (the latter was 1.8 until 2026-04-28 evening — too aggressive,
@@ -152,7 +155,7 @@ def test_transcribe_passes_whisper_tuning_kwargs(monkeypatch, fake_config):
     t = Transcriber(fake_config)
     t.transcribe(np.ones(1600, dtype=np.float32))
 
-    assert seen["beam_size"] == 1
+    assert seen["beam_size"] == 5
     assert seen["vad_filter"] is False
     assert "vad_parameters" not in seen
     assert seen["no_speech_threshold"] == 0.9

@@ -166,8 +166,13 @@ class Transcriber:
         wcfg = self._config.whisper
         lang = wcfg.language
         try:
-            # beam_size=1: PTT snippets are short — beam past 1 buys ≤0.5 %
-            # WER for ~5× GPU time.
+            # beam_size=5 (2026-06-28: war 1). Die ~5× Decoder-Zeit ist
+            # auf der RTX 5090 latenzneutral (Polish-Roundtrip dominiert
+            # eh), aber der breitere Beam fängt undeutlich gesprochene
+            # Wörter zuverlässiger ab. Konkreter Anlass: "nuschele" wurde
+            # mit beam=1 zu "nur schließe" bei sauberem, NICHT geclipptem
+            # Audio (peak=0.36) — kein Audio-Fehler, sondern zu schmale
+            # Decoder-Suche. transcribe_file() nutzt schon beam_size=5.
             # vad_filter=False: Silero VAD removed the entire audio buffer
             # on Mike's setup even at threshold=0.15 (see log 2026-04-27
             # 14:53, "removed 00:02.700 of 00:02.700"), starving Whisper.
@@ -184,7 +189,7 @@ class Transcriber:
             segments, info = model.transcribe(
                 audio,
                 language=None if lang == "auto" else lang,
-                beam_size=1,
+                beam_size=5,
                 vad_filter=False,
                 condition_on_previous_text=wcfg.condition_on_previous_text,
                 initial_prompt=wcfg.initial_prompt,

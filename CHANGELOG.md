@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.3.1 — 2026-06-28
+
+### Whisper-Genauigkeit bei undeutlichen Wörtern + Log-Rotation
+
+Anlass: Kira verstand „manchmal Müll" — diktiertes „nuschele" wurde z. B.
+zu „nur schließe". Log-Forensik über ~6500 Aufnahmen zeigte zwei Dinge.
+Erstens ist der naheliegende Verdächtige entlastet: Das Polish-LLM lässt
+86 % der Transkripte unverändert (Rest nur Interpunktion), `Whisper out`
+und `Polish out` sind fast immer identisch — der Müll entsteht schon bei
+Whisper, nicht beim Glätten. Zweitens hat der Clipping-Fix vom 16.06.
+(`input_gain` 2.0 → 1.0) zwar das harte Clipping beseitigt (35 % → 0 % der
+Aufnahmen mit `peak ≥ 0.99`), dabei aber das Nutzsignal halbiert
+(`rms` 0.120 → 0.059, unter Whispers Komfortzone). Schwächeres Signal +
+schmale Decoder-Suche = Fehlgriffe bei undeutlicher Aussprache.
+
+- **PTT-Whisper nutzt jetzt `beam_size=5` statt `1`
+  (`transcriber_fw.py`).** Der breitere Beam fängt undeutlich
+  gesprochene Wörter zuverlässiger ab. Die ~5× Decoder-Zeit ist auf der
+  RTX 5090 latenzneutral (der Polish-Roundtrip dominiert ohnehin).
+  `transcribe_file()` lief schon immer mit `beam_size=5`; der PTT-Pfad
+  ist jetzt gleichgezogen.
+- **Log-Rotation: harter 30-MB-Deckel für `kira.log` (`main.py`).**
+  `_configure_logging` nutzt einen `RotatingFileHandler` (15 MB × 1
+  Backup = 30 MB gesamt) statt des unbegrenzten `basicConfig`-
+  FileHandlers. kira.log war nach ~7 Wochen ungebremst auf 13 MB
+  gewachsen. `kira-faulthandler.log` bleibt bewusst ausgenommen (winzig,
+  umgeht die logging-Maschinerie).
+- **Bonus: `kira.log` jetzt UTF-8.** Der neue Handler setzt
+  `encoding="utf-8"` — vorher schrieb Python auf Windows in cp1252,
+  deutsche Umlaute landeten als Mojibake („M�ll" statt „Müll").
+- **Tests:** beam_size-Assertion auf 5 gezogen; 3 neue in
+  `tests/test_main.py` (Handler-Typ, 30-MB-Gesamtcap, UTF-8).
+
+**Nicht im Code — Hardware-Empfehlung:** Die saubere Wurzel-Lösung für
+den zu leisen Pegel liegt am Shure MV7+ selbst — Hardware-Gain in der
+MOTIV-App hochziehen + Auto-Level/Kompressor aktivieren, damit das
+Durchschnittssignal (`rms`) wieder Richtung 0.12 kommt, ohne dass die
+Transienten clippen. Software-`input_gain` ist ein Nullsummen-Hebel
+(hoch = Clipping, runter = zu leise) und kann nie beides zugleich.
+
 ## v0.3.0 — 2026-06-10
 
 ### Polish-Modell zuverlässig auf der GPU: VRAM-Tuning + CPU-Fallback-Detection
