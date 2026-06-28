@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.2 — 2026-06-28
+
+### Modell-Pull-Dialog: int32-Overflow bei großen Modellen behoben
+
+Beim Laden eines großen Polish-Modells (v.a. das unzensierte Qwen3.6-27B
+mit 17.4-GB-Blob) hing der Fortschrittsdialog in einer Endlos-Animation und
+`kira.log` füllte sich mit tausenden Tracebacks — der Pull lief im
+Hintergrund weiter, aber jeder Fortschritts-Tick warf einen Fehler.
+
+- **Root Cause:** `on_progress` rief `progress.setMaximum(int(total))` /
+  `setValue(int(safe_completed))` mit `total` in Bytes. `QProgressDialog`
+  nimmt aber einen C-`int32` (max ~2.1 GiB) — bei einem 17.4-GB-Blob wirft
+  das `OverflowError: value must be in the range -2147483648 to 2147483647`
+  bei JEDEM Stream-Update (in einem Log: 12651 Einträge). Der
+  v0.2.8-`qint64`-Fix hatte nur das `_PullWorker`-**Signal** korrigiert
+  (gegen die Minusprozente); der `setMaximum`-Call blieb auf int32 — die
+  andere Hälfte desselben Bugs.
+- **Fix (`settings_dialog.py`):** Neue Hilfsfunktion `_progress_scale`
+  mappt die Byte-Werte auf eine feste 0..1000-Promille-Skala, die immer im
+  int32-Bereich liegt. Die echte MB-/Prozent-Anzeige kommt weiter aus den
+  rohen Byte-Werten. Betraf nur Modelle > 2.1 GiB; kleinere pullten sauber,
+  daher fiel's nicht überall auf.
+- **Tests:** 3 neue in `tests/test_settings_dialog.py` (`_progress_scale`
+  gegen 17.4-GB-total, total=0-Spinner, completed>total-Clamp). Der
+  bestehende `test_pull_worker_emits_large_byte_counts_without_int32_overflow`
+  deckte nur das Signal ab, nicht den `setMaximum`-Call.
+
 ## v0.3.1 — 2026-06-28
 
 ### Whisper-Genauigkeit bei undeutlichen Wörtern + Log-Rotation

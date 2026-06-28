@@ -206,6 +206,28 @@ def _ollama_model_installed(model: str) -> bool:
 _orphan_pull_threads: list = []
 
 
+# QProgressDialog.setMaximum/setValue nehmen C int32 (max 2_147_483_647 ≈ 2 GiB).
+# Modell-Blobs sprengen das (unzensiertes Qwen3.6-27B: 17.4-GB-Blob) → OverflowError
+# bei JEDEM Progress-Tick. Der v0.2.8-qint64-Fix korrigierte nur das _PullWorker-
+# Signal; on_progress's setMaximum(int(total)) warf weiter (12651 Log-Einträge,
+# "Endlosschleife" beim Modell-Pull). Auf eine feste 0..1000-Promille-Skala mappen;
+# echte MB/Prozent kommen weiter aus den rohen Byte-Werten (Python-int, kein Overflow).
+_PROGRESS_SCALE = 1000
+
+
+def _progress_scale(completed: int, total: int) -> tuple[int, int]:
+    """Mappt Byte-Werte auf ein int32-sicheres (maximum, value) für QProgressDialog.
+
+    total<=0 → (0, 0) = unbestimmter Spinner (Größe noch unbekannt).
+    completed wird auf [0, total] geclampt (ollama sendet beim Layer-Switch /
+    in der Verifikationsphase gelegentlich completed>total).
+    """
+    if total <= 0:
+        return (0, 0)
+    safe = max(0, min(completed, total))
+    return (_PROGRESS_SCALE, round(safe / total * _PROGRESS_SCALE))
+
+
 class _PullWorker(QObject):
     """Background ollama.pull(model) — streams events back to the GUI.
 
@@ -1132,8 +1154,9 @@ class SettingsDialog(QDialog):
             # zeigt eine Endlos-Animation statt der echten Prozent.
             if total > 0:
                 safe_completed = max(0, min(completed, total))
-                progress.setMaximum(int(total))
-                progress.setValue(int(safe_completed))
+                maximum, value = _progress_scale(completed, total)
+                progress.setMaximum(maximum)
+                progress.setValue(value)
                 pct = (safe_completed / total) * 100
                 mb_done = safe_completed / (1024 * 1024)
                 mb_total = total / (1024 * 1024)
