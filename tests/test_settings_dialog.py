@@ -179,6 +179,40 @@ def test_pull_worker_emits_large_byte_counts_without_int32_overflow(
     assert total > 0
 
 
+def test_progress_scale_keeps_oversize_total_in_int32_range():
+    """17.4-GB-Blob darf QProgressDialog.setMaximum (C int32) nicht sprengen.
+    Der v0.2.8-qint64-Fix korrigierte nur das Signal; setMaximum(int(total))
+    warf weiter OverflowError bei JEDEM Progress-Tick — Mike's 'Endlosschleife'
+    (12651 Log-Eintraege bei settings_dialog.py:1135)."""
+    from kira.ui.settings_dialog import _progress_scale
+
+    INT32_MAX = 2 ** 31 - 1
+    completed = 5 * 1024 ** 3          # 5 GiB
+    total = 17 * 1024 ** 3 + 432       # 17.4 GiB
+    assert total > INT32_MAX, "Test-Setup: total muss overflow-gross sein"
+    maximum, value = _progress_scale(completed, total)
+    assert 0 < maximum <= INT32_MAX
+    assert 0 <= value <= maximum
+    # value/maximum spiegelt das echte Byte-Verhaeltnis (~29 %)
+    assert abs(value / maximum - completed / total) < 0.01
+
+
+def test_progress_scale_zero_total_is_indeterminate():
+    """total=0 (Stream-Start, Groesse noch unbekannt) -> (0,0) = Endlos-Spinner."""
+    from kira.ui.settings_dialog import _progress_scale
+
+    assert _progress_scale(0, 0) == (0, 0)
+
+
+def test_progress_scale_clamps_completed_over_total():
+    """ollama sendet beim Layer-Switch/Verify gelegentlich completed>total —
+    value darf maximum nie ueberschreiten (sonst Qt-Endlos-Animation statt %)."""
+    from kira.ui.settings_dialog import _progress_scale
+
+    maximum, value = _progress_scale(completed=200, total=100)
+    assert value <= maximum
+
+
 def test_pull_worker_finished_true_on_clean_stream(qtbot, monkeypatch):
     """Stream-Ende ohne Cancel → finished.emit(True, <message mit Modellname>)."""
     from kira.ui.settings_dialog import _PullWorker
