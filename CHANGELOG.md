@@ -39,6 +39,28 @@ bisherige Toast („Ollama neu starten") empfahl die wirkungslose Abhilfe.
   verpuffte komplett (im Live-Test gefunden). `notify()` kürzt jetzt mit
   Ellipse; der volle Text steht immer im Log.
 
+### Neue Modell-Defaults: Gemma 4 (12B + E4B)
+
+Google hat am 03.06.2026 Gemma 4 veröffentlicht — mit deutlich besserem
+Instruction-Following als Gemma 3 (das für Kiras „poliere, aber schreibe
+nicht um"-Auftrag entscheidende Kriterium). Neue Defaults:
+
+- **Polish-Default für Neu-Installationen:** `gemma4:12b` statt
+  `gemma3:12b` (Template + Setup-Wizard-Pull). Braucht Ollama ≥ 0.30 —
+  der Installer bringt eine aktuelle Version mit. Bestehende Configs
+  bleiben unangetastet (explizite `styler.model`-Einträge gewinnen).
+- **Schneller Modus:** `fast_model`-Default `gemma4:e4b` statt
+  `gemma3:4b`. Der Härtetest, an dem gemma3:4b scheiterte
+  (`scripts/probes/probe_terminal_prompt.py` — „git status"-Anker bei
+  Konversations-Input), läuft mit e4b 0/6 buggy; diktierte Befehle wie
+  „ssh root att 192 168 1 1" werden korrekt zu `ssh root@192.168.1.1`.
+- gpu_check-Tabelle + Dialog-Texte um die gemma4-Einträge ergänzt;
+  gemma3-Einträge bleiben für Bestands-User erhalten.
+- Hinweis: `gemma4:12b` konnte auf dem Referenz-System (bewusster
+  Ollama-0.24.0-Pin wegen der offenen Eviction-Regression ollama#16610)
+  noch nicht geprobt werden — die Registry verlangt dafür ≥ 0.30. Die
+  e4b-Probe (gleiche Familie/Prompt-Disziplin) ist grün.
+
 ### Review-Welle: 6 Findings gefixt (Logik/Silent-Failures)
 
 Parallel-Review der Kern-Runtime-Module, alle Findings am Code

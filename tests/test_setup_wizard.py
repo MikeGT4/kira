@@ -58,7 +58,7 @@ def test_default_whisper_repo_is_large_v3_no_turbo():
 
 
 def test_default_gemma_tag():
-    assert DEFAULT_GEMMA_TAG == "gemma3:12b"
+    assert DEFAULT_GEMMA_TAG == "gemma4:12b"
 
 
 # ---------------------------------------------------------------------------

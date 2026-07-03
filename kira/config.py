@@ -99,7 +99,7 @@ class StylerConfig(BaseModel):
     # haben Vorrang vor fast_mode — wer translate_en explizit auf qwen3:8b
     # gepinnt hat, behaelt sein Modell auch bei aktivem Speed-Toggle.
     fast_mode: bool = False
-    fast_model: str = "gemma3:4b"
+    fast_model: str = "gemma4:e4b"
     # Optional Per-Mode-Overrides. Key = Mode-Name (matched gegen
     # context_modes-Werte). Falls Mode hier nicht definiert oder Felder
     # None: Defaults aus StylerConfig oben.

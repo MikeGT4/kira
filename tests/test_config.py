@@ -99,7 +99,7 @@ def test_styler_fast_mode_defaults_off():
     """Beim Upgrade darf Default-Behavior nicht aendern — fast_mode muss aus sein."""
     c = Config()
     assert c.styler.fast_mode is False
-    assert c.styler.fast_model == "gemma3:4b"
+    assert c.styler.fast_model == "gemma4:e4b"
 
 
 def test_styler_fast_mode_loaded_from_yaml(tmp_path):

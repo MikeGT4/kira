@@ -323,7 +323,7 @@ audio:
 whisper:
   language: auto
 styler:
-  model: gemma3:12b
+  model: gemma4:12b
   timeout_seconds: 30.0
 injector:
   restore_clipboard_after_ms: 500
@@ -519,7 +519,7 @@ class SettingsDialog(QDialog):
         polish_row = QHBoxLayout()
         self._styler_model = QLineEdit()
         self._styler_model.setText(self._cfg.styler.model)
-        self._styler_model.setPlaceholderText("z.B. gemma3:12b, qwen3:8b")
+        self._styler_model.setPlaceholderText("z.B. gemma4:12b, gemma3:12b, qwen3:8b")
         polish_row.addWidget(self._styler_model)
         update_btn = QPushButton("Aktualisieren")
         update_btn.setToolTip(

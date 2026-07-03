@@ -52,13 +52,15 @@ whisper:
   initial_prompt: "Kira, Whisper, Ollama, GitHub, Python, Linux, Windows."
 
 styler:
-  # Polish-step LLM. gemma3:12b is the sweet spot for 16 GB VRAM:
-  #   ~7 GB VRAM + ~3 GB whisper = ~10 GB used, ~6 GB headroom.
+  # Polish-step LLM. gemma4:12b (Juni 2026) is the sweet spot for 16 GB VRAM:
+  #   ~7.5 GB VRAM + ~3 GB whisper = ~11 GB used, ~5 GB headroom.
   # Latency on a 5080-class GPU: under 1 s for a 50-word polish AFTER warmup.
+  # Braucht Ollama >= 0.30 (der Installer bringt eine aktuelle Version mit).
+  # Auf aelteren Ollama-Servern stattdessen: model: gemma3:12b
   #
   # If your GPU has less VRAM, drop to:
-  #   model: gemma3:4b   # ~3 GB VRAM, marginally lower polish quality
-  model: gemma3:12b
+  #   model: gemma4:e4b   # ~3 GB VRAM, marginally lower polish quality
+  model: gemma4:12b
   # Cold-Start für 12B ~6-8s, für 27B ~14s. Großzügig dimensioniert damit
   # der allererste Polish-Call durchläuft. Nach Warmup spielt der Wert keine
   # Rolle mehr — Polish dauert <1s. Symptom bei zu kurzem Wert: Log zeigt

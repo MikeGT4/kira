@@ -7,7 +7,7 @@ Slim-Installer-Build aufgerufen. Drei Steps:
    `huggingface_hub.snapshot_download` mit Resume-Support.
 2. Ollama-Backend installieren falls noch nicht da, sonst skippen
    (idempotent).
-3. Gemma-Modell pullen (~8 GB, `ollama pull gemma3:12b`) — skippen
+3. Gemma-Modell pullen (~8 GB, `ollama pull gemma4:12b`) — skippen
    wenn `ollama list` den Tag bereits zeigt.
 
 Architektur:
@@ -95,7 +95,7 @@ OLLAMA_API_URL = "http://127.0.0.1:11434/api/tags"
 # repo_id-Parameter overridebar.
 DEFAULT_WHISPER_REPO = "Systran/faster-whisper-large-v3"
 
-DEFAULT_GEMMA_TAG = "gemma3:12b"
+DEFAULT_GEMMA_TAG = "gemma4:12b"
 
 # Whitelist fuer huggingface_hub.snapshot_download — defense-in-depth
 # gegen kompromittierte HF-Repos die LFS-Pointer auf andere Hosts oder
