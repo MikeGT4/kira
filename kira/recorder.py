@@ -242,16 +242,43 @@ class Recorder:
             # vom Laptop-Mikro stillschweigend zu vermeiden.
             if self._input_device is None and self._device_spec is not None:
                 return
-            stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                callback=self._callback,
-                blocksize=1600,  # 100 ms
-                device=self._input_device,
-            )
+            # Open + Start duerfen NICHT propagieren: Im F8-Retry-Pfad
+            # (start() -> prewarm()) catcht KiraApp nur DeviceUnavailable —
+            # ein roher PortAudioError (Device zwischen Resolve und Open
+            # gegrabbt/abgezogen, TOCTOU) wuerde im HotkeyListener versacken
+            # und der Press fuehlt sich wie NICHTS an. Stattdessen: Stream
+            # None lassen, dann wirft start() sauber DeviceUnavailable
+            # (gelbes Tray-Icon 3 s).
+            try:
+                stream = sd.InputStream(
+                    samplerate=SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype=DTYPE,
+                    callback=self._callback,
+                    blocksize=1600,  # 100 ms
+                    device=self._input_device,
+                )
+            except Exception:
+                log.warning(
+                    "prewarm: input stream open failed (device=%s)",
+                    self._input_device, exc_info=True,
+                )
+                return
             self._stream = stream
-        stream.start()
+        try:
+            stream.start()
+        except Exception:
+            log.warning(
+                "prewarm: input stream start failed (device=%s)",
+                self._input_device, exc_info=True,
+            )
+            with self._lock:
+                try:
+                    stream.close()
+                except Exception:
+                    log.debug("prewarm: closing failed stream raised", exc_info=True)
+                if self._stream is stream:
+                    self._stream = None
 
     def _is_device_still_present(self) -> bool:
         """True wenn das ge-pinnte Device noch in sd.query_devices() steht.

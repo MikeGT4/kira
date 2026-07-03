@@ -274,6 +274,16 @@ class KiraTray:
         # None). Verhindert, dass ein zweiter Tray-Klick einen weiteren
         # modalen Dialog über den ersten stapelt — s. _show_settings_dialog.
         self._settings_dlg = None
+        # File-Transcription-Anker: QThread/Worker/Progress MUESSEN an
+        # einem langlebigen, extern verankerten Objekt haengen. Vorher
+        # hingen sie als Attribute am Progress-Dialog, der selbst nur noch
+        # Teil des Referenz-Zyklus (progress -> worker-Signale -> Closures
+        # -> progress) war — Pythons Zyklus-GC konnte den laufenden QThread
+        # mitten in der Transkription einsammeln (Qt: undefined behaviour).
+        # Doppelt genutzt als Doppel-Start-Guard, s. _show_transcribe_file_dialog.
+        self._transcribe_thread = None
+        self._transcribe_worker = None
+        self._transcribe_progress = None
 
     def set_transcriber(self, transcriber) -> None:
         """Wird im main.py nach Tray-Konstruktion gerufen — die Tray
@@ -425,8 +435,7 @@ class KiraTray:
             "transcribe-file dialog",
         )
 
-    @staticmethod
-    def _show_transcribe_file_dialog(transcriber) -> None:
+    def _show_transcribe_file_dialog(self, transcriber) -> None:
         # Imports lazy: das Tray-Modul wird auf jedem Boot importiert,
         # auch wenn der User nie File-Transcription nutzt — keine
         # PyQt-Worker-Allokationen on-load.
@@ -439,6 +448,17 @@ class KiraTray:
             light_critical,
             light_information,
         )
+
+        # Doppel-Start-Guard: Whisper teilt sich ein Modell — eine zweite
+        # parallele File-Transkription wuerde zudem die Anker unten
+        # ueberschreiben und den ersten QThread wieder GC-baubar machen.
+        if self._transcribe_thread is not None and self._transcribe_thread.isRunning():
+            light_information(
+                None, "Kira",
+                "Es läuft bereits eine Datei-Transkription. Bitte warten, "
+                "bis sie abgeschlossen ist.",
+            )
+            return
 
         path, _filter = QFileDialog.getOpenFileName(
             None,
@@ -489,10 +509,35 @@ class KiraTray:
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
 
-        def on_done(out_path: str, language: str) -> None:
-            progress.close()
+        # "Abbrechen" kann den blockierenden faster-whisper-Call nicht
+        # wirklich stoppen (eine C-Level-Transkription ohne Hook). Aber
+        # vorher war der Knopf KOMPLETT tot (canceled nie verbunden,
+        # v0.2.8-Bugklasse): Dialog verschwand, Minuten spaeter poppte
+        # aus dem Nichts die "Fertig"-Box auf. Neu: Cancel unterdrueckt
+        # das Ergebnis — der Worker laeuft leise aus, kein Popup.
+        cancelled = {"val": False}
+
+        def on_cancelled() -> None:
+            cancelled["val"] = True
+            log.info(
+                "File-Transcription abgebrochen (Worker laeuft im "
+                "Hintergrund aus, Ergebnis wird verworfen)"
+            )
+
+        progress.canceled.connect(on_cancelled)
+
+        def _teardown() -> None:
             thread.quit()
             thread.wait()
+            self._transcribe_thread = None
+            self._transcribe_worker = None
+            self._transcribe_progress = None
+
+        def on_done(out_path: str, language: str) -> None:
+            progress.close()
+            _teardown()
+            if cancelled["val"]:
+                return
             light_information(
                 None, "Kira",
                 f"Fertig.\n\nTranskript gespeichert unter:\n{out_path}\n\n"
@@ -501,17 +546,20 @@ class KiraTray:
 
         def on_failed(message: str) -> None:
             progress.close()
-            thread.quit()
-            thread.wait()
+            _teardown()
+            if cancelled["val"]:
+                return
             light_critical(None, "Kira", message)
 
         worker.done.connect(on_done)
         worker.failed.connect(on_failed)
         thread.start()
-        # Refs am Progress-Dialog festhalten, sonst frisst der GC sie
-        # bevor der Worker fertig ist.
-        progress._kira_thread = thread  # type: ignore[attr-defined]
-        progress._kira_worker = worker  # type: ignore[attr-defined]
+        # Anker auf der langlebigen Tray-Instanz — der Progress-Dialog
+        # als Traeger war selbst Teil des Zyklus und damit GC-baubar
+        # (laufender QThread haette zerstoert werden koennen).
+        self._transcribe_thread = thread
+        self._transcribe_worker = worker
+        self._transcribe_progress = progress
 
     def _about(self, _icon, _item) -> None:
         self._marshal_to_qt(self._show_about_dialog, "about dialog")

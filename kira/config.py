@@ -242,4 +242,15 @@ def load_config(path: Path | None = None) -> Config:
     if not path.exists():
         return Config()
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    # context_modes ist ein plain-dict-Field: pydantic ERSETZT es komplett,
+    # sobald die YAML einen context_modes-Block enthaelt — ein einzelner
+    # Custom-Eintrag (der offiziell empfohlene Raw-YAML-Weg, s. Settings-
+    # Dialog + config_writer) wuerde sonst still alle ~29 Built-in-Mappings
+    # (outlook->email, cmd->terminal, ...) auf plain zuruecksetzen. Darum
+    # hier explizit auf die Plattform-Defaults draufmergen; User-Eintraege
+    # gewinnen bei Key-Kollision.
+    if isinstance(raw.get("context_modes"), dict):
+        merged = platform_context_modes()
+        merged.update(raw["context_modes"])
+        raw["context_modes"] = merged
     return Config.model_validate(raw)

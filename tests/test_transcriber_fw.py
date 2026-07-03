@@ -429,3 +429,36 @@ def test_ensure_model_is_thread_safe(monkeypatch, fake_config):
         th.join(timeout=10)
 
     assert call_count["n"] == 1, f"WhisperModel constructed {call_count['n']} times, expected 1"
+
+
+def test_transcribe_file_passes_vad_threshold(monkeypatch, fake_config):
+    """whisper.vad_threshold war tote Config: Feld + Template-Wert (0.15)
+    existierten, aber transcribe_file() reichte nie vad_parameters an
+    faster-whisper durch — Tuning hatte null Wirkung. Zwei Werte geprueft,
+    damit echtes Durchreichen nachgewiesen ist, nicht ein Default."""
+    from kira.transcriber_fw import Transcriber
+
+    seen: dict = {}
+
+    class FakeInfo:
+        language = "de"
+
+    class FakeSegment:
+        def __init__(self, text): self.text = text
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            return iter([FakeSegment("Hallo Welt")]), FakeInfo()
+
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
+    t = Transcriber(fake_config)
+
+    fake_config.whisper.vad_threshold = 0.15
+    t.transcribe_file("/tmp/a.wav")
+    assert seen["vad_parameters"] == {"threshold": 0.15}
+
+    fake_config.whisper.vad_threshold = 0.4
+    t.transcribe_file("/tmp/b.wav")
+    assert seen["vad_parameters"] == {"threshold": 0.4}

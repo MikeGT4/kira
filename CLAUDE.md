@@ -4,9 +4,61 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.3.0 (`windows-port`) — Code gepusht + Installer gebaut,
-GitHub-Release noch ausstehend (latest-Release ist daher noch v0.2.8, bis das
-v0.3.0-Release mit den Setup-Assets veröffentlicht ist). Vorher: v0.2.8 released 2026-05-28.
+**Version:** v0.3.3 (`windows-port`) — 2026-07-03. Vorher: v0.3.1 +
+v0.3.2 am selben Tag (2026-06-28) released, v0.3.0 released 2026-06-12
+(Tag `78e0f66`). Release-Ablage: GitHub ist seit v0.3.2 die alleinige
+Ablage (4 Assets: Setup-exe + 2 bin-Splits + SHA256SUMS; lokale
+Artefakte nach Upload gelöscht).
+
+v0.3.3 entlarvt Fremd-Ollamas auf Port 11434 („Polish auf CPU trotz
+26,5 GB freiem VRAM" nach Win-Start). **Root Cause war NICHT der
+Windows-Ollama:** Der Docker-Container `mirofish-ollama` (anderes
+Projekt, `0.0.0.0:11434->11434`, `restart: unless-stopped`) band beim
+WSL2-Boot den Port vor der Ollama-Tray-App — auf der Win-Seite hält dann
+`wslrelay.exe` den Port, die Tray-App spammt Bind-Errors, und Kira redete
+wochenlang mit dem Container-Server (eigener Modell-Store, sieht das
+HKCU-VRAM-Tuning aus v0.3.0 NIE; Details in „Ollama-Port-Besitz" unten).
+Kira-seitig: neues `kira/ollama_diag.py` (Port-Inhaber via
+`GetExtendedTcpTable`, klassifiziert win-ollama/wsl/docker/other, Toast
+trägt die zum Inhaber passende Abhilfe), `verify_gpu_placement` erkennt
+jetzt auch Partial-Offload (`size_vram < 0.95×size` → „partial", das
+49/51-Split-Muster) + matcht untagged Modellnamen (`gemma3` ↔
+`gemma3:latest`), und der Setup-Re-Probe holt einen gescheiterten
+Boot-Warmup nach (`Styler.warmup_succeeded`). Dazu Review-Welle mit 6
+verifizierten Findings gefixt: `context_modes`-YAML ersetzte statt zu
+mergen (kritisch — ein Custom-Eintrag warf alle Built-in-Mappings weg),
+`vad_threshold` war tote Config, `prewarm()` warf rohe PortAudio-Fehler
+am DeviceUnavailable-Contract vorbei, Injector-Restore-Timer kollidierten
+bei schnellen Diktaten (Generation-Guard), File-Transkription hatte einen
+toten Abbrechen-Knopf + GC-gefährdeten QThread (Anker jetzt auf der
+Tray-Instanz + Doppel-Start-Guard). 33 neue Tests, Suite 411 grün.
+Voller Eintrag in `CHANGELOG.md`.
+
+v0.3.2 fixt den Modell-Pull-Dialog-Hänger bei großen Modellen. `on_progress`
+in `kira/ui/settings_dialog.py` rief `progress.setMaximum(int(total))` mit
+`total` in Bytes — `QProgressDialog` nimmt aber C int32 (max ~2.1 GiB); ein
+17.4-GB-Blob (unzensiertes Qwen3.6-27B) warf `OverflowError` bei JEDEM
+Stream-Tick (Endlos-Animation + in einem Log 12651 Einträge = Mike's
+„Endlosschleife beim Updaten"). Der v0.2.8-qint64-Fix korrigierte nur das
+`_PullWorker`-**Signal**, nicht den `setMaximum`-Call — die andere Hälfte
+desselben Bugs. Fix: neue Helper `_progress_scale` mappt Bytes auf eine feste
+0..1000-Promille-Skala (immer int32-sicher); echte MB/% kommen weiter aus den
+rohen Byte-Werten. 3 neue Tests. Voller Eintrag in `CHANGELOG.md`.
+
+v0.3.1 released 2026-06-28 (`windows-port`). Anlass: „Kira versteht manchmal
+Müll". Log-Forensik (~6500 Aufnahmen) entlastet das Polish-LLM (86 %
+`Whisper out`==`Polish out`, 0 % starke Kürzung) — der Müll entsteht schon
+bei Whisper. Der 16.06.-Clipping-Fix (`input_gain` 2.0→1.0) beseitigte das
+Clipping (35 %→0 % hart geclippt, über kira.log verifiziert), halbierte aber
+das Nutzsignal (`rms` 0.120→0.059, unter Whispers Komfortzone). Fix:
+PTT-`transcribe()` nutzt `beam_size=5` statt 1 (breitere Decoder-Suche fängt
+undeutlich gesprochene Wörter besser ab, auf der 5090 latenzneutral;
+`transcribe_file()` hatte 5 schon). Plus Log-Rotation: `kira.log` auf 30 MB
+gedeckelt (`RotatingFileHandler`, 15 MB × 1 Backup) + `encoding="utf-8"`
+(vorher cp1252-Mojibake bei Umlauten). 3 neue Tests in `tests/test_main.py`.
+**Wurzel-Lösung fürs zu leise Signal ist Hardware-seitig (Shure-Gain in der
+MOTIV-App) und steht noch aus** — s. `~/.claude/reminders/shure-mic-kalibrierung.md`
+und Abschnitt „Audio gain & clipping". Vorher: v0.2.8 released 2026-05-28.
 
 v0.3.0 bringt das Polish-Modell zuverlässig auf die GPU. Persistentes
 VRAM-Tuning (`kira/ollama_env.py`) setzt beim Start
@@ -270,7 +322,11 @@ Beispiele im README-Config-Abschnitt + `installer/config.yaml.template`.
 ## Runtime paths
 
 ### Windows
-- Source: WSL `/home/<user>/claude_kira/`
+- Source: NTFS `C:\Users\<user>\dev\kira` (= `/mnt/c/Users/<user>/dev/kira`
+  aus WSL; seit dem WSL-Decoupling v0.2.0. Der alte WSL-Tree
+  `/home/<user>/claude_kira/` existiert als Zweit-Checkout, ist aber NICHT
+  mehr das editable-Install-Ziel — Edits dort erreichen die laufende
+  Dev-Instanz nicht.)
 - Venv: `C:\Users\<user>\kira-venv\` (Windows-side, NOT WSL — binary
   wheels with CUDA/Qt6 DLLs need to be on a real NTFS path)
 - Launcher: `C:\Users\<user>\kira-venv\Scripts\kira.exe`
@@ -427,15 +483,55 @@ boot to quit.
 warmup. Set to `false` in `config.yaml` on a low-VRAM box if you'd
 rather pay first-press latency than hold the model resident.
 
+## Ollama-Port-Besitz (11434) — Fremd-Server-Falle
+
+Kiras gesamte Ollama-Heilung (HKCU-VRAM-Tuning v0.3.0, „Ollama neu
+starten"-Toasts) setzt voraus, dass auf `127.0.0.1:11434` der
+**Windows-native** Ollama antwortet. Der Port ist aber
+first-come-first-served, und auf Mike's Box konkurrieren drei Kandidaten:
+
+1. **Windows-Ollama-Tray-App** (Startup-Ordner `Ollama.lnk`) — der
+   gewollte Server. Verliert er das Bind-Race, spammt sein
+   `%LOCALAPPDATA%\Ollama\server.log` endlos `bind: Only one usage of
+   each socket address` — dieses Log ist dann NICHT das Log des
+   antwortenden Servers.
+2. **WSL-systemd `ollama.service`** — seit dem D:-Umzug disabled/tot
+   (verifiziert 2026-07-03), aber als Muster dokumentiert.
+3. **Docker-Container mit `0.0.0.0:11434`-Mapping** — der Täter vom
+   2026-07-03: `mirofish-ollama` (`ollama/ollama:latest`,
+   `restart: unless-stopped` im Compose von
+   `~/claude_mirofish/code/mirofish-offline/`) startet mit jedem
+   WSL-Boot. Auf der Win-Seite hält dann `wslrelay.exe` den Port.
+   Der Container-Server hat einen EIGENEN Modell-Store
+   (`/root/.ollama`, 31 GB Duplikate!), sieht HKCU-Env-Vars nie, und
+   lief nach frühem Boot ohne CUDA (Race in der VM) → Polish komplett
+   auf CPU trotz 26,5 GB freiem VRAM.
+
+**Diagnose-Reihenfolge** (alles ohne Interop möglich):
+`curl -s localhost:11434/api/version` + `/api/ps` (size vs `size_vram`),
+dann `netstat -ano | findstr :11434` → PID → Prozessname. `wslrelay.exe`
+als Inhaber = der echte Server läuft in der WSL-VM (systemd ODER
+Docker; `docker ps` in WSL checken). Seit v0.3.3 macht
+`kira/ollama_diag.py` genau das automatisch beim CPU-/Partial-Fallback
+und der Tray-Toast nennt die passende Abhilfe.
+
+**Wurzel-Abhilfe:** kein zweiter Ollama auf `0.0.0.0:11434`. Das
+Mirofish-Compose mappt seit 2026-07-03 auf `127.0.0.1:11435:11434`
+(Mirofish-intern läuft alles über Compose-DNS `ollama:11434`, das
+Host-Mapping ist nur Debug-Zugriff). Kiras `kick_wsl_distro()` bleibt —
+er ist für WSL-Ollama-Setups da — aber er weckt eben auch Docker-
+Autostarts; das ist dokumentierte Kehrseite, kein Bug.
+
 ## Restart workflow (editable install)
 
 The Windows venv is an `uv`-created editable install — no `pip` is
-available, but a `.pth` file in `site-packages` points at the WSL
-source directory:
+available, but a `.pth` file in `site-packages` points at the source
+directory (seit dem WSL-Decoupling der NTFS-Tree, verifiziert
+2026-07-03):
 
 ```
-C:\Users\<user>\kira-venv\Lib\site-packages\_editable_impl_kira.pth
-  -> \\wsl.localhost\Ubuntu\home\<user>\claude_kira
+C:\Users\<user>\kira-venv\Lib\site-packages\__editable__*.pth
+  -> C:\Users\<user>\dev\kira
 ```
 
 So source edits take effect on the **next process start** without any
@@ -525,6 +621,53 @@ WARNING line `sounddevice callback status: input underflow` should
 appear in `kira.log` shortly before any unhealthy behaviour. Followed
 by `Cycling input stream (dirty=True ...)` on the next F8 press if the
 flag-based path triggered before a native crash could.
+
+## Audio gain & clipping
+
+Der Recorder multipliziert Rohsamples mit `audio.input_gain` und clippt
+hart auf ±1.0 (`kira/recorder.py:187`, `np.clip(indata * gain, -1.0, 1.0)`).
+Der Block ist in `if self._input_gain != 1.0:` gekapselt — bei exakt `1.0`
+wird weder multipliziert noch geclippt, das Rohsignal geht 1:1 durch.
+
+**Clipping ist der wahrscheinlichste Grund für „Kira versteht Mist".**
+Diagnose-Schnitt: `kira.log` loggt pro Aufnahme `Whisper out` UND
+`Polish out`. Sind beide (fast) identisch, ist das Polish-LLM unschuldig
+und der Fehler steckt schon im Whisper-Output → also im Audio. Dann auf
+die `Recorder.stop`-Zeile schauen: **`peak` verrät Übersteuerung, `rms`
+nicht.** Der rms-Mittelwert kann in der „Target-Zone" (~0.12) liegen,
+während die lauten Transienten (Satzanfänge, Plosive) bei `peak=1.0000`
+hart clippen. Geclipptes Audio = abgeschnittene Wellenform = harmonische
+Verzerrung → Whisper halluziniert phonetisch (z. B. „temporärer Chat" →
+„Turbentempo-Rere-Chat").
+
+**Befund 2026-06-16:** Mit `input_gain: 2.0` waren **33 % aller Aufnahmen
+hart geclippt** (`peak=1.0000` über 4900 Log-Einträge), weitere 8 % fast.
+Root Cause: gain=2.0 wurde am 28.04. fürs damalige Mic kalibriert; der
+**Shure MV7+ (seit 11.05.)** liefert einen heißeren Pegel und wurde nie
+nachgezogen — der config-Kommentar „expected peak ~0.4" gilt für den
+Shure nicht. Gegenmaßnahme: `input_gain` auf `1.0` gesenkt (Software-
+Clipping damit ganz aus dem Pfad). **Verifiziert 2026-06-28** über
+kira.log: mit gain=1.0 sind **0 % der Aufnahmen hart geclippt** (vorher
+35 %, avg_peak 0.44). ABER der Software-gain ist ein Nullsummen-Hebel —
+gain=1.0 halbierte auch das Nutzsignal (`avg_rms` 0.120→0.059, unter
+Whispers Komfortzone), wodurch undeutlich gesprochene Wörter falsch erkannt
+werden („nuschele"→„nur schließe" bei sauberem, NICHT geclipptem
+`peak=0.36`). v0.3.1 mildert per `beam_size=5` (breitere Decoder-Suche).
+**Kalibriert 2026-06-28 (Weg A, Software-gain, keine MOTIV-App):**
+`input_gain` auf **1.8** — bei Mike's STANDARD-Sprechabstand trifft das die
+Zielzone (gemessen: `peak 0.62`, `rms 0.099`). Trade-off: Mike's Rohpegel
+schwankt ~2× mit dem Abstand, ganz nah ans Mikro clippt auch bei 1.8
+(`peak 1.0`) — es gibt mathematisch keinen festen gain, der beides kann
+(1.4 = nie Clipping aber rms 0.08 zu leise; 1.8 = rms gut aber Nah-Rangehen
+clippt). Konsequenz: beim Diktieren KONSISTENTEN Abstand halten. Wert auch
+im Repo-Template (`installer/config.yaml.template`) für künftige Installs.
+**Weg B als Fallback** (falls der Abstand nicht haltbar ist): ShurePlus-
+MOTIV-App + Compressor gleicht die Abstands-Schwankung automatisch aus.
+
+Kleinere Hebel, falls die Genauigkeit danach noch nicht reicht:
+`whisper.replacements` ist leer (Map für wiederkehrende Eigenbegriffe).
+Der PTT-Pfad nutzt seit v0.3.1 `beam_size=5` (war 1; auf der 5090
+latenzneutral) — dieser Hebel ist also schon gezogen.
 
 ## Branded icon workflow
 
@@ -623,10 +766,18 @@ of just dropping the context menu.
   `pytest.skip(..., allow_module_level=True)`.
 - Mac tests (`tests/test_hotkey.py`, `tests/test_injector.py`, etc.)
   fail to *collect* in the Windows WSL venv because they import Mac-only
-  modules at the top. Run the Windows test subset from WSL with:
+  modules at the top.
+- **Die Suite in GRUPPEN fahren, nie alle Dateien in einem Lauf:** Ein
+  Kollektiv-Lauf über alle Win-Testdateien crasht nativ (0xc000001d,
+  illegal instruction) beim Übergang test_tray_icon → test_styler —
+  PIL/pystray-Zustand beißt sich mit den asyncio-Tests (vorbestehend,
+  reproduziert 2026-07-03). Etablierte grüne Gruppen: (1) das Subset
+  unten, (2) styler/ollama*/main/utilities + tray_*_guard/handler,
+  (3) Qt-Dialoge (settings_dialog, setup_wizard, welcome_dialog).
+- Run the Windows test subset from WSL with:
 
   ```bash
-  cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\claude_kira && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest tests/test_transcriber_fw.py tests/test_hotkey_win.py tests/test_injector_win.py tests/test_context_win.py tests/test_permissions_win.py tests/test_config.py tests/test_recorder.py tests/test_state_machine.py tests/test_tray_icon.py -v && popd'
+  cd /tmp && cmd.exe /c 'cd /d C:\Users\<user>\dev\kira && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest tests/test_transcriber_fw.py tests/test_hotkey_win.py tests/test_injector_win.py tests/test_context_win.py tests/test_permissions_win.py tests/test_config.py tests/test_recorder.py tests/test_state_machine.py tests/test_tray_icon.py -v'
   ```
 
 ## WSL shell quoting reminder

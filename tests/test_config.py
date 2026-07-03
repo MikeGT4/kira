@@ -140,3 +140,34 @@ def test_updates_section_optional_in_yaml(tmp_path):
     yaml_file.write_text("styler:\n  model: gemma3:12b\n")
     cfg = load_config(yaml_file)
     assert cfg.updates.check_on_start is True
+
+
+def test_context_modes_yaml_merges_with_builtin_table(tmp_path, monkeypatch):
+    """Ein user-definierter context_modes-Block ERGAENZT die eingebaute
+    App-Tabelle, statt sie zu ersetzen. Vorher verlor ein User, der (wie
+    von Settings-Dialog + config_writer dokumentiert empfohlen) einen
+    einzelnen Custom-Eintrag in die Roh-YAML schrieb, still saemtliche
+    Default-Mappings (outlook->email, cmd->terminal, ...) — alle Apps
+    fielen auf plain zurueck."""
+    monkeypatch.setattr("sys.platform", "win32")
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text(
+        "context_modes:\n"
+        "  mychat.exe: chat\n"
+        "  outlook.exe: plain\n"
+    )
+    cfg = load_config(yaml_file)
+    # Custom-Eintrag da:
+    assert cfg.context_modes["mychat.exe"] == "chat"
+    # User-Override eines Default-Keys gewinnt:
+    assert cfg.context_modes["outlook.exe"] == "plain"
+    # Und die restliche Built-in-Tabelle lebt noch:
+    assert "cmd.exe" in cfg.context_modes
+
+
+def test_context_modes_absent_yields_full_builtin_table(tmp_path):
+    """Ohne context_modes-Block in der YAML bleibt alles wie gehabt."""
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("styler:\n  model: gemma3:12b\n")
+    cfg = load_config(yaml_file)
+    assert len(cfg.context_modes) > 5

@@ -288,7 +288,10 @@ def test_start_does_not_set_recording_when_input_stream_raises(monkeypatch):
     """TOCTOU-Schutz: Wenn sd.InputStream(...) zwischen query_devices()
     und Stream-Open eine Exception wirft (z.B. weil das Device just
     weggegangen ist), darf _recording NICHT auf True bleiben — sonst
-    hängt die State-Machine in RECORDING ohne tatsächlich aufzunehmen."""
+    hängt die State-Machine in RECORDING ohne tatsächlich aufzunehmen.
+    Seit dem prewarm-Hardening kommt die Exception als DeviceUnavailable
+    raus (nicht mehr als roher OSError) — nur DIE catcht KiraApp und
+    zeigt das gelbe Tray-Icon; alles andere versackte im Hotkey-Thread."""
     fake_devices = [
         {"name": "Mikrofon (ROG Theta Ultimate 7.)", "max_input_channels": 1},
     ]
@@ -299,7 +302,7 @@ def test_start_does_not_set_recording_when_input_stream_raises(monkeypatch):
 
     monkeypatch.setattr("kira.recorder.sd.InputStream", _explode)
     r = Recorder(input_device="ROG Theta")
-    with pytest.raises(OSError):
+    with pytest.raises(DeviceUnavailable):
         r.start()
     assert r._recording is False
     assert r._stream is None
@@ -505,3 +508,43 @@ def test_start_recovers_after_hot_unplug(monkeypatch):
     assert len(streams) == 2  # neuer Stream wurde geöffnet
     assert r._stream is streams[1]
     assert r._recording is True
+
+
+def test_prewarm_swallows_stream_open_failure(monkeypatch):
+    """PortAudioError zwischen Device-Resolve und Stream-Open (TOCTOU beim
+    USB-Hot-Unplug) darf aus prewarm() nicht rausschlagen: im F8-Retry-Pfad
+    catcht KiraApp nur DeviceUnavailable — jede andere Exception versackt
+    im HotkeyListener und der Press fuehlt sich wie NICHTS an (kein gelbes
+    Icon). prewarm() schluckt darum selbst, laesst _stream None und der
+    folgende start() wirft sauber DeviceUnavailable."""
+    def _boom(**kw):
+        raise RuntimeError("PortAudioError: device vanished")
+
+    monkeypatch.setattr("kira.recorder.sd.InputStream", _boom)
+    r = Recorder()
+
+    r.prewarm()  # darf NICHT raisen
+
+    assert r._stream is None
+    with pytest.raises(DeviceUnavailable):
+        r.start()
+
+
+def test_prewarm_swallows_stream_start_failure(monkeypatch):
+    """Auch stream.start() kann werfen (Device zwischen Open und Start
+    gegrabbt) — dann darf kein halb-offener Stream haengenbleiben."""
+    class _StartBoomStream:
+        def __init__(self, **kw): pass
+        def start(self):
+            raise RuntimeError("PortAudioError on start")
+        def stop(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr("kira.recorder.sd.InputStream", lambda **kw: _StartBoomStream())
+    r = Recorder()
+
+    r.prewarm()  # darf NICHT raisen
+
+    assert r._stream is None
+    with pytest.raises(DeviceUnavailable):
+        r.start()
