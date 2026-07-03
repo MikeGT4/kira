@@ -33,6 +33,11 @@ bisherige Toast („Ollama neu starten") empfahl die wirkungslose Abhilfe.
   Boot-Warmup (30.06.-Muster „Server disconnected"), lief bis zum
   nächsten Kira-Start weder Warmup noch GPU-Placement-Check. Der
   Setup-Re-Probe holt den Warmup jetzt nach (`Styler.warmup_succeeded`).
+- **Tray-Toasts respektieren die Win32-Längen-Grenze:** `Shell_NotifyIcon`
+  deckelt Nachrichten auf 255 Zeichen — die neuen Diagnose-Hints (369
+  Zeichen) ließen pystray mit `ValueError` abbrechen und der Toast
+  verpuffte komplett (im Live-Test gefunden). `notify()` kürzt jetzt mit
+  Ellipse; der volle Text steht immer im Log.
 
 ### Review-Welle: 6 Findings gefixt (Logik/Silent-Failures)
 

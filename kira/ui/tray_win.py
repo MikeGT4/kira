@@ -697,12 +697,22 @@ class KiraTray:
         Exceptions werden geschluckt damit ein kaputter Notification-
         Subsystem (Win-DoNotDisturb, Fokus-Modus, fehlende WinRT-Komponenten)
         nicht den Polish-Pfad umhaut.
+
+        Win32-Grenzen: NOTIFYICONDATAW deckelt szInfo auf 256 und
+        szInfoTitle auf 64 Zeichen (inkl. Nullterminator); pystray wirft
+        darueber ValueError — passiert mit den ollama_diag-Hints (369
+        Zeichen, 2026-07-03). Hier kuerzen statt verpuffen lassen; der
+        volle Text steht im Log des Aufrufers.
         """
         if self._icon is None:
             log.warning(
                 "tray.notify called before tray is up — dropping %r", title,
             )
             return
+        if len(message) > 255:
+            message = message[:254] + "…"
+        if len(title) > 63:
+            title = title[:62] + "…"
         try:
             self._icon.notify(message, title)
         except Exception:
