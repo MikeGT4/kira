@@ -45,15 +45,18 @@ _WHISPER_VRAM_GB: dict[str, float] = {
 # "gemma3:2b" gefressen wird.
 _OLLAMA_VRAM_GB: dict[str, float] = {
     "llama3.3:70b": 40.0,
+    "gemma4:26b": 16.0,
     "gemma3:27b": 16.0,
     "gemma2:27b": 16.0,
     "qwen3:14b": 8.5,
+    "gemma4:12b": 7.5,
     "gemma3:12b": 7.0,
     "gemma2:9b": 5.5,
     "qwen3:8b": 5.0,
     "llama3.1:8b": 5.0,
     "llama3:8b": 5.0,
     "qwen3:4b": 2.5,
+    "gemma4:e4b": 3.0,
     "gemma3:4b": 2.5,
     "llama3.2:3b": 2.0,
     "gemma2:2b": 1.5,

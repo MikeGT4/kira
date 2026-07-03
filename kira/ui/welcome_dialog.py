@@ -158,7 +158,7 @@ whisper:
 </pre>
 
 <h3>5. Unzensiertes Polish-Modell (optional)</h3>
-<p>Standardmäßig poliert Kira mit <code>gemma3:12b</code>. In Settings →
+<p>Standardmäßig poliert Kira mit <code>gemma4:12b</code>. In Settings →
 „Polish-LLM" kannst du über <b>„Unzensiertes Modell laden..."</b> optional
 ein abliteriertes Modell (Qwen3.6 27B, ~17 GB) nachladen, dessen
 Inhaltsfilter entfernt sind — nützlich, wenn der Standard-Polish
