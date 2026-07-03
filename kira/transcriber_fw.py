@@ -302,6 +302,10 @@ class Transcriber:
                 language=None if lang == "auto" else lang,
                 beam_size=5,
                 vad_filter=True,
+                # Ohne explizites Durchreichen nahm faster-whisper seinen
+                # internen VAD-Default und whisper.vad_threshold (im
+                # Installer-Template auf 0.15 getunt) war tote Config.
+                vad_parameters={"threshold": wcfg.vad_threshold},
                 condition_on_previous_text=wcfg.condition_on_previous_text,
                 initial_prompt=wcfg.initial_prompt,
             )

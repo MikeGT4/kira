@@ -1,5 +1,82 @@
 # Changelog
 
+## v0.3.3 — 2026-07-03
+
+### Ollama-Port-Diagnose: „Polish auf CPU" trotz freiem VRAM entlarvt Fremd-Server
+
+Anlass: Nach dem Windows-Start lief das Polish-Modell wieder komplett auf
+CPU — bei 26,5 GB freiem VRAM. Die Forensik ergab: **Auf Port 11434
+antwortete gar nicht der Windows-Ollama**, sondern ein Docker-Container
+aus einem anderen Projekt (`mirofish-ollama`, `0.0.0.0:11434->11434`,
+`restart: unless-stopped`), der beim WSL2-Boot den Port vor der
+Windows-Ollama-Tray-App band. Auf der Windows-Seite hält dann
+`wslrelay.exe` den Port; die Windows-App verliert das Bind-Race und
+spammt nur `bind: Only one usage…` in ihr server.log. Ein solcher
+Fremd-Server sieht Kiras HKCU-VRAM-Tuning (v0.3.0) **nie**, und der
+bisherige Toast („Ollama neu starten") empfahl die wirkungslose Abhilfe.
+
+- **Neu `kira/ollama_diag.py`:** identifiziert beim CPU-/Partial-Fallback
+  den Port-11434-Inhaber (`GetExtendedTcpTable` +
+  `QueryFullProcessImageNameW`, ohne Adminrechte) und klassifiziert ihn
+  (`win-ollama` / `wsl` / `docker` / `other`). Bei einem Fremd-Inhaber
+  ersetzt die passende Abhilfe („Ollama in WSL/Docker stoppen oder Port
+  verlegen") die Standard-Meldung; das Diagnose-Ergebnis landet immer als
+  WARNING im Log, direkt neben der Styler-Warnung. `styler.py` bleibt
+  plattformrein — verdrahtet wird in `main.py` (Windows-Teil).
+- **`verify_gpu_placement` erkennt jetzt auch Partial-Offload:** Der
+  dokumentierte 49/51-Split (v0.2.7: ~787 MiB auf CPU → 8× langsamer)
+  wurde bisher als „im VRAM" durchgewunken. Neu: `size_vram <
+  0.95 × size` → `"partial"` + Warnung + Toast. Außerdem matcht der Check
+  untagged Modellnamen (`gemma3` ↔ `gemma3:latest`) statt still
+  auszusteigen, und `size=0`-Antworten fallen sauber auf `None`.
+- **Warmup-Nachschub nach spätem Ollama-Boot:** Scheiterte der
+  Boot-Warmup (30.06.-Muster „Server disconnected"), lief bis zum
+  nächsten Kira-Start weder Warmup noch GPU-Placement-Check. Der
+  Setup-Re-Probe holt den Warmup jetzt nach (`Styler.warmup_succeeded`).
+
+### Review-Welle: 6 Findings gefixt (Logik/Silent-Failures)
+
+Parallel-Review der Kern-Runtime-Module, alle Findings am Code
+verifiziert und mit Tests gefixt:
+
+- **`config.py` — `context_modes` ersetzte statt zu mergen (kritisch):**
+  Ein einzelner user-definierter Eintrag in der Roh-YAML (der offiziell
+  empfohlene Weg) warf still alle ~29 Built-in-Mappings weg —
+  outlook→email, cmd→terminal usw. fielen auf `plain` zurück.
+  `load_config` merged jetzt auf die Plattform-Defaults.
+- **`transcriber_fw.py` — `whisper.vad_threshold` war tote Config:**
+  Feld + Template-Wert (0.15) existierten, aber `transcribe_file()`
+  reichte nie `vad_parameters` an faster-whisper durch.
+- **`recorder.py` — `prewarm()` konnte rohe PortAudio-Fehler werfen:**
+  Im F8-Retry-Pfad catcht die App nur `DeviceUnavailable`; alles andere
+  versackte im Hotkey-Thread und der Press fühlte sich wie „nichts" an
+  (kein gelbes Icon). Stream-Open/-Start sind jetzt gekapselt, der
+  Fehlerpfad läuft sauber über `DeviceUnavailable`.
+- **`injector_win.py` — Restore-Timer-Kollision bei schnellen Diktaten:**
+  Jeder `inject()` armte einen sturen Timer; bei Überlappung landete
+  altes Clipboard mitten im Paste-Fenster des nächsten Diktats oder
+  Kira-Text blieb als Endzustand. Neu: Generation-Guard — nur der
+  neueste Timer restauriert, und zwar das älteste noch nicht
+  restaurierte User-Original.
+- **`ui/tray_win.py` — File-Transkription: toter Abbrechen-Knopf +
+  GC-gefährdeter QThread:** `progress.canceled` war nie verbunden
+  (v0.2.8-Bugklasse) — nach „Abbrechen" poppte Minuten später aus dem
+  Nichts die „Fertig"-Box auf; jetzt unterdrückt Cancel das Ergebnis.
+  QThread/Worker hingen zudem nur am Progress-Dialog (reiner
+  Referenz-Zyklus, vom Zyklus-GC einsammelbar → laufender QThread hätte
+  zerstört werden können) — verankert jetzt an der Tray-Instanz, plus
+  Doppel-Start-Guard.
+
+**Tests:** 33 neue (u. a. `tests/test_ollama_diag.py` mit echten
+Listener-Integrationstests, Partial-Offload/Untagged-Match in
+`test_styler.py`, Timer-Generationen in `test_injector_win.py`,
+`test_tray_transcribe_guard.py`). Windows-Suite gesamt: 411 grün.
+
+**Box-seitige Wurzel-Abhilfe** (unabhängig vom Code): kein zweiter
+Ollama auf `0.0.0.0:11434` — im Mirofish-Compose ist das Host-Mapping
+auf `127.0.0.1:11435:11434` umgezogen (Mirofish-intern läuft weiter
+alles über Compose-DNS `ollama:11434`).
+
 ## v0.3.2 — 2026-06-28
 
 ### Modell-Pull-Dialog: int32-Overflow bei großen Modellen behoben

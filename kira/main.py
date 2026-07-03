@@ -376,12 +376,18 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     _set_windows_app_identity()
 
     # WSL2 doesn't auto-start at Win-login. On boxes where the polish
-    # backend lives in WSL (Mike's setup), autostart races WSL2 cold-boot
-    # every reboot — the setup probe times out at 90 s and the
-    # SetupHintDialog used to fire every morning. Fire wsl.exe non-
-    # blocking now so WSL spins up in parallel with Kira's own splash
-    # + tray init; by the time _check_setup probes (~5 s later) Ollama
-    # is usually reachable. No-op on boxes without WSL installed.
+    # backend lives in WSL, autostart races WSL2 cold-boot every reboot —
+    # the setup probe times out at 90 s and the SetupHintDialog used to
+    # fire every morning. Fire wsl.exe non-blocking now so WSL spins up
+    # in parallel with Kira's own splash + tray init; by the time
+    # _check_setup probes (~5 s later) Ollama is usually reachable.
+    # No-op on boxes without WSL installed.
+    # ACHTUNG Kehrseite (2026-07-03): Auf Boxen mit WINDOWS-nativem Ollama
+    # weckt der Kick die WSL-VM samt Docker-Autostart — ein Container mit
+    # 11434er-Host-Mapping (mirofish-ollama) kann dann den Port VOR der
+    # Windows-Ollama-App binden. Kira erkennt das inzwischen (ollama_diag
+    # beim CPU-Fallback-Toast); die Wurzel-Abhilfe ist, keinen zweiten
+    # Ollama auf 0.0.0.0:11434 zu betreiben.
     from kira._wsl_warmup import kick_wsl_distro
     kick_wsl_distro()
 
@@ -513,11 +519,24 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             )
         )
         # v0.3.0: deterministischer CPU-Fallback-Toast aus verify_gpu_placement
-        # (size_vram=0 nach Warmup). Die msg traegt den actionablen Hinweis
-        # (Ollama neu starten -> VRAM-Tuning greift).
-        styler.set_on_cpu_fallback_detected(
-            lambda msg: tray.notify("Kira — Polish auf CPU", msg)
-        )
+        # (size_vram=0 oder Partial-Offload nach Warmup). v0.3.3: Vor dem Toast
+        # laeuft eine Port-Diagnose — haelt NICHT der Windows-Ollama den Port
+        # 11434 (wslrelay.exe = WSL-systemd ODER Docker-Container wie der
+        # mirofish-ollama am 2026-07-03), waere die Basis-Empfehlung "Ollama
+        # neu starten" wirkungslos; dann traegt der Toast stattdessen die
+        # Fremd-Server-Abhilfe. Diagnose-Ergebnis landet immer im Log
+        # (Forensik direkt neben der Styler-WARNING).
+        def _notify_cpu_fallback(msg: str) -> None:
+            try:
+                from kira.ollama_diag import diagnose_ollama_port, resolve_notice
+                diag = diagnose_ollama_port()
+                log.warning("Ollama-Port-Diagnose: %s", diag.hint)
+                msg = resolve_notice(msg, diag)
+            except Exception:
+                log.exception("Ollama-Port-Diagnose fehlgeschlagen")
+            tray.notify("Kira — Polish auf CPU", msg)
+
+        styler.set_on_cpu_fallback_detected(_notify_cpu_fallback)
     else:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 
@@ -653,6 +672,20 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
                             "Ollama model %s not ready — polish will fall back to raw",
                             cfg.styler.model,
                         )
+                    # Der Boot-Warmup ist zu diesem Zeitpunkt sicher durch —
+                    # und gescheitert (Ollama war ja unreachable). Ohne Nach-
+                    # schub zahlt der erste F8 den vollen Cold-Start UND
+                    # verify_gpu_placement laeuft bis zum naechsten Kira-
+                    # Start nie (CPU-Fallback bliebe unerkannt, 30.06.-Boots).
+                    # Nur im Retry-Pfad: beim Initial-Probe-Erfolg laeuft der
+                    # Boot-Warmup noch parallel, ein zweiter waere Log-Spam.
+                    if (
+                        cfg.styler.provider == "ollama"
+                        and cfg.styler.warmup_on_start
+                        and not styler.warmup_succeeded
+                    ):
+                        log.info("Hole Styler-Warmup nach (Boot-Warmup scheiterte)")
+                        asyncio.run_coroutine_threadsafe(styler.warmup(), loop)
                     return
             log.info(
                 "Ollama still unreachable after 10 min; polish will use raw fallback"

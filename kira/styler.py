@@ -33,6 +33,14 @@ FORCE_FAST_DURATION_SEC = 5 * 60
 # (~7s pro Reload).
 FORCE_ALL_LAYERS_ON_GPU = 999
 
+# Anteil von `size`, der mindestens im VRAM liegen muss, damit ein Load als
+# „voll auf GPU" gilt. Bei 100%-GPU-Loads meldet Ollama size_vram == size;
+# alles deutlich darunter ist der dokumentierte Partial-Offload (49/51-Split
+# 2026-05-23: ~787 MiB Embedding-Tensor auf CPU → jede Token-Generation via
+# PCIe → 14 statt 114 tok/s). 0.95 laesst Raum fuer Graph-/Rundungsanteile
+# kuenftiger Ollama-Versionen, faengt aber jeden echten Layer-Offload.
+GPU_RESIDENCY_FULL_RATIO = 0.95
+
 from kira._resources import prompts_dir as _prompts_dir
 PROMPT_DIR = _prompts_dir()
 # Modi mit eingebauten prompt-Files. User koennen weitere Modi via eigene
@@ -87,6 +95,11 @@ class Styler:
         self._on_cpu_fallback_detected = on_cpu_fallback_detected
         self._slow_polish_count = 0
         self._force_fast_until: float | None = None
+        # True sobald ein warmup()-Chat durchkam. Der Setup-Re-Probe in
+        # main.py liest das Flag (Daemon-Thread, bool-Read ist GIL-atomar)
+        # und holt den Warmup nur nach, wenn der Boot-Warmup scheiterte —
+        # z. B. weil Ollama beim Kira-Start noch nicht oben war.
+        self._warmup_succeeded = False
 
     def set_on_slow_polish_detected(
         self, callback: Callable[[], None] | None,
@@ -103,6 +116,11 @@ class Styler:
         Tray-Callback ist erst nach KiraTray-Konstruktion verfuegbar, der
         Styler wird davor in run() erzeugt."""
         self._on_cpu_fallback_detected = callback
+
+    @property
+    def warmup_succeeded(self) -> bool:
+        """True sobald mindestens ein warmup()-Chat erfolgreich war."""
+        return self._warmup_succeeded
 
     def _resolve_model(self, mode: str | None = None) -> str:
         """Welches Modell faerbt der naechste LLM-Call.
@@ -220,6 +238,7 @@ class Styler:
                 exc,
             )
             return
+        self._warmup_succeeded = True
         log.info(
             "Styler warmup complete (model=%s, keep_alive=%s)",
             model, keep_alive,
@@ -245,15 +264,24 @@ class Styler:
         koennen. ``size_vram`` aus ps() ist dagegen ein direktes,
         deterministisches Signal.
 
-        Returns ``"cpu"`` (geladen, 0 Byte im VRAM), ``"gpu"`` (im VRAM) oder
-        ``None`` (Modell laeuft nicht / ps nicht erreichbar / size_vram unklar).
-        Bei ``"cpu"`` feuert ein actionabler Tray-Toast-Callback + WARNING-Log.
+        Returns ``"cpu"`` (geladen, 0 Byte im VRAM), ``"partial"`` (geladen,
+        aber < GPU_RESIDENCY_FULL_RATIO der Load-Groesse im VRAM — der
+        49/51-Split-Fall), ``"gpu"`` (voll im VRAM) oder ``None`` (Modell
+        laeuft nicht / ps nicht erreichbar / size_vram unklar). Bei ``"cpu"``
+        und ``"partial"`` feuert ein actionabler Tray-Toast-Callback +
+        WARNING-Log.
 
         Kira setzt eine CUDA-GPU voraus (Whisper laeuft hardcoded auf
         device="cuda"), darum ist size_vram=0 hier immer ein echter Fehler
         und nie ein "kein-GPU"-False-Positive.
         """
         model = self._resolve_model(None)
+        # Ollama normalisiert untagged Modellnamen serverseitig auf ":latest" —
+        # `model: gemma3` in der Config erscheint in ps() als "gemma3:latest".
+        # Ohne den Alias liefe die Detection fuer solche Configs still ins Leere.
+        wanted = {model}
+        if ":" not in model:
+            wanted.add(f"{model}:latest")
         try:
             resp = await self._client.ps()
         except Exception as exc:
@@ -263,12 +291,13 @@ class Styler:
             )
             return None
         for m in getattr(resp, "models", None) or []:
-            if model not in (getattr(m, "model", None), getattr(m, "name", None)):
+            if wanted.isdisjoint({getattr(m, "model", None), getattr(m, "name", None)}):
                 continue
             size = m.size
             vram = m.size_vram
-            if size is None or vram is None:
-                # Unklare Antwort — lieber nicht warnen als falsch warnen.
+            if size is None or vram is None or int(size) <= 0:
+                # Unklare Antwort (size=0 waere durch den Ratio-Vergleich
+                # sonst faelschlich "gpu") — lieber nicht warnen als falsch.
                 return None
             if int(size) > 0 and int(vram) == 0:
                 log.warning(
@@ -279,7 +308,9 @@ class Styler:
                     "persistent, das senkt den VRAM-Bedarf und bringt das "
                     "Modell in den VRAM. Bleibt es auf CPU: num_gpu=999 ist ab "
                     "Ollama 0.30.x wirkungslos (Regression GitHub #16610) -> "
-                    "Ollama auf 0.24.0 downgraden.",
+                    "Ollama auf 0.24.0 downgraden. Achtung: Haelt ein WSL-/"
+                    "Docker-Ollama den Port 11434, gilt stattdessen die "
+                    "Port-Diagnose-Zeile direkt nach dieser (Windows).",
                     model, int(size) / 1e9,
                 )
                 if self._on_cpu_fallback_detected is not None:
@@ -296,12 +327,39 @@ class Styler:
                             "on_cpu_fallback_detected callback raised"
                         )
                 return "cpu"
-            if int(vram) > 0:
-                log.info(
-                    "Polish-Modell %s liegt im VRAM (%.1f/%.1f GB auf GPU)",
+            if int(vram) < int(size) * GPU_RESIDENCY_FULL_RATIO:
+                # Partial-Offload: das 49/51-Muster. size_vram > 0 sieht auf
+                # den ersten Blick gesund aus, aber der CPU-Anteil bremst
+                # JEDE Token-Generation (PCIe-Roundtrip) — 2026-05-23 real
+                # gemessen: 14 statt 114 tok/s bei nur ~6 % Weights auf CPU.
+                log.warning(
+                    "Polish-Modell %s liegt nur TEILWEISE im VRAM "
+                    "(%.1f/%.1f GB auf GPU). Der CPU-Anteil bremst jede "
+                    "Token-Generation — Abhilfe wie beim CPU-Fallback: "
+                    "Ollama neu starten (VRAM-Tuning greift), VRAM-Fresser "
+                    "schliessen oder kleineres Modell waehlen.",
                     model, int(vram) / 1e9, int(size) / 1e9,
                 )
-                return "gpu"
+                if self._on_cpu_fallback_detected is not None:
+                    msg = (
+                        f"Polish-Modell {model} liegt nur teilweise im VRAM "
+                        f"({int(vram) / 1e9:.1f}/{int(size) / 1e9:.1f} GB) — "
+                        f"Polish deutlich verlangsamt. Ollama neu starten; "
+                        f"bleibt der Split, VRAM freiraeumen oder kleineres "
+                        f"Modell nutzen."
+                    )
+                    try:
+                        self._on_cpu_fallback_detected(msg)
+                    except Exception:
+                        log.exception(
+                            "on_cpu_fallback_detected callback raised"
+                        )
+                return "partial"
+            log.info(
+                "Polish-Modell %s liegt im VRAM (%.1f/%.1f GB auf GPU)",
+                model, int(vram) / 1e9, int(size) / 1e9,
+            )
+            return "gpu"
         return None
 
     async def polish(self, text: str, mode: str) -> str:

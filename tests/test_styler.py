@@ -764,3 +764,95 @@ async def test_warmup_gpu_check_failure_does_not_break_warmup(monkeypatch):
 
     # Darf NICHT raisen
     await styler.warmup()
+
+
+@pytest.mark.asyncio
+async def test_warmup_success_sets_warmup_succeeded():
+    """Der Setup-Re-Probe in main.py holt den Warmup nur nach, wenn der
+    Boot-Warmup NICHT durchkam — dafuer braucht er ein lesbares Flag."""
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    fake_client.ps = AsyncMock(side_effect=Exception("ps egal"))
+    styler._client = fake_client
+
+    assert styler.warmup_succeeded is False
+    await styler.warmup()
+    assert styler.warmup_succeeded is True
+
+
+@pytest.mark.asyncio
+async def test_warmup_failure_leaves_warmup_succeeded_false():
+    """Chat-Fehler (Ollama down beim Boot, 30.06.-Muster "Server
+    disconnected") -> Flag bleibt False, Re-Probe darf nachholen."""
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=Exception("Server disconnected"))
+    styler._client = fake_client
+
+    await styler.warmup()
+    assert styler.warmup_succeeded is False
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_detects_partial_offload():
+    """49/51-CPU/GPU-Split (das v0.2.7-Muster): size_vram > 0, aber deutlich
+    unter size — der CPU-Anteil zwingt jede Token-Generation ueber PCIe,
+    ~8x Slowdown. Muss als "partial" gemeldet werden, nicht als "gpu"."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=12_000_000_000, size_vram=6_000_000_000)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "partial"
+    callback.assert_called_once()
+    msg = callback.call_args.args[0]
+    assert "gemma3:12b" in msg
+    assert "teilweise" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_tolerates_small_nonvram_share():
+    """Knapp unter 100 % VRAM (Graph-/Rundungsanteile) ist KEIN Partial-
+    Offload — sonst wuerde jeder gesunde Load einen falschen Toast feuern."""
+    cfg = Config()
+    cfg.styler.model = "gemma3:12b"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:12b", size=12_000_000_000, size_vram=11_700_000_000)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "gpu"
+    callback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_gpu_placement_matches_untagged_model_as_latest():
+    """Config `model: gemma3` (ohne Tag) muss den ps()-Eintrag `gemma3:latest`
+    matchen — Ollama normalisiert untagged Modellnamen serverseitig auf
+    :latest, sonst laeuft die CPU-Detection fuer solche Configs ins Leere."""
+    cfg = Config()
+    cfg.styler.model = "gemma3"
+    callback = MagicMock()
+    styler = Styler(cfg, on_cpu_fallback_detected=callback)
+    styler._client = MagicMock()
+    styler._client.ps = AsyncMock(
+        return_value=_ps("gemma3:latest", size=3_300_000_000, size_vram=0)
+    )
+
+    result = await styler.verify_gpu_placement()
+
+    assert result == "cpu"
+    callback.assert_called_once()
