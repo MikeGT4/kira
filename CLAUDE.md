@@ -4,11 +4,18 @@ Personal-use voice-to-text app. macOS menubar (`main` branch) + Windows 11
 tray (`windows-port` branch). Hold a hotkey, speak, release — polished
 text appears at the cursor.
 
-**Version:** v0.3.3 (`windows-port`) — 2026-07-03. Vorher: v0.3.1 +
-v0.3.2 am selben Tag (2026-06-28) released, v0.3.0 released 2026-06-12
-(Tag `78e0f66`). Release-Ablage: GitHub ist seit v0.3.2 die alleinige
-Ablage (4 Assets: Setup-exe + 2 bin-Splits + SHA256SUMS; lokale
-Artefakte nach Upload gelöscht).
+**Version:** v0.3.3 (`windows-port`) — released 2026-07-03 (Latest auf
+GitHub; Tag auf Build-Commit `fe23780` = GPU-Diagnose `6f89513` +
+Toast-Längen-Fix `de015d1` + gemma4-Defaults; 4 Assets: Setup-exe +
+2 bin-Splits + SHA256SUMS — lokale Artefakte nach Upload gelöscht,
+GitHub ist die alleinige Ablage; build/_cache absichtlich behalten).
+Neu-Installs polieren mit gemma4:12b (braucht Ollama ≥ 0.30, Installer
+bundlet aktuelle Version), fast_model-Default gemma4:e4b (Probe 0/6
+buggy auf Mike's Box). Mike's Box bleibt auf styler.model gemma3:12b +
+Ollama-0.24.0-Pin (bewusst, ollama#16610 offen; gemma4:12b-Pull braucht
+dort erst ein Ollama-Update — OllamaSetup-0.31.1.exe liegt in
+Downloads). Vorher: v0.3.1 + v0.3.2 am selben Tag (2026-06-28)
+released, v0.3.0 released 2026-06-12 (Tag `78e0f66`).
 
 v0.3.3 entlarvt Fremd-Ollamas auf Port 11434 („Polish auf CPU trotz
 26,5 GB freiem VRAM" nach Win-Start). **Root Cause war NICHT der
