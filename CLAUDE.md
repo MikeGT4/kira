@@ -529,6 +529,35 @@ Host-Mapping ist nur Debug-Zugriff). Kiras `kick_wsl_distro()` bleibt —
 er ist für WSL-Ollama-Setups da — aber er weckt eben auch Docker-
 Autostarts; das ist dokumentierte Kehrseite, kein Bug.
 
+## Ollama-Versions-Pin 0.24.0 (Mike's Box) — Historie + Update-Kriterien
+
+**Warum der Pin existiert:** In der Woche vom 2026-06-09 lief der
+Win-Ollama (Auto-Update) auf **0.30.6** und Polish brach ein — Ursache
+war die Regression [ollama#16610](https://github.com/ollama/ollama/issues/16610):
+Der Server evicted das Modell trotz `keep_alive` zwischen Requests und
+laedt es jedes Mal neu; jeder Polish zahlte ~1 min Load statt <1 s
+(„es ging nichts mehr"). Downgrade auf **0.24.0** am 2026-06-09 hat es
+behoben; Kira v0.3.0 bekam deshalb die GPU-/Placement-Detection.
+(Nicht verwechseln mit den zwei ANDEREN Ollama-Probleme-Klassen:
+Auto-Layer-Split 2026-05-23 → num_gpu=999, und Fremd-Server auf Port
+11434 2026-07-03 → ollama_diag.)
+
+**Stand 2026-07-03:** #16610 ist OFFEN, kein Fix im Changelog bis
+v0.31.1. Bestaetigte Betroffene: Shared-Memory-Systeme (GB10, Jetson
+Thor) mit grossen BF16-MoE-Modellen und wechselnden GGUF-Hashes —
+NICHT das Profil der 5090 (ein residentes Q4-Modell, keep_alive 24h).
+
+**Update-Abwaegung:** `gemma4:12b` braucht Ollama ≥ 0.30 (Registry-412
+auf 0.24.0). Wer updatet: `OllamaSetup-0.31.1.exe` liegt in Mike's
+Downloads. Danach 1 Tag beobachten — die v0.3.3-Detection macht eine
+zurueckkehrende Eviction sofort sichtbar (Slow-Polish-Toast nach 3
+langsamen Polishes in Folge + `verify_gpu_placement`-Log beim Boot;
+Gegencheck `ollama ps` nach 10 min Idle: Modell muss noch geladen
+sein). Rollback = alten Installer von
+https://github.com/ollama/ollama/releases/tag/v0.24.0 erneut
+installieren. Ohne gemma4-Bedarf: Pin behalten — never touch a
+running system.
+
 ## Restart workflow (editable install)
 
 The Windows venv is an `uv`-created editable install — no `pip` is
