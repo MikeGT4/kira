@@ -700,7 +700,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     # Automatischer Update-Check beim Start. Laeuft — wie der Setup-Probe
     # darueber — auf einem eigenen Daemon-Thread, damit der Boot NICHT
     # blockiert wird (Boot-Hang ist eine teure, dokumentierte Falle, s.
-    # CLAUDE.md "Boot sequence"). Fragt GitHub-Releases ab; nur bei einer
+    # Entwickler-Notizen "Boot sequence"). Fragt GitHub-Releases ab; nur bei einer
     # echten neueren Version (status == 'newer') wird der Nutzer gefragt,
     # und auch das nur, wenn er diese Version nicht schon abgelehnt hat.
     # Netzwerk-/Parse-Fehler (status == 'failed') scheitern still — nur

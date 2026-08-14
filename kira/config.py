@@ -77,7 +77,7 @@ class ModeConfig(BaseModel):
 
 
 class StylerConfig(BaseModel):
-    provider: Literal["ollama", "openai", "anthropic"] = "ollama"
+    provider: Literal["ollama", "openai"] = "ollama"
     model: str = "gemma2:2b"
     timeout_seconds: float = 3.0
     fallback_to_raw: bool = True

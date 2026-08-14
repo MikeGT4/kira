@@ -268,7 +268,7 @@ Stream-Success, Exception-Fail, Pydantic-Style-Event-Parsing, No-
 Progress-After-Cancel. Lokal verifizieren via:
 
 ```bash
-cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\claude_kira \
+cd /tmp && cmd.exe /c 'pushd \\wsl.localhost\Ubuntu\home\<user>\kira \
   && C:\Users\<user>\kira-venv\Scripts\python.exe -m pytest \
      tests/test_settings_dialog.py -v && popd'
 ```
@@ -638,7 +638,7 @@ ersten Start gepullt.
   auf `\\wsl.localhost\…`. WSL kann jetzt heruntergefahren werden ohne
   dass Kira ausfällt. Phase-A-Migration auf Mike's PC: alter
   WSL-Tree → Backup, neuer Tree unter `C:\Users\mike\dev\kira\` mit
-  Symlink `~/claude_kira` für unveränderten WSL-Bash-Workflow.
+  Symlink `~/kira-wsl` für unveränderten WSL-Bash-Workflow.
   Ollama läuft jetzt nativ auf Windows (`winget install Ollama.Ollama`,
   v0.23.x), nicht mehr in WSL-Ubuntu via systemd + wslrelay.
 - **Setup-Scripts mit `-Source`-Param:** `install_win.ps1`,

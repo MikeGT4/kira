@@ -3,7 +3,7 @@
 #
 # Default source is the repo containing this script ($PSScriptRoot\..).
 # Override with -Source to install from a different checkout (e.g. a
-# WSL UNC path \\wsl.localhost\Ubuntu\home\<user>\claude_kira).
+# WSL UNC path \\wsl.localhost\Ubuntu\home\<user>\kira).
 
 [CmdletBinding()]
 param(

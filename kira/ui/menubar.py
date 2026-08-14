@@ -73,7 +73,7 @@ class KiraMenubar(rumps.App):
     def _about(self, _):
         rumps.alert(
             title="Kira",
-            message="Voice-to-text menubar app.\nBuilt with Claude Code.\nv0.1.0\n© 2026 Digitaroots",
+            message="Voice-to-text menubar app.\nv0.1.0\n© 2026 Digitalroots",
         )
 
     def _quit(self, _):

@@ -40,8 +40,8 @@ Cross-Worker-Abort (Critical-Fix 2026-05-10):
   Flag. `_start_gemma()` early-returns wenn aborted.
 
 Sicherheit:
-- Subprocess: IMMER list-args, NIE shell=True (siehe Cleanup-Notes
-  CLAUDE.md). `_resource_path`-Pfade kommen aus Inno-Bundle, sind
+- Subprocess: IMMER list-args, NIE shell=True (siehe Cleanup-Notes in
+  den Entwickler-Notizen). `_resource_path`-Pfade kommen aus Inno-Bundle, sind
   programmgenerated, nicht user-supplied.
 - Ollama-API-URL ist hart 127.0.0.1 (NICHT localhost) — Win11 24H2+
   resolved localhost zu IPv6 ::1, Ollama bindet IPv4 0.0.0.0.
