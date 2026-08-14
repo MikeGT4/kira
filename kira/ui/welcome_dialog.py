@@ -143,7 +143,7 @@ Polish-Prompts. Eingebaute Modi:
 <code>terminal</code>, <code>plain</code>, <code>clean</code>
 (Filler-Filter only),
 <code>translate_en</code> (Deutsch→Englisch),
-<code>email_formal</code> (Sie-Form, Praxis-Stil).</p>
+<code>email_formal</code> (Sie-Form, Geschaeftsstil).</p>
 <p>Eigennamen, Markennamen und Fachbegriffe werden oft falsch transkribiert
 („what's app" statt „WhatsApp", „chat g pt" statt „ChatGPT",
 „java skript" statt „JavaScript"). In Settings →

@@ -1,17 +1,17 @@
 """Post-Whisper text replacements.
 
-Whisper transkribiert Eigennamen, Praxis-spezifische Begriffe und
-Patienten-Vornamen oft falsch (z.B. "Praxis im Mediku" statt "Praxis
-im medicum"). Diese deterministische Find-Replace-Map korrigiert
-solche Faelle nach der Transkription und VOR dem Polish, sodass das
-LLM nicht versucht den falschen Namen "weichzuspuelen".
+Whisper transkribiert Eigennamen, Fachbegriffe und Produktnamen oft
+falsch (z.B. "auf kuh bernetes" statt "auf Kubernetes"). Diese
+deterministische Find-Replace-Map korrigiert solche Faelle nach der
+Transkription und VOR dem Polish, sodass das LLM nicht versucht den
+falschen Namen "weichzuspuelen".
 
 Map-Format (whisper.replacements in config.yaml):
 
     whisper:
       replacements:
-        "im mediku": "im medicum"
-        "frankfurt-gold-coast": "FrankfurtGT4"
+        "kuh bernetes": "Kubernetes"
+        "vieh es code": "VS Code"
 
 Match ist case-insensitive Substring. Insertion-Order wird respektiert:
 spaetere Keys sehen das Output frueherer Replacements.

@@ -12,12 +12,12 @@ def test_empty_mapping_passes_through():
 
 
 def test_simple_replacement():
-    assert apply("im mediku", {"im mediku": "im medicum"}) == "im medicum"
+    assert apply("kuh bernetes", {"kuh bernetes": "Kubernetes"}) == "Kubernetes"
 
 
 def test_case_insensitive_match():
-    assert apply("Im Mediku", {"im mediku": "im medicum"}) == "im medicum"
-    assert apply("IM MEDIKU", {"im mediku": "im medicum"}) == "im medicum"
+    assert apply("Kuh Bernetes", {"kuh bernetes": "Kubernetes"}) == "Kubernetes"
+    assert apply("KUH BERNETES", {"kuh bernetes": "Kubernetes"}) == "Kubernetes"
 
 
 def test_no_match_unchanged():
@@ -25,18 +25,18 @@ def test_no_match_unchanged():
 
 
 def test_multi_word_replacement():
-    text = "Praxis im Mediku Wiesbaden"
-    out = apply(text, {"im mediku": "im medicum"})
-    assert out == "Praxis im medicum Wiesbaden"
+    text = "Deployment auf kuh bernetes gestartet"
+    out = apply(text, {"kuh bernetes": "Kubernetes"})
+    assert out == "Deployment auf Kubernetes gestartet"
 
 
 def test_multiple_replacements_in_one_text():
-    text = "Frau Schmid hat einen Termin im Mediku"
+    text = "Frau Schmid kennt kuh bernetes"
     out = apply(
         text,
-        {"frau schmid": "Frau Schmidt", "im mediku": "im medicum"},
+        {"frau schmid": "Frau Schmidt", "kuh bernetes": "Kubernetes"},
     )
-    assert out == "Frau Schmidt hat einen Termin im medicum"
+    assert out == "Frau Schmidt kennt Kubernetes"
 
 
 def test_insertion_order_chained_replacements():

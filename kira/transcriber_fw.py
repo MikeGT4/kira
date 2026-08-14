@@ -243,7 +243,7 @@ class Transcriber:
                     text,
                 )
                 return TranscriptionResult(text="", language=info.language)
-            # Post-Whisper Find/Replace fuer Eigennamen / Praxis-Begriffe.
+            # Post-Whisper Find/Replace fuer Eigennamen und Fachbegriffe.
             # Logging diff-aware: nur wenn die Map tatsaechlich was geaendert
             # hat, damit kira.log nicht bei jedem F8 ein "applied 0 fixes"
             # zeigt.

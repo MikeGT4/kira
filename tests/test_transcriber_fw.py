@@ -361,14 +361,14 @@ def test_transcribe_file_applies_replacements(monkeypatch, fake_config):
     class FakeWhisperModel:
         def __init__(self, *a, **kw): pass
         def transcribe(self, audio, **kw):
-            return iter([FakeSegment("Praxis im Mediku Wiesbaden")]), FakeInfo()
+            return iter([FakeSegment("Deployment auf kuh bernetes gestartet")]), FakeInfo()
 
     monkeypatch.setattr("kira.transcriber_fw.WhisperModel", FakeWhisperModel)
-    fake_config.whisper.replacements = {"im mediku": "im medicum"}
+    fake_config.whisper.replacements = {"kuh bernetes": "Kubernetes"}
     t = Transcriber(fake_config)
     result = t.transcribe_file("/tmp/test.wav")
-    assert "im medicum" in result.text
-    assert "im Mediku" not in result.text
+    assert "Kubernetes" in result.text
+    assert "kuh bernetes" not in result.text
 
 
 def test_transcribe_file_propagates_exceptions(monkeypatch, fake_config):

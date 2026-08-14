@@ -53,8 +53,8 @@ class WhisperConfig(BaseModel):
     vad_threshold: float = 0.35
     condition_on_previous_text: bool = False
     initial_prompt: str | None = None
-    # Post-Whisper Find/Replace-Map fuer Eigennamen, Praxis-Begriffe,
-    # Patientenvornamen die Whisper systematisch falsch transkribiert.
+    # Post-Whisper Find/Replace-Map fuer Eigennamen, Fachbegriffe
+    # und Produktnamen, die Whisper systematisch falsch transkribiert.
     # Wird angewendet NACH Halluzinations-Filter und VOR dem Polish.
     # Match ist case-insensitive Substring; siehe kira/replacements.py.
     replacements: dict[str, str] = Field(default_factory=dict)

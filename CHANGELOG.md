@@ -451,7 +451,7 @@ das gleiche Inline-Beispiel-Pattern:
   das schicken" -> "koennten Sie mir das zusenden")` inline. 3 Beispiele
   in eigenem Block. **Bleibt fragile**: bei Statement-Inputs ("Der
   Termin passt mir gut") kann 4B in Frage-Form halluzinieren
-  ("Koennten Sie den Termin bestaetigen"). Empfehlung für Praxis-
+  ("Koennten Sie den Termin bestaetigen"). Empfehlung für geschaeftliche
   Workflows: Per-Mode-Override in `config.yaml` setzen, damit
   `email_formal` immer mit 12B läuft auch wenn `fast_mode: true`:
 
@@ -778,7 +778,7 @@ Personal-use voice-to-text app, Windows 11 + WSL2 (`windows-port` branch).
 ### Neue Features
 
 #### Custom Dictionary / Phrase-Replacement
-Whisper transkribiert Eigennamen, Praxis-Begriffe und Patientenvornamen
+Whisper transkribiert Eigennamen, Fachbegriffe und Produktnamen
 oft falsch. Eine neue `whisper.replacements`-Map in `config.yaml` erlaubt
 deterministische Find/Replace-Korrekturen NACH Whisper und VOR dem Polish.
 Match ist case-insensitive Substring; Insertion-Order wird respektiert.
@@ -786,7 +786,7 @@ Match ist case-insensitive Substring; Insertion-Order wird respektiert.
 ```yaml
 whisper:
   replacements:
-    "im mediku": "im medicum"
+    "kuh bernetes": "Kubernetes"
     "frau schmid": "Frau Schmidt"
 ```
 
@@ -798,7 +798,7 @@ Timeout, eigene Temperature. Drei neue eingebaute Modi:
 - **`clean`** — minimaler Filler-Filter ohne Inhalts-Modifikation
   (für „äh", „ähm", „also", „halt", „quasi" und Stotter-Wiederholungen)
 - **`translate_en`** — Deutsch → Englisch on-the-fly
-- **`email_formal`** — Sie-Form, Praxis-Stil
+- **`email_formal`** — Sie-Form, Geschaeftsstil
 
 Eigene Modi: einfach `prompts/<modename>.md` anlegen — `load_prompt()`
 findet sie automatisch. Mapping in `context_modes` ändern oder über
