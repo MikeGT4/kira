@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Callable
@@ -60,16 +61,41 @@ def load_prompt(mode: str) -> str:
     return candidate.read_text(encoding="utf-8")
 
 
+# Modelle mit Hybrid-Reasoning, bei denen der Denk-Modus per Default AN ist.
+# Deckt Schreibvarianten ab: gemma4:12b, gemma-4-abliterated, qwen3.6 usw.
+_THINKING_MODEL_RE = re.compile(r"qwen3|gemma[-_ ]?[4-9]", re.IGNORECASE)
+
+
 def _thinking_kwargs(model: str) -> dict:
     """Extra ``ollama.chat`` kwargs to suppress hybrid-reasoning output.
 
-    Qwen 3 models default to a 'thinking' mode that emits ``<think>`` blocks
-    and tends to over-rewrite the input — wrong for a faithful polish/edit
-    step. ``think=False`` turns it off. Gemma and other non-thinking models
-    don't need the flag, so we omit it there rather than rely on every
-    Ollama build accepting ``think`` for a model without thinking support.
+    Betroffen sind Qwen 3 UND Gemma 4 aufwaerts: beide starten per Default
+    in einem 'thinking'-Modus, der vor der Antwort eine interne Denkkette
+    erzeugt. Fuer Kiras polieren-ohne-umschreiben-Auftrag ist das doppelt
+    falsch — es kostet Latenz und neigt zum Ueberschreiben des Inputs.
+
+    Messung 2026-08-14 auf der RTX 5090 (beide Modelle zu 100 % im VRAM,
+    echte Whisper-Saetze durch ``prompts/clean.md``):
+
+    ======================  =============  =============
+    Modell                  Denken an      ``think=False``
+    ======================  =============  =============
+    gemma4:e4b              2.60 s Median  0.38 s Median
+                            (max 30.44 s)
+    gemma4:26b-a4b-it-qat   14.76 s        0.38 s
+                            (max 43.90 s)
+    ======================  =============  =============
+
+    Die Denkketten wurden bis zu 17 699 Zeichen lang — fuer Saetze von
+    unter 80 Zeichen. Ohne das Flag lag der ``fast_mode``-Default aus
+    v0.3.3 (``gemma4:e4b``) also weit ueber der Schwelle, ab der
+    ``SLOW_POLISH_THRESHOLD_SEC`` den Notfall-Umschalter ausloest.
+
+    Gemma 3 akzeptiert ``think=False`` klaglos (verifiziert), die fruehere
+    Sorge vor Modellen ohne Thinking-Support traegt also nicht mehr; wir
+    setzen das Flag trotzdem nur dort, wo es gebraucht wird.
     """
-    return {"think": False} if "qwen3" in model.lower() else {}
+    return {"think": False} if _THINKING_MODEL_RE.search(model) else {}
 
 
 class Styler:

@@ -252,10 +252,14 @@ $NeedsPull = $true
 if (Test-Path $OllamaSetupPath) {
     $existingSize = (Get-Item $OllamaSetupPath).Length
     $age = (Get-Date) - (Get-Item $OllamaSetupPath).LastWriteTime
-    # F2-9: Cache-skip nur bei plausibler Size (>1.5 GB) UND <30 Tage Alter.
+    # F2-9: Cache-skip nur bei plausibler Size UND <30 Tage Alter.
     # Vorher wurde ein truncated/error-page-Download (z.B. 1 KB HTML) als
     # Cache anerkannt und der naechste Build crashte erst beim Sanity-Check.
-    if ($existingSize -gt 1.5GB -and $age.TotalDays -lt 30) {
+    # 2026-08-14: Schwelle von 1.5 GB auf 1.0 GB gesenkt — OllamaSetup.exe
+    # ist zwischenzeitlich von ~1.98 GB auf ~1.4 GB geschrumpft, womit die
+    # alte Bedingung nie mehr greifen konnte und JEDER Build ~2 GB neu zog.
+    # Untergrenze gegen Error-Pages bleibt der Sanity-Check unten (100 MB).
+    if ($existingSize -gt 1.0GB -and $age.TotalDays -lt 30) {
         $NeedsPull = $false
         Write-Host "  cached ($([math]::Round($age.TotalDays,1)) days old, $([math]::Round($existingSize/1MB,1)) MB)"
     } elseif ($existingSize -lt 1.5GB) {

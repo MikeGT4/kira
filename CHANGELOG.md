@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.3.4 — 2026-08-14
+
+### Gemma 4 denkt — und Kira hat es nie abgeschaltet (Latenz-Fix)
+
+v0.3.3 stellte Neuinstallationen auf Gemma 4 um (`gemma4:12b` als Polish-
+Default, `gemma4:e4b` als `fast_model`). Übersehen wurde dabei, dass
+Gemma 4 — anders als Gemma 3 — per Default in einem Hybrid-Reasoning-Modus
+startet: Vor jeder Antwort erzeugt das Modell eine interne Denkkette.
+`_thinking_kwargs()` in `kira/styler.py` schaltete diesen Modus nur für
+`qwen3*` ab; der Docstring hielt ausdrücklich fest, „Gemma and other
+non-thinking models don't need the flag". Für Gemma 3 stimmte das, für
+Gemma 4 nicht mehr.
+
+Gemessen am 14.08.2026 auf der RTX 5090, echte Whisper-Sätze aus `kira.log`
+durch `prompts/clean.md`, beide Modelle zu **100 % im VRAM** (es ist also
+kein Platzierungsproblem):
+
+| Modell | Denken an (Default) | `think=False` |
+|---|---|---|
+| `gemma4:e4b` (fast_model-Default) | 2,60 s Median, max **30,44 s** | **0,38 s** |
+| `gemma4:26b-a4b-it-qat` | 14,76 s Median, max **43,90 s** | **0,38 s** |
+
+Die Denkketten wurden bis zu **17 699 Zeichen** lang — für Eingabesätze
+unter 80 Zeichen. Damit lag ausgerechnet der „schnelle Modus" weit über
+`SLOW_POLISH_THRESHOLD_SEC` (3 s), ab der Kira den Notfall-Umschalter auf
+`fast_model` auslöst — der selbst betroffen war.
+
+- **Fix:** `_thinking_kwargs()` erkennt jetzt Qwen 3 **und** Gemma 4
+  aufwärts über `_THINKING_MODEL_RE`. Das Muster deckt Schreibvarianten ab
+  (`gemma4:12b`, `gemma-4-abliterated:31b-v2`, Groß-/Kleinschreibung).
+- Verifiziert, dass Gemma 3 `think=False` klaglos akzeptiert — die frühere
+  Sorge vor Modellen ohne Thinking-Support trägt nicht mehr. Das Flag wird
+  trotzdem nur dort gesetzt, wo es gebraucht wird.
+- **13 neue Tests** in `tests/test_styler.py`. Die Funktion war zuvor
+  komplett ungetestet — deshalb fiel der Gemma-4-Fall nie auf. Neu dabei
+  ein Regressionstest, der prüft, dass das Flag tatsächlich bis an
+  `ollama.chat` durchgereicht wird, statt nur berechnet zu werden.
+
+**Modell-Defaults bleiben unverändert.** Ein Vergleich von
+`gemma4:26b-a4b-it-qat` (MoE, 25,2 B gesamt / 3,8 B aktiv) gegen
+`gemma3:12b` zeigte: Mit abgeschaltetem Denken poliert das größere Modell
+nicht besser als das kleine (beide verlieren dieselben Modalpartikel), mit
+eingeschaltetem Denken ist die Qualität spürbar besser — „Wir wollen **ja**
+eine Reichweite haben" bleibt korrekt erhalten —, aber 35× langsamer. Für
+einen Diktier-Workflow ist das kein Tausch, den man machen will.
+
+### Gebündelter Ollama war zu alt für die eigenen Defaults
+
+Der v0.3.3-Installer bündelte **Ollama 0.23.2** (Datei vom 28.06., beim
+Build am 03.07. als Cache anerkannt), während der First-Run-Wizard
+`gemma4:12b` pullen soll — das verlangt Ollama ≥ 0.30 und scheitert sonst
+mit Registry-412. Neuinstallationen liefen damit in einen fehlschlagenden
+Modell-Pull.
+
+- Der Build zieht jetzt eine aktuelle Version.
+- **Cache-Regel korrigiert:** Der Skip verlangte >1,5 GB, Ollama ist aber
+  auf ~1,4 GB geschrumpft — die Bedingung konnte nie mehr greifen, jeder
+  Build lud ~2 GB neu. Schwelle auf 1,0 GB gesenkt; der eigentliche
+  Sanity-Check (100 MB–3 GB) bleibt unverändert.
+
+### Herkunfts-Marker aus Repo und Historie entfernt
+
+- Sichtbarer Credit-String aus der Mac-About-Box entfernt (dabei
+  `Digitaroots` → `Digitalroots` korrigiert).
+- Toter Provider-Wert aus `StylerConfig`: nur `ollama` ist verdrahtet.
+- Entwickler-Notizen und lokale Agent-Konfiguration aus dem Repo genommen;
+  die Ignore-Regeln liegen in `.git/info/exclude`.
+- Commit-Historie bereinigt (56 Trailer entfernt, alle 15 Tags erhalten).
+
 ## v0.3.3 — 2026-07-03
 
 ### Ollama-Port-Diagnose: „Polish auf CPU" trotz freiem VRAM entlarvt Fremd-Server

@@ -5,6 +5,7 @@ from kira.config import Config, ModeConfig
 from kira.styler import (
     Styler,
     load_prompt,
+    _thinking_kwargs,
     SLOW_POLISH_THRESHOLD_SEC,
     SLOW_POLISH_TRIGGER_COUNT,
 )
@@ -856,3 +857,57 @@ async def test_verify_gpu_placement_matches_untagged_model_as_latest():
 
     assert result == "cpu"
     callback.assert_called_once()
+
+
+# --- Hybrid-Reasoning abschalten (Latenz-Falle) ---------------------------
+#
+# Gemma 4 startet — wie Qwen 3 — per Default im Denk-Modus. Gemessen am
+# 14.08.2026 auf der 5090: gemma4:e4b 2.60 s Median statt 0.38 s, Ausreisser
+# bis 30.44 s; gemma4:26b-a4b 14.76 s statt 0.38 s. Beide Modelle lagen dabei
+# zu 100 % im VRAM — es ist also kein Platzierungsproblem, sondern die interne
+# Denkkette (bis 17 699 Zeichen fuer einen Satz unter 80 Zeichen).
+
+
+@pytest.mark.parametrize("model", [
+    "gemma4:12b",              # v0.3.3-Polish-Default fuer Neuinstallationen
+    "gemma4:e4b",              # v0.3.3-fast_model-Default
+    "gemma4:26b-a4b-it-qat",
+    "gemma-4-abliterated:31b-v2",   # Bindestrich-Schreibweise (huihui_ai)
+    "GEMMA4:12B",                   # Grossschreibung
+    "qwen3:8b",
+    "qwen3.6:35b-a3b",
+    "huihui_ai/Qwen3.6-abliterated:35b-q4_K",
+])
+def test_thinking_is_disabled_for_reasoning_models(model):
+    assert _thinking_kwargs(model) == {"think": False}
+
+
+@pytest.mark.parametrize("model", [
+    "gemma3:12b",       # Mike's Bestands-Polish-Modell
+    "gemma3:4b",
+    "gemma2:9b",
+    "llama3.3:8b",
+    "mistral-small3.2:24b",
+])
+def test_thinking_flag_omitted_for_non_reasoning_models(model):
+    """Kein Flag, wo keins gebraucht wird — haelt den Aufruf minimal und
+    vermeidet Abhaengigkeit davon, dass jeder Ollama-Build ``think``
+    fuer beliebige Modelle akzeptiert."""
+    assert _thinking_kwargs(model) == {}
+
+
+@pytest.mark.asyncio
+async def test_polish_passes_think_false_for_gemma4():
+    """Der Regressionstest, der v0.3.3 gefehlt hat: der Polish-Pfad muss das
+    Flag tatsaechlich bis an ollama.chat durchreichen, nicht nur berechnen."""
+    cfg = Config()
+    cfg.styler.model = "gemma4:12b"
+    styler = Styler(cfg)
+    styler._client = MagicMock()
+    styler._client.chat = AsyncMock(
+        return_value={"message": {"content": "Hallo Welt."}}
+    )
+
+    await styler.polish("hallo welt", mode="plain")
+
+    assert styler._client.chat.await_args.kwargs["think"] is False
