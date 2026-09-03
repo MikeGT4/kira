@@ -1,12 +1,17 @@
 """First-run wizard: guide user through permissions + Ollama + model download."""
 from __future__ import annotations
 import logging
+import os
 import subprocess
 import shutil
 import rumps
 from kira.permissions import check_all, open_settings
 
 log = logging.getLogger(__name__)
+
+for _brew_bin in ("/opt/homebrew/bin", "/usr/local/bin"):
+    if _brew_bin not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = f"{os.environ.get('PATH', '')}{os.pathsep}{_brew_bin}"
 
 
 def run_if_needed() -> bool:

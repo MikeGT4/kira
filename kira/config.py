@@ -18,8 +18,11 @@ class WhisperConfig(BaseModel):
 
 class StylerConfig(BaseModel):
     provider: Literal["ollama", "openai", "anthropic"] = "ollama"
-    model: str = "gemma2:2b"
-    timeout_seconds: float = 3.0
+    model: str = "huihui_ai/qwen3-abliterated:8b"
+    timeout_seconds: float = 12.0
+    warmup_on_start: bool = True
+    warmup_timeout_seconds: float = 60.0
+    keep_alive: str = "1h"
     fallback_to_raw: bool = True
 
 

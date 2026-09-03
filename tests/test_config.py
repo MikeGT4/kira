@@ -9,7 +9,7 @@ def test_load_defaults_when_no_file(tmp_path):
     assert cfg.hotkey.combo == "fn"  # changed from alt+space
     assert cfg.whisper.model == "mlx-community/whisper-large-v3-turbo"
     assert cfg.styler.provider == "ollama"
-    assert cfg.styler.model == "gemma2:2b"
+    assert cfg.styler.model == "huihui_ai/qwen3-abliterated:8b"
     assert cfg.injector.strategy == "clipboard"
     assert "com.apple.mail" in cfg.context_modes
     assert cfg.context_modes["com.apple.mail"] == "email"

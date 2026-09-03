@@ -46,11 +46,13 @@ OPTIONS = {
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": "Kira needs microphone access to transcribe your voice.",
         "NSAccessibilityUsageDescription": "Kira uses Accessibility to inject transcribed text at the cursor.",
-        "NSInputMonitoringUsageDescription": "Kira listens for the global hotkey (Option+Space).",
+        "NSInputMonitoringUsageDescription": "Kira listens for the global hotkey (hold Fn / Globe).",
     },
     "packages": [
         "rumps", "pynput", "sounddevice", "mlx_whisper", "numpy",
         "pydantic", "yaml", "ollama", "pyperclip",
+        "_sounddevice_data", "_soundfile_data", "llvmlite",
+        "anyio", "httpx", "httpcore", "h11", "certifi", "idna",
     ],
     "includes": [
         "kira", "kira.ui",

@@ -2,9 +2,11 @@
 from __future__ import annotations
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from typing import Callable
 import rumps
+from PyObjCTools import AppHelper
 from kira.app import State
 from kira.config import default_config_path
 
@@ -36,7 +38,13 @@ class KiraMenubar(rumps.App):
         ]
 
     def update_state(self, state: State) -> None:
-        """Called from any thread. Updates status text and icon title marker."""
+        """Thread-safe entrypoint. Dispatches onto the AppKit main thread."""
+        if threading.current_thread() is threading.main_thread():
+            self._apply_state(state)
+        else:
+            AppHelper.callAfter(self._apply_state, state)
+
+    def _apply_state(self, state: State) -> None:
         label = {
             State.IDLE: "Idle",
             State.RECORDING: "Recording…",
@@ -49,7 +57,6 @@ class KiraMenubar(rumps.App):
             self._status_item.title = f"Status: {label}"
         except Exception:
             log.exception("failed to update menubar status")
-        # Visual cue in menubar: dot when recording, normal icon otherwise
         try:
             self.title = "●" if state == State.RECORDING else None
         except Exception:
@@ -59,7 +66,7 @@ class KiraMenubar(rumps.App):
         cfg_path = default_config_path()
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         if not cfg_path.exists():
-            cfg_path.write_text("# Kira config\n# See docs/superpowers/specs for full options\n")
+            cfg_path.write_text("# Kira config\n")
         subprocess.Popen(["open", "-e", str(cfg_path)])
 
     def _open_log(self, _):

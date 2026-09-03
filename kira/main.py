@@ -87,6 +87,9 @@ def run() -> None:
     threading.Thread(target=_loop_runner, daemon=True).start()
     app.set_loop(loop)
 
+    if cfg.styler.warmup_on_start:
+        asyncio.run_coroutine_threadsafe(styler.warmup(), loop)
+
     hotkey = HotkeyListener(
         combo=cfg.hotkey.combo,
         on_press=app.on_hotkey_press,
