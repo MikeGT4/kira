@@ -4,7 +4,7 @@
 # Bump and commit when any dep is upgraded; the build pipeline
 # re-runs `pip download` against this exact list on every release.
 #
-# Generated 2026-04-25 from Mike's kira-venv (Win Python 3.12.10).
+# Pinned bundle requirements for the Windows installer.
 # Excluded by hand: editable kira install, dev/test-only packages
 # (pytest, pytest-asyncio, soundfile, py2app, pluggy, iniconfig).
 #
