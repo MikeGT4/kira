@@ -25,3 +25,11 @@ def test_peaks_keep_the_extreme_sample_of_each_chunk():
     assert abs(peaks[15] - 0.4) < 1e-6
     assert _peaks(np.zeros(0, dtype=np.float32), 30) == []
     assert len(_peaks(np.ones(5, dtype=np.float32), 30)) == 5
+
+
+def test_panel_stays_visible_while_another_app_is_active():
+    from kira.ui.popup import PopupHUD
+    hud = PopupHUD()
+    hud._ensure_panel()
+    assert hud._panel.hidesOnDeactivate() is False
+    assert hud._panel.isFloatingPanel() is True
