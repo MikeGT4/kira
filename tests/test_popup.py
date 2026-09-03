@@ -21,7 +21,7 @@ def test_peaks_keep_the_extreme_sample_of_each_chunk():
     block[150] = 0.4
     peaks = _peaks(block, 30)
     assert len(peaks) == 30
-    assert peaks[1] == -0.9
-    assert peaks[15] == 0.4
+    assert abs(peaks[1] + 0.9) < 1e-6
+    assert abs(peaks[15] - 0.4) < 1e-6
     assert _peaks(np.zeros(0, dtype=np.float32), 30) == []
     assert len(_peaks(np.ones(5, dtype=np.float32), 30)) == 5

@@ -9,6 +9,11 @@ from AppKit import (
     NSPanel,
     NSBackingStoreBuffered,
     NSWindowStyleMaskBorderless,
+    NSWindowStyleMaskNonactivatingPanel,
+    NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorFullScreenAuxiliary,
+    NSWindowCollectionBehaviorStationary,
+    NSWindowCollectionBehaviorIgnoresCycle,
     NSFloatingWindowLevel,
     NSColor,
     NSView,
@@ -122,7 +127,15 @@ class PopupHUD:
             return
         rect = NSMakeRect(0, 0, HUD_W, HUD_H)
         self._panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-            rect, NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False
+            rect, NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel, NSBackingStoreBuffered, False
+        )
+        self._panel.setFloatingPanel_(True)
+        self._panel.setHidesOnDeactivate_(False)
+        self._panel.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehaviorIgnoresCycle
         )
         self._panel.setOpaque_(False)
         self._panel.setBackgroundColor_(NSColor.clearColor())
