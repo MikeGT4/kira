@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 import rumps
 from PyObjCTools import AppHelper
+from kira import __version__
 from kira.app import State
 from kira.config import default_config_path
 
@@ -90,7 +91,7 @@ class KiraMenubar(rumps.App):
     def _about(self, _):
         rumps.alert(
             title="Kira",
-            message="Voice-to-text menubar app.\nv0.1.0\n© 2026 Digitalroots",
+            message=f"Voice-to-text menubar app.\nv{__version__}\n© 2026 Digitalroots",
         )
 
     def _quit(self, _):

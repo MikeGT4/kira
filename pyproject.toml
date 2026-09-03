@@ -1,6 +1,6 @@
 [project]
 name = "kira"
-version = "0.1.0"
+version = "0.2.0"
 description = "Voice-to-text menubar app for macOS with local Whisper + Ollama polish"
 requires-python = ">=3.12"
 dependencies = [

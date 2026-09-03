@@ -20,7 +20,7 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 | Speech to text | mlx-whisper, `whisper-large-v3-turbo` on the Apple GPU | faster-whisper, `large-v3` on CUDA |
 | Text cleanup | Ollama, `huihui_ai/qwen3-abliterated:8b` (uncensored) | Ollama, `gemma4:12b`, uncensored model optional |
 | Hardware | Apple Silicon (M1 or newer), 16 GB unified memory | NVIDIA GPU with 12 GB VRAM or more |
-| Install | from source, see below | installer on the [Releases page](https://github.com/MikeGT4/kira/releases/latest) |
+| Install | app bundle from the [Releases page](https://github.com/MikeGT4/kira/releases) or from source, see below | installer on the [Releases page](https://github.com/MikeGT4/kira/releases/latest) |
 
 ## What it does
 
@@ -36,6 +36,14 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 - macOS on Apple Silicon (tested on an M5 with 16 GB)
 - Python 3.12 and [`uv`](https://github.com/astral-sh/uv)
 - [Ollama.app](https://ollama.com/download) from ollama.com. The Homebrew formula shipped without the `llama-server` binary on our machine and could not load any model; the official app works.
+
+## Install the app bundle
+
+Download `Kira-<version>-macos-arm64.zip` from the [Releases page](https://github.com/MikeGT4/kira/releases), unzip it and move `Kira.app` to `/Applications`. The bundle is signed ad hoc, not notarised: on the first launch use Control-click, then Open. Then install [Ollama.app](https://ollama.com/download) and pull the cleanup model:
+
+```bash
+ollama pull huihui_ai/qwen3-abliterated:8b
+```
 
 ## Install from source
 
