@@ -4,8 +4,7 @@ import logging
 import os
 import subprocess
 import shutil
-import rumps
-from kira.permissions import check_all, open_settings
+from kira.permissions import check_all
 
 log = logging.getLogger(__name__)
 

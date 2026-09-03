@@ -49,7 +49,7 @@ ollama pull huihui_ai/qwen3-abliterated:8b
 kira
 ```
 
-The first dictation downloads `mlx-community/whisper-large-v3-turbo` (about 1.6 GB) from Hugging Face.
+The first dictation downloads `mlx-community/whisper-large-v3-turbo` (about 1.5 GB) from Hugging Face.
 
 ## Build the app bundle
 
