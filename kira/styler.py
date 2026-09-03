@@ -72,6 +72,36 @@ class Styler:
         except Exception as exc:
             log.warning("Styler warmup failed (%s: %s)", type(exc).__name__, exc)
 
+    async def edit_command(self, selection: str, command: str) -> str:
+        """Apply a spoken instruction to the selected text; return the selection unchanged on failure."""
+        if not selection.strip() or not command.strip():
+            return selection
+        model = self._config.styler.model
+        timeout = self._config.styler.edit_timeout_seconds
+        try:
+            prompt = load_prompt("edit_command").format(selection=selection, command=command)
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options={"temperature": 0.2},
+                    keep_alive=self._config.styler.keep_alive,
+                    **_thinking_kwargs(model),
+                ),
+                timeout=timeout,
+            )
+            edited = response["message"]["content"].strip()
+            if not edited:
+                log.warning("edit_command returned empty (model=%s), keeping selection", model)
+                return selection
+            return edited
+        except asyncio.TimeoutError:
+            log.warning("edit_command timed out after %.0fs (model=%s), keeping selection", timeout, model)
+            return selection
+        except Exception as exc:
+            log.warning("edit_command failed (%s: %s), keeping selection", type(exc).__name__, exc)
+            return selection
+
     async def polish(self, text: str, mode: str) -> str:
         if not text.strip():
             return text

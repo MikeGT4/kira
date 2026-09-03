@@ -46,3 +46,41 @@ def test_release_without_press_is_ignored():
     # Not in RECORDING -> ignored
     app.on_hotkey_release(duration_ms=500)
     assert app.state == State.IDLE
+
+
+def test_edit_hotkey_uses_selection_and_edit_command(monkeypatch):
+    import kira.app as app_module
+    monkeypatch.setattr(app_module, "read_selection", lambda: "Hallo Welt")
+    app = KiraApp.for_test()
+    app.on_hotkey_press()
+    app.on_edit_detected()
+    assert app.state == State.EDITING
+    app.on_hotkey_release(duration_ms=500)
+    assert app.state == State.IDLE
+    assert app._injector.last == "Hallo Welt+stub"
+    assert app._edit_mode is False and app._captured_selection is None
+
+
+def test_edit_hotkey_without_selection_stays_in_dictation(monkeypatch):
+    import kira.app as app_module
+    monkeypatch.setattr(app_module, "read_selection", lambda: None)
+    app = KiraApp.for_test()
+    app.on_hotkey_press()
+    app.on_edit_detected()
+    assert app.state == State.RECORDING
+    app.on_hotkey_release(duration_ms=500)
+    assert app._injector.last == "stub"
+
+
+def test_edit_hotkey_when_pasteboard_unavailable_stays_in_dictation(monkeypatch):
+    import kira.app as app_module
+    from kira.edit_command import ClipboardUnavailable
+
+    def boom():
+        raise ClipboardUnavailable("locked")
+
+    monkeypatch.setattr(app_module, "read_selection", boom)
+    app = KiraApp.for_test()
+    app.on_hotkey_press()
+    app.on_edit_detected()
+    assert app.state == State.RECORDING

@@ -10,6 +10,7 @@ from kira.config import Config
 from kira.recorder import Recorder
 from kira.transcriber import TranscriptionResult
 from kira.context import detect_mode
+from kira.edit_command import ClipboardUnavailable, read_selection
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ log = logging.getLogger(__name__)
 class State(Enum):
     IDLE = auto()
     RECORDING = auto()
+    EDITING = auto()
     TRANSCRIBING = auto()
     STYLING = auto()
     INJECTING = auto()
@@ -44,6 +46,8 @@ class KiraApp:
         self._state = State.IDLE
         self._press_time: float | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._edit_mode = False
+        self._captured_selection: str | None = None
 
     @classmethod
     def for_test(cls) -> "KiraApp":
@@ -78,14 +82,31 @@ class KiraApp:
         self._recorder.start()
         self._set_state(State.RECORDING)
 
+    def on_edit_detected(self) -> None:
+        if self._state != State.RECORDING or self._edit_mode:
+            return
+        try:
+            selection = read_selection()
+        except ClipboardUnavailable as exc:
+            log.warning("edit hotkey: pasteboard unavailable (%s), staying in dictation mode", exc)
+            return
+        if not selection:
+            log.info("edit hotkey: nothing selected, staying in dictation mode")
+            return
+        self._edit_mode = True
+        self._captured_selection = selection
+        self._set_state(State.EDITING)
+
     def on_hotkey_release(self, duration_ms: int | None = None) -> None:
-        if self._state != State.RECORDING:
+        if self._state not in (State.RECORDING, State.EDITING):
             return
         if duration_ms is None and self._press_time is not None:
             duration_ms = int((time.monotonic() - self._press_time) * 1000)
         self._press_time = None
         audio = self._recorder.stop()
         if (duration_ms or 0) < self._config.hotkey.min_duration_ms:
+            self._edit_mode = False
+            self._captured_selection = None
             self._set_state(State.IDLE)
             return
         if self._loop is None:
@@ -95,6 +116,8 @@ class KiraApp:
         asyncio.run_coroutine_threadsafe(self._run_pipeline(audio), self._loop)
 
     async def _run_pipeline(self, audio: np.ndarray) -> None:
+        edit_mode = self._edit_mode
+        selection = self._captured_selection
         try:
             self._set_state(State.TRANSCRIBING)
             transcription = self._transcriber.transcribe(audio)
@@ -102,14 +125,23 @@ class KiraApp:
                 self._set_state(State.IDLE)
                 return
             self._set_state(State.STYLING)
-            mode = detect_mode(self._config)
-            polished = await self._styler.polish(transcription.text, mode=mode)
+            if edit_mode and selection:
+                polished = await self._styler.edit_command(selection, transcription.text)
+                log.info("Edit out (sel=%d chars, cmd=%r, out=%d chars)", len(selection), transcription.text[:60], len(polished))
+            else:
+                mode = detect_mode(self._config)
+                polished = await self._styler.polish(transcription.text, mode=mode)
+            if not polished:
+                log.warning("polish returned empty, nothing injected")
+                return
             self._set_state(State.INJECTING)
             self._injector.inject(polished)
         except Exception:
             log.exception("pipeline failed")
             self._set_state(State.ERROR)
         finally:
+            self._edit_mode = False
+            self._captured_selection = None
             self._set_state(State.IDLE)
 
 
@@ -121,6 +153,7 @@ class _StubTranscriber:
 class _StubStyler:
     def __init__(self, cfg): self.cfg = cfg
     async def polish(self, text, mode): return text
+    async def edit_command(self, selection, command): return f"{selection}+{command}"
 
 
 class _StubInjector:

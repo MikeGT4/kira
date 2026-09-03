@@ -38,3 +38,11 @@ def test_invalid_provider_raises(tmp_path):
     yaml_file.write_text("styler:\n  provider: invalid\n")
     with pytest.raises(ValueError):
         load_config(yaml_file)
+
+
+def test_new_defaults_for_edit_hotkey_audio_and_splash(tmp_path):
+    cfg = load_config(tmp_path / "missing.yaml")
+    assert cfg.hotkey.edit_modifier == "shift"
+    assert cfg.styler.edit_timeout_seconds == 30.0
+    assert cfg.audio.input_device is None
+    assert cfg.ui.splash is True

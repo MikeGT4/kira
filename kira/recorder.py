@@ -17,7 +17,8 @@ DTYPE = "float32"
 class Recorder:
     """Non-blocking audio recorder writing to an in-memory buffer."""
 
-    def __init__(self) -> None:
+    def __init__(self, input_device: str | None = None) -> None:
+        self._input_device = input_device
         self._lock = threading.Lock()
         self._buffer: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
@@ -52,6 +53,22 @@ class Recorder:
             except Exception:
                 log.exception("samples callback raised")
 
+    def _resolve_device(self) -> int | None:
+        spec = (self._input_device or "").strip().lower()
+        if not spec:
+            return None
+        try:
+            devices = sd.query_devices()
+        except Exception as exc:
+            log.warning("query_devices failed (%s), using the default input", exc)
+            return None
+        for index, dev in enumerate(devices):
+            if dev.get("max_input_channels", 0) > 0 and spec in str(dev.get("name", "")).lower():
+                log.info("Recorder pinned to input %d (%s)", index, dev.get("name"))
+                return index
+        log.warning("input device %r not found, using the default input", self._input_device)
+        return None
+
     def start(self) -> None:
         if self._stream is not None:
             return
@@ -63,6 +80,7 @@ class Recorder:
             dtype=DTYPE,
             callback=self._callback,
             blocksize=1600,
+            device=self._resolve_device(),
         )
         self._stream.start()
 

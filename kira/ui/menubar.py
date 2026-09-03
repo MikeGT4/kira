@@ -10,6 +10,7 @@ from PyObjCTools import AppHelper
 from kira import __version__
 from kira.app import State
 from kira.config import default_config_path
+from kira.ui.settings_window import SettingsWindow
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ ICON_DEFAULT = str(ASSETS / "icon-template.png")
 
 
 class KiraMenubar(rumps.App):
-    def __init__(self, on_quit: Callable[[], None]) -> None:
+    def __init__(self, on_quit: Callable[[], None], config_path: Path | None = None) -> None:
         super().__init__(
             name="Kira",
             title=None,
@@ -38,16 +39,24 @@ class KiraMenubar(rumps.App):
             quit_button=None,
         )
         self._on_quit = on_quit
-        self._status_item = rumps.MenuItem("Status: Idle")
+        self._config_path = config_path or default_config_path()
+        self._settings = None
+        self._status_item = rumps.MenuItem("Status: Bereit")
         self.menu = [
             self._status_item,
             None,
-            rumps.MenuItem("Open Config…", callback=self._open_config),
-            rumps.MenuItem("Open Log…", callback=self._open_log),
+            rumps.MenuItem("Einstellungen…", callback=self._open_settings),
+            rumps.MenuItem("Konfigurationsdatei…", callback=self._open_config),
+            rumps.MenuItem("Protokoll…", callback=self._open_log),
             None,
-            rumps.MenuItem("About Kira", callback=self._about),
-            rumps.MenuItem("Quit Kira", callback=self._quit),
+            rumps.MenuItem("Über Kira", callback=self._about),
+            rumps.MenuItem("Kira beenden", callback=self._quit),
         ]
+
+    def _open_settings(self, _):
+        if self._settings is None:
+            self._settings = SettingsWindow(self._config_path)
+        self._settings.show()
 
     def update_state(self, state: State) -> None:
         """Thread-safe entrypoint. Dispatches onto the AppKit main thread."""
@@ -58,19 +67,20 @@ class KiraMenubar(rumps.App):
 
     def _apply_state(self, state: State) -> None:
         label = {
-            State.IDLE: "Idle",
-            State.RECORDING: "Recording…",
-            State.TRANSCRIBING: "Transcribing…",
-            State.STYLING: "Polishing…",
-            State.INJECTING: "Injecting…",
-            State.ERROR: "Error (see log)",
+            State.IDLE: "Bereit",
+            State.RECORDING: "Aufnahme…",
+            State.EDITING: "Bearbeiten…",
+            State.TRANSCRIBING: "Transkription…",
+            State.STYLING: "Polieren…",
+            State.INJECTING: "Einfügen…",
+            State.ERROR: "Fehler (siehe Protokoll)",
         }.get(state, "Unknown")
         try:
             self._status_item.title = f"Status: {label}"
         except Exception:
             log.exception("failed to update menubar status")
         try:
-            self.title = "●" if state == State.RECORDING else None
+            self.title = "●" if state in (State.RECORDING, State.EDITING) else None
         except Exception:
             pass
 

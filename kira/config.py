@@ -8,7 +8,12 @@ from pydantic import BaseModel, Field
 
 class HotkeyConfig(BaseModel):
     combo: str = "fn"
+    edit_modifier: Literal["shift", "ctrl", "alt", "cmd"] | None = "shift"
     min_duration_ms: int = 300
+
+
+class AudioConfig(BaseModel):
+    input_device: str | None = None
 
 
 class WhisperConfig(BaseModel):
@@ -23,6 +28,7 @@ class StylerConfig(BaseModel):
     warmup_on_start: bool = True
     warmup_timeout_seconds: float = 60.0
     keep_alive: str = "1h"
+    edit_timeout_seconds: float = 30.0
     fallback_to_raw: bool = True
 
 
@@ -33,6 +39,7 @@ class InjectorConfig(BaseModel):
 
 class UIConfig(BaseModel):
     popup: bool = True
+    splash: bool = True
     sound_feedback: bool = False
 
 
@@ -57,6 +64,7 @@ DEFAULT_CONTEXT_MODES = {
 
 class Config(BaseModel):
     hotkey: HotkeyConfig = Field(default_factory=HotkeyConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
     whisper: WhisperConfig = Field(default_factory=WhisperConfig)
     styler: StylerConfig = Field(default_factory=StylerConfig)
     injector: InjectorConfig = Field(default_factory=InjectorConfig)

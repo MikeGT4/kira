@@ -46,6 +46,13 @@ KEY_COMBOS: dict[str, tuple[int, int]] = {
 
 MODIFIER_ONLY_COMBOS = {"fn"}
 
+EDIT_MODIFIER_MASKS = {
+    "shift": kCGEventFlagMaskShift,
+    "ctrl": kCGEventFlagMaskControl,
+    "alt": kCGEventFlagMaskAlternate,
+    "cmd": kCGEventFlagMaskCommand,
+}
+
 MODIFIER_BITS = (
     kCGEventFlagMaskAlternate
     | kCGEventFlagMaskControl
@@ -67,10 +74,17 @@ class HotkeyListener:
         combo: str,
         on_press: Callable[[], None],
         on_release: Callable[[], None],
+        on_edit_detected: Callable[[], None] | None = None,
+        edit_modifier: str | None = None,
     ) -> None:
         if combo not in KEY_COMBOS and combo not in MODIFIER_ONLY_COMBOS:
             raise ValueError(f"Unsupported combo: {combo}")
+        if edit_modifier is not None and edit_modifier not in EDIT_MODIFIER_MASKS:
+            raise ValueError(f"Unsupported edit modifier: {edit_modifier}")
         self._combo = combo
+        self._on_edit_detected = on_edit_detected
+        self._edit_mask = EDIT_MODIFIER_MASKS.get(edit_modifier, 0) if edit_modifier else 0
+        self._edit_fired = False
         if combo in KEY_COMBOS:
             self._required_mask, self._keycode = KEY_COMBOS[combo]
         else:
@@ -116,11 +130,19 @@ class HotkeyListener:
         if fn_now and not self._fn_held:
             self._fn_held = True
             self._active = True
+            self._edit_fired = False
             try:
                 self._on_press()
             except Exception:
                 log.exception("on_press raised")
-        elif (not fn_now) and self._fn_held:
+        if fn_now and self._fn_held and self._edit_mask and not self._edit_fired and (flags & self._edit_mask):
+            self._edit_fired = True
+            if self._on_edit_detected is not None:
+                try:
+                    self._on_edit_detected()
+                except Exception:
+                    log.exception("on_edit_detected raised")
+        if (not fn_now) and self._fn_held:
             self._fn_held = False
             if self._active:
                 self._active = False

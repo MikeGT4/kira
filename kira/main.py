@@ -5,7 +5,7 @@ import logging
 import signal
 import threading
 from pathlib import Path
-from kira.config import load_config
+from kira.config import default_config_path, load_config
 from kira.recorder import Recorder
 from kira.transcriber import Transcriber
 from kira.styler import Styler
@@ -14,6 +14,7 @@ from kira.hotkey import HotkeyListener
 from kira.app import KiraApp, State
 from kira.ui.menubar import KiraMenubar
 from kira.ui.popup import PopupHUD
+from kira.ui.splash import show_splash
 
 
 LOG_PATH = Path.home() / "Library" / "Logs" / "kira.log"
@@ -46,12 +47,12 @@ def run() -> None:
     except Exception:
         log.exception("welcome check failed; continuing")
 
-    recorder = Recorder()
+    recorder = Recorder(input_device=cfg.audio.input_device)
     transcriber = Transcriber(cfg)
     styler = Styler(cfg)
     injector = Injector(restore_after_ms=cfg.injector.restore_clipboard_after_ms)
 
-    menubar = KiraMenubar(on_quit=lambda: None)
+    menubar = KiraMenubar(on_quit=lambda: None, config_path=default_config_path())
     popup = PopupHUD() if cfg.ui.popup else None
 
     def handle_state(s: State) -> None:
@@ -60,6 +61,8 @@ def run() -> None:
             return
         if s == State.RECORDING:
             popup.show("Recording…")
+        elif s == State.EDITING:
+            popup.update_status("Editing…")
         elif s == State.TRANSCRIBING:
             popup.update_status("Transcribing…")
         elif s == State.STYLING:
@@ -95,6 +98,8 @@ def run() -> None:
         combo=cfg.hotkey.combo,
         on_press=app.on_hotkey_press,
         on_release=app.on_hotkey_release,
+        on_edit_detected=app.on_edit_detected,
+        edit_modifier=cfg.hotkey.edit_modifier,
     )
     hotkey.start()
 
@@ -136,6 +141,8 @@ def run() -> None:
     atexit.register(_graceful_shutdown)
 
     log.info("Kira ready — hotkey %s", cfg.hotkey.combo)
+    if cfg.ui.splash:
+        show_splash()
     menubar.run()
 
 

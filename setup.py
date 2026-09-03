@@ -23,6 +23,7 @@ DATA_FILES = [
     ("assets", [
         "assets/icon-dock.icns",
         "assets/icon-template.png",
+        "assets/kira-splash-macos.png",
     ]),
     ("prompts", [
         "prompts/email.md",
@@ -30,6 +31,7 @@ DATA_FILES = [
         "prompts/terminal.md",
         "prompts/code.md",
         "prompts/plain.md",
+        "prompts/edit_command.md",
     ]),
 ]
 OPTIONS = {
@@ -39,8 +41,8 @@ OPTIONS = {
         "CFBundleName": "Kira",
         "CFBundleDisplayName": "Kira",
         "CFBundleIdentifier": "eu.pollow.kira",
-        "CFBundleVersion": "0.2.1",
-        "CFBundleShortVersionString": "0.2.1",
+        "CFBundleVersion": "0.3.0",
+        "CFBundleShortVersionString": "0.3.0",
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": "Kira needs microphone access to transcribe your voice.",
         "NSAccessibilityUsageDescription": "Kira uses Accessibility to inject transcribed text at the cursor.",

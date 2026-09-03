@@ -87,3 +87,29 @@ def test_prompt_dir_prefers_bundle_resourcepath(tmp_path, monkeypatch):
     assert _prompt_dir() == tmp_path / "prompts"
     monkeypatch.delenv("RESOURCEPATH")
     assert _prompt_dir().name == "prompts"
+
+
+@pytest.mark.asyncio
+async def test_edit_command_returns_model_output_and_uses_edit_timeout():
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "Hello world."}})
+    styler._client = fake_client
+    result = await styler.edit_command("hallo welt", "übersetze ins Englische")
+    assert result == "Hello world."
+    prompt = fake_client.chat.call_args.kwargs["messages"][0]["content"]
+    assert "hallo welt" in prompt and "übersetze ins Englische" in prompt
+
+
+@pytest.mark.asyncio
+async def test_edit_command_keeps_selection_on_error_or_empty():
+    cfg = Config()
+    styler = Styler(cfg)
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=Exception("down"))
+    styler._client = fake_client
+    assert await styler.edit_command("bleibt", "mach was") == "bleibt"
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "   "}})
+    assert await styler.edit_command("bleibt", "mach was") == "bleibt"
+    assert await styler.edit_command("", "mach was") == ""
