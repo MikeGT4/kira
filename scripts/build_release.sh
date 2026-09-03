@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY="${PYTHON:-.venv/bin/python}"
-SITE="$("$PY" -c 'import mlx, os; print(os.path.dirname(os.path.dirname(mlx.__path__[0])))')"
+SITE="$("$PY" -c 'import mlx, os; print(os.path.dirname(mlx.__path__[0]))')"
 rm -rf build dist
 "$PY" setup.py py2app
 BUNDLE_PY="dist/Kira.app/Contents/Resources/lib/python3.12"
