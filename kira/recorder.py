@@ -22,12 +22,17 @@ class Recorder:
         self._buffer: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._on_level: Callable[[float], None] | None = None
+        self._on_samples: Callable[[np.ndarray], None] | None = None
         self._closed = False
         atexit.register(self._shutdown)
 
     def set_level_callback(self, cb: Callable[[float], None] | None) -> None:
         """Register a callback invoked with RMS level (float) for each audio block."""
         self._on_level = cb
+
+    def set_samples_callback(self, cb: Callable[[np.ndarray], None] | None) -> None:
+        """Register a callback invoked with the raw mono audio block for each frame."""
+        self._on_samples = cb
 
     def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
         if status:
@@ -40,6 +45,12 @@ class Recorder:
                 self._on_level(rms)
             except Exception:
                 log.exception("level callback raised")
+        if self._on_samples is not None:
+            try:
+                mono = indata[:, 0] if indata.ndim > 1 else indata
+                self._on_samples(mono.copy())
+            except Exception:
+                log.exception("samples callback raised")
 
     def start(self) -> None:
         if self._stream is not None:

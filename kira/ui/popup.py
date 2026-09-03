@@ -1,7 +1,10 @@
-"""Floating popup HUD near cursor. Shows live waveform + status text."""
+"""Floating oscilloscope HUD near the cursor: dark panel, status text, green trace."""
 from __future__ import annotations
 import logging
 import threading
+from collections import deque
+import numpy as np
+import objc
 from AppKit import (
     NSPanel,
     NSBackingStoreBuffered,
@@ -10,16 +13,36 @@ from AppKit import (
     NSColor,
     NSView,
     NSBezierPath,
+    NSGraphicsContext,
     NSMakeRect,
     NSMakePoint,
     NSTextField,
     NSFont,
     NSScreen,
+    NSSquareLineCapStyle,
+    NSMiterLineJoinStyle,
 )
 from PyObjCTools import AppHelper
 from Quartz import CGEventCreate, CGEventGetLocation
 
 log = logging.getLogger(__name__)
+
+HUD_W, HUD_H = 260, 80
+WF_X, WF_Y, WF_W, WF_H = 10, 10, 240, 42
+LABEL_Y, LABEL_H = 56, 18
+MAX_WAVE_POINTS = WF_W
+SAMPLES_PER_BLOCK = 30
+BG_COLOR = (12 / 255, 12 / 255, 12 / 255, 220 / 255)
+WAVE_COLOR = (60 / 255, 220 / 255, 110 / 255, 1.0)
+
+
+def _peaks(samples, n: int = SAMPLES_PER_BLOCK) -> list[float]:
+    """Downsample a block to its n most extreme samples, one per chunk."""
+    arr = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if arr.size == 0:
+        return []
+    chunks = np.array_split(arr, min(n, arr.size))
+    return [float(c[np.argmax(np.abs(c))]) for c in chunks]
 
 
 def _on_main(fn, *args, **kwargs):
@@ -33,42 +56,61 @@ def _on_main(fn, *args, **kwargs):
     AppHelper.callAfter(lambda: fn(*args, **kwargs))
 
 
+class HudView(NSView):
+    """Rounded dark background for the whole panel."""
+
+    def drawRect_(self, dirty_rect):
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(*BG_COLOR).set()
+        NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(self.bounds(), 8.0, 8.0).fill()
+
+
 class WaveformView(NSView):
-    """Draws a simple moving waveform from RMS samples."""
+    """Rolling 2 px trace of peak samples, drawn without antialiasing."""
 
     def initWithFrame_(self, frame):
-        self = super().initWithFrame_(frame)
+        self = objc.super(WaveformView, self).initWithFrame_(frame)
         if self is None:
             return None
-        self._levels = []
-        self._max_samples = 40
+        self._wave = deque(maxlen=MAX_WAVE_POINTS)
         return self
 
-    def pushLevel_(self, level):
-        self._levels.append(float(level))
-        if len(self._levels) > self._max_samples:
-            self._levels = self._levels[-self._max_samples:]
+    def pushPeaks_(self, peaks):
+        self._wave.extend(peaks)
+        self.setNeedsDisplay_(True)
+
+    def clear(self):
+        self._wave.clear()
         self.setNeedsDisplay_(True)
 
     def drawRect_(self, dirty_rect):
+        n = len(self._wave)
+        if n < 2:
+            return
         bounds = self.bounds()
-        NSColor.colorWithCalibratedWhite_alpha_(0.05, 0.85).set()
-        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, 8.0, 8.0)
-        path.fill()
-        w = bounds.size.width
-        h = bounds.size.height
-        n = max(len(self._levels), 1)
-        bar_w = w / max(n, 1)
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(1.0, 0.84, 0.0, 1.0).set()
-        for i, lvl in enumerate(self._levels):
-            bh = max(2, min(h - 4, h * lvl * 3.0))
-            x = i * bar_w
-            y = (h - bh) / 2
-            NSBezierPath.fillRect_(NSMakeRect(x + 1, y, max(bar_w - 2, 1), bh))
+        w, h = bounds.size.width, bounds.size.height
+        cy = h / 2
+        half = h / 2 - 2
+        step = w / (n - 1)
+        ctx = NSGraphicsContext.currentContext()
+        ctx.saveGraphicsState()
+        ctx.setShouldAntialias_(False)
+        path = NSBezierPath.bezierPath()
+        path.setLineWidth_(2.0)
+        path.setLineCapStyle_(NSSquareLineCapStyle)
+        path.setLineJoinStyle_(NSMiterLineJoinStyle)
+        for i, s in enumerate(self._wave):
+            point = NSMakePoint(i * step, cy + s * half)
+            if i == 0:
+                path.moveToPoint_(point)
+            else:
+                path.lineToPoint_(point)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(*WAVE_COLOR).set()
+        path.stroke()
+        ctx.restoreGraphicsState()
 
 
 class PopupHUD:
-    """Floating popup positioned near cursor. Thread-safe public API."""
+    """Floating panel positioned near the cursor. Thread-safe public API."""
 
     def __init__(self) -> None:
         self._panel = None
@@ -78,7 +120,7 @@ class PopupHUD:
     def _ensure_panel(self) -> None:
         if self._panel is not None:
             return
-        rect = NSMakeRect(0, 0, 260, 80)
+        rect = NSMakeRect(0, 0, HUD_W, HUD_H)
         self._panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             rect, NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False
         )
@@ -88,17 +130,17 @@ class PopupHUD:
         self._panel.setHasShadow_(True)
         self._panel.setIgnoresMouseEvents_(True)
 
-        content = NSView.alloc().initWithFrame_(rect)
-        self._waveform = WaveformView.alloc().initWithFrame_(NSMakeRect(10, 30, 240, 40))
+        content = HudView.alloc().initWithFrame_(rect)
+        self._waveform = WaveformView.alloc().initWithFrame_(NSMakeRect(WF_X, WF_Y, WF_W, WF_H))
         content.addSubview_(self._waveform)
 
-        self._label = NSTextField.alloc().initWithFrame_(NSMakeRect(10, 6, 240, 20))
+        self._label = NSTextField.alloc().initWithFrame_(NSMakeRect(WF_X, LABEL_Y, WF_W, LABEL_H))
         self._label.setStringValue_("")
         self._label.setBezeled_(False)
         self._label.setDrawsBackground_(False)
         self._label.setEditable_(False)
         self._label.setSelectable_(False)
-        self._label.setTextColor_(NSColor.whiteColor())
+        self._label.setTextColor_(NSColor.colorWithCalibratedWhite_alpha_(1.0, 220 / 255))
         self._label.setFont_(NSFont.systemFontOfSize_(11))
         content.addSubview_(self._label)
         self._panel.setContentView_(content)
@@ -121,17 +163,16 @@ class PopupHUD:
         x, y = self._cursor_location()
         self._panel.setFrameOrigin_(NSMakePoint(x, y))
         self._label.setStringValue_(status)
-        self._waveform._levels = []
-        self._waveform.setNeedsDisplay_(True)
+        self._waveform.clear()
         self._panel.orderFrontRegardless()
 
     def _do_update_status(self, status: str) -> None:
         if self._label:
             self._label.setStringValue_(status)
 
-    def _do_push_level(self, level: float) -> None:
+    def _do_push_peaks(self, peaks) -> None:
         if self._waveform:
-            self._waveform.pushLevel_(level)
+            self._waveform.pushPeaks_(peaks)
 
     def _do_hide(self) -> None:
         if self._panel:
@@ -143,8 +184,10 @@ class PopupHUD:
     def update_status(self, status: str) -> None:
         _on_main(self._do_update_status, status)
 
-    def push_level(self, level: float) -> None:
-        _on_main(self._do_push_level, float(level))
+    def push_samples(self, samples) -> None:
+        peaks = _peaks(samples)
+        if peaks:
+            _on_main(self._do_push_peaks, peaks)
 
     def hide(self) -> None:
         _on_main(self._do_hide)
