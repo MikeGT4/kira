@@ -28,6 +28,7 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 - **Context-aware cleanup.** Kira detects the frontmost app and picks one of five prompts: mail, chat, terminal, code or plain text. A sentence dictated into Mail gets a different register than the same sentence in a terminal.
 - **German and English**, detected automatically per dictation.
 - **Uncensored by default.** The cleanup model is an abliterated Qwen 3 8B. It is not tuned to refuse or lecture; it only cleans up what you said. Any other Ollama model can be set in the config.
+- **Live HUD.** While you hold fn, a dark panel next to the cursor shows the status and a green oscilloscope trace of your voice.
 - **Nothing leaves your Mac.** Audio and text stay on the machine. Kira talks to Ollama on `127.0.0.1` only.
 - **Warm start.** The cleanup model is loaded when Kira starts and kept in memory for an hour, so the first dictation is as fast as the hundredth.
 
