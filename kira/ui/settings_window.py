@@ -35,11 +35,11 @@ EDIT_MODIFIERS = ("shift", "ctrl", "alt", "cmd")
 EDIT_OFF = "aus"
 LANGUAGES = ("auto", "de", "en")
 DEFAULT_DEVICE = "Systemstandard"
-WIN_W, WIN_H = 500, 420
+WIN_W, WIN_H = 540, 420
 ROW_H = 34
 LABEL_W = 170
 FIELD_X = 195
-FIELD_W = 280
+FIELD_W = 320
 
 
 def merge_settings(raw: dict | None, values: dict[str, object]) -> dict:
@@ -191,7 +191,7 @@ class SettingsWindow:
         hud.setTitle_("HUD beim Diktat anzeigen")
         content.addSubview_(hud)
         self._fields["popup"] = hud
-        hint = NSTextField.alloc().initWithFrame_(NSMakeRect(15, 18, 250, 20))
+        hint = NSTextField.alloc().initWithFrame_(NSMakeRect(15, 18, 180, 20))
         hint.setStringValue_("Speichern startet Kira neu.")
         hint.setEditable_(False)
         hint.setBordered_(False)
@@ -199,14 +199,14 @@ class SettingsWindow:
         hint.setSelectable_(False)
         hint.setFont_(NSFont.systemFontOfSize_(11))
         content.addSubview_(hint)
-        cancel = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 350, 12, 110, 32))
+        cancel = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 340, 12, 100, 32))
         cancel.setTitle_("Abbrechen")
         cancel.setBezelStyle_(NSBezelStyleRounded)
         cancel.setTarget_(self._actions)
         cancel.setAction_("cancel:")
         cancel.setKeyEquivalent_("\x1b")
         content.addSubview_(cancel)
-        save = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 235, 12, 220, 32))
+        save = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 230, 12, 215, 32))
         save.setTitle_("Speichern und neu starten")
         save.setBezelStyle_(NSBezelStyleRounded)
         save.setTarget_(self._actions)
