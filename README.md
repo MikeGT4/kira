@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/readme-hero.jpg" alt="Kira" width="720"></p>
+<p align="center"><img src="assets/readme-splash-macos.jpg" alt="Kira for macOS" width="720"></p>
 
 # Kira
 
@@ -16,7 +16,7 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 
 | | macOS (this branch, `main`) | Windows 11 ([`windows-port`](https://github.com/MikeGT4/kira/tree/windows-port)) |
 |---|---|---|
-| Hotkey | hold **fn** (Globe key) | hold **F8**, **F9** for AI edit commands |
+| Hotkey | hold **fn** (Globe key), **fn+Shift** to edit selected text | hold **F8**, **F9** for AI edit commands |
 | Speech to text | mlx-whisper, `whisper-large-v3-turbo` on the Apple GPU | faster-whisper, `large-v3` on CUDA |
 | Text cleanup | Ollama, `huihui_ai/qwen3-abliterated:8b` (uncensored) | Ollama, `gemma4:12b`, uncensored model optional |
 | Hardware | Apple Silicon (M1 or newer), 16 GB unified memory | NVIDIA GPU with 12 GB VRAM or more |
@@ -25,10 +25,12 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 ## What it does
 
 - **Push to talk.** Hold fn, speak, release. The text lands in whatever field has focus, pasted via the clipboard.
+- **Edit selected text.** Select text, hold fn+Shift, say what to change ("make it formal", "translate to English"), release. The selection is replaced.
 - **Context-aware cleanup.** Kira detects the frontmost app and picks one of five prompts: mail, chat, terminal, code or plain text. A sentence dictated into Mail gets a different register than the same sentence in a terminal.
 - **German and English**, detected automatically per dictation.
 - **Uncensored by default.** The cleanup model is an abliterated Qwen 3 8B. It is not tuned to refuse or lecture; it only cleans up what you said. Any other Ollama model can be set in the config.
 - **Live HUD.** While you hold fn, a dark panel next to the cursor shows the status and a green oscilloscope trace of your voice.
+- **Settings window.** Menu bar icon, "Einstellungen…": dictation key, edit modifier, cleanup model picked from your Ollama models, timeouts, Whisper model, language, microphone, HUD. Saving restarts Kira.
 - **Nothing leaves your Mac.** Audio and text stay on the machine. Kira talks to Ollama on `127.0.0.1` only.
 - **Warm start.** The cleanup model is loaded when Kira starts and kept in memory for an hour, so the first dictation is as fast as the hundredth.
 
@@ -88,13 +90,20 @@ macOS binds these permissions to the bundle's code signature. After every rebuil
 ```yaml
 hotkey:
   combo: fn
+  edit_modifier: shift
 styler:
   model: huihui_ai/qwen3-abliterated:8b
   timeout_seconds: 12
+  edit_timeout_seconds: 30
   keep_alive: 1h
+audio:
+  input_device: null
+ui:
+  popup: true
+  splash: true
 ```
 
-`combo` also accepts key combos such as `alt+space` or `ctrl+shift+d`.
+`combo` also accepts key combos such as `alt+space` or `ctrl+shift+d`. `edit_modifier` can be `shift`, `ctrl`, `alt`, `cmd` or `null`. `input_device` matches part of a microphone name, `null` uses the system default. The settings window writes the same file.
 
 ## Troubleshooting
 
