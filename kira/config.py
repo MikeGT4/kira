@@ -72,6 +72,37 @@ class Config(BaseModel):
     context_modes: dict[str, str] = Field(default_factory=lambda: DEFAULT_CONTEXT_MODES.copy())
 
 
+CONFIG_TEMPLATE = """# Kira config. Every key is optional; missing keys use the built-in defaults.
+
+hotkey:
+  # fn, alt+space or ctrl+shift+d.
+  combo: fn
+  # Held together with fn to edit the selected text: shift, ctrl, alt, cmd or null.
+  edit_modifier: shift
+
+audio:
+  # Part of a microphone name, null = system default.
+  input_device: null
+
+whisper:
+  model: mlx-community/whisper-large-v3-turbo
+  # auto, de or en.
+  language: auto
+
+styler:
+  # Ollama model for the cleanup step.
+  model: huihui_ai/qwen3-abliterated:8b
+  timeout_seconds: 12
+  edit_timeout_seconds: 30
+  keep_alive: 1h
+  fallback_to_raw: true
+
+ui:
+  popup: true
+  splash: true
+"""
+
+
 def default_config_path() -> Path:
     return Path.home() / ".config" / "kira" / "config.yaml"
 

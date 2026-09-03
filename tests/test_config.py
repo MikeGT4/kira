@@ -46,3 +46,9 @@ def test_new_defaults_for_edit_hotkey_audio_and_splash(tmp_path):
     assert cfg.styler.edit_timeout_seconds == 30.0
     assert cfg.audio.input_device is None
     assert cfg.ui.splash is True
+
+
+def test_config_template_matches_defaults():
+    import yaml
+    from kira.config import CONFIG_TEMPLATE, Config
+    assert Config.model_validate(yaml.safe_load(CONFIG_TEMPLATE)) == Config()

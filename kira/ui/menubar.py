@@ -9,7 +9,7 @@ import rumps
 from PyObjCTools import AppHelper
 from kira import __version__
 from kira.app import State
-from kira.config import default_config_path
+from kira.config import CONFIG_TEMPLATE, default_config_path
 from kira.ui.settings_window import SettingsWindow
 
 log = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ class KiraMenubar(rumps.App):
         cfg_path = default_config_path()
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
         if not cfg_path.exists():
-            cfg_path.write_text("# Kira config\n")
+            cfg_path.write_text(CONFIG_TEMPLATE)
         subprocess.Popen(["open", "-e", str(cfg_path)])
 
     def _open_log(self, _):
