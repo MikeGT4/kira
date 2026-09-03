@@ -181,8 +181,10 @@ class SettingsWindow:
                 self._fields[key] = self._popup(content, y, LANGUAGES)
             elif key == "device":
                 self._fields[key] = self._popup(content, y, (DEFAULT_DEVICE,))
-            else:
+            elif key in ("timeout", "edit_timeout"):
                 self._fields[key] = self._text(content, y, 90)
+            else:
+                self._fields[key] = self._text(content, y)
             y -= ROW_H
         hud = NSButton.alloc().initWithFrame_(NSMakeRect(FIELD_X, y, FIELD_W, 24))
         hud.setButtonType_(NSButtonTypeSwitch)
@@ -197,14 +199,14 @@ class SettingsWindow:
         hint.setSelectable_(False)
         hint.setFont_(NSFont.systemFontOfSize_(11))
         content.addSubview_(hint)
-        cancel = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 300, 12, 100, 32))
+        cancel = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 350, 12, 110, 32))
         cancel.setTitle_("Abbrechen")
         cancel.setBezelStyle_(NSBezelStyleRounded)
         cancel.setTarget_(self._actions)
         cancel.setAction_("cancel:")
         cancel.setKeyEquivalent_("\x1b")
         content.addSubview_(cancel)
-        save = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 195, 12, 180, 32))
+        save = NSButton.alloc().initWithFrame_(NSMakeRect(WIN_W - 235, 12, 220, 32))
         save.setTitle_("Speichern und neu starten")
         save.setBezelStyle_(NSBezelStyleRounded)
         save.setTarget_(self._actions)
