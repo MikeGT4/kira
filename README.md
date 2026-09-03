@@ -54,11 +54,11 @@ The first dictation downloads `mlx-community/whisper-large-v3-turbo` (about 1.6 
 ## Build the app bundle
 
 ```bash
-python setup.py py2app
+./scripts/build_release.sh
 cp -R dist/Kira.app /Applications/
 ```
 
-`scripts/build_app.sh` builds a faster alias bundle for development that keeps pointing at your source tree.
+The script runs py2app, adds the MLX package that py2app cannot collect on its own, strips Finder attributes and signs the bundle ad hoc. Because there is no Apple Developer signature, the first launch needs Control-click, then Open. `scripts/build_app.sh` builds a faster alias bundle for development that keeps pointing at your source tree.
 
 ## Permissions
 

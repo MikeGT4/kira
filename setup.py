@@ -23,7 +23,6 @@ DATA_FILES = [
     ("assets", [
         "assets/icon-dock.icns",
         "assets/icon-template.png",
-        "assets/hero.png",
     ]),
     ("prompts", [
         "prompts/email.md",
