@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import signal
 import threading
 from pathlib import Path
 from kira.config import load_config
@@ -24,6 +25,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         filename=str(LOG_PATH),
+        force=True,
     )
 
 
@@ -74,7 +76,6 @@ def run() -> None:
         on_state_change=handle_state,
     )
 
-    # Feed waveform from recorder
     if popup is not None:
         recorder.set_level_callback(lambda lvl: popup.push_level(lvl))
 
@@ -96,6 +97,44 @@ def run() -> None:
         on_release=app.on_hotkey_release,
     )
     hotkey.start()
+
+    _shutdown_done = threading.Event()
+
+    def _graceful_shutdown():
+        if _shutdown_done.is_set():
+            return
+        _shutdown_done.set()
+        try:
+            hotkey.stop()
+        except Exception:
+            log.exception("hotkey.stop raised")
+        try:
+            recorder._shutdown()
+        except Exception:
+            log.exception("recorder shutdown raised")
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass
+
+    def _signal_handler(signum, _frame):
+        log.info("received signal %s — shutting down", signum)
+        _graceful_shutdown()
+        try:
+            import os
+            os._exit(0)
+        except Exception:
+            raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
+    except ValueError:
+        log.warning("could not install signal handlers (not on main thread)")
+
+    import atexit
+    atexit.register(_graceful_shutdown)
+
     log.info("Kira ready — hotkey %s", cfg.hotkey.combo)
     menubar.run()
 

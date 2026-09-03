@@ -12,7 +12,18 @@ from kira.config import default_config_path
 
 log = logging.getLogger(__name__)
 
-ASSETS = Path(__file__).parent.parent.parent / "assets"
+def _assets_dir() -> Path:
+    """Locate the bundled assets directory in both dev and py2app contexts."""
+    import os
+    rp = os.environ.get("RESOURCEPATH")
+    if rp:
+        bundled = Path(rp) / "assets"
+        if bundled.exists():
+            return bundled
+    return Path(__file__).parent.parent.parent / "assets"
+
+
+ASSETS = _assets_dir()
 ICON_DEFAULT = str(ASSETS / "icon-template.png")
 
 

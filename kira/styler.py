@@ -89,8 +89,22 @@ class Styler:
                 timeout=self._config.styler.timeout_seconds,
             )
             return response["message"]["content"].strip()
+        except asyncio.TimeoutError:
+            log.warning(
+                "Styler timed out after %.1fs (model=%s). Fallback to raw.",
+                self._config.styler.timeout_seconds,
+                self._config.styler.model,
+            )
+            if self._config.styler.fallback_to_raw:
+                return text
+            raise
         except Exception as exc:
-            log.warning("Styler failed (%s). Fallback to raw.", exc)
+            log.warning(
+                "Styler failed (%s: %s). Fallback to raw.",
+                type(exc).__name__,
+                exc or "<no message>",
+            )
+            log.debug("Styler exception detail:", exc_info=True)
             if self._config.styler.fallback_to_raw:
                 return text
             raise

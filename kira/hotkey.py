@@ -1,10 +1,4 @@
-"""Global hotkey listener using macOS CGEventTap.
-
-Supports two styles:
-- Key-combo hotkeys (e.g. "ctrl+shift+d"): modifier+key press, event swallowed.
-- Modifier-only hotkeys (e.g. "fn"): a flag bit transition, event passed through
-  so the user's normal F-row keys still work.
-"""
+"""Global hotkey listener using macOS CGEventTap."""
 from __future__ import annotations
 import logging
 import threading
@@ -39,12 +33,9 @@ from Quartz import (
 
 log = logging.getLogger(__name__)
 
-# macOS virtual key codes
 KEYCODE_SPACE = 49
 KEYCODE_D = 2
 
-# Combo spec: either a key-combo tuple (modifier_mask, keycode)
-# or the string "fn" for the modifier-only Fn key.
 KEY_COMBOS: dict[str, tuple[int, int]] = {
     "ctrl+shift+d": (
         kCGEventFlagMaskControl | kCGEventFlagMaskShift,
@@ -92,7 +83,6 @@ class HotkeyListener:
         self._runloop = None
         self._tap = None
 
-    # ---- callback for key-combo combos (alt+space, ctrl+shift+d) ----
     def _handle_keycombo(self, type_, keycode, flags, event):
         is_our_key = keycode == self._keycode
         mods_ok = _flags_match(flags, self._required_mask)
@@ -107,7 +97,7 @@ class HotkeyListener:
                     self._on_press()
                 except Exception:
                     log.exception("on_press raised")
-            return None  # swallow
+            return None
 
         if type_ == kCGEventKeyUp and self._active:
             self._active = False
@@ -115,11 +105,10 @@ class HotkeyListener:
                 self._on_release()
             except Exception:
                 log.exception("on_release raised")
-            return None  # swallow
+            return None
 
         return event
 
-    # ---- callback for modifier-only combo (fn) ----
     def _handle_fn(self, type_, flags, event):
         if type_ != kCGEventFlagsChanged:
             return event
@@ -139,7 +128,6 @@ class HotkeyListener:
                     self._on_release()
                 except Exception:
                     log.exception("on_release raised")
-        # Never swallow Fn events — F-row keys must keep working.
         return event
 
     def _callback(self, proxy, type_, event, refcon):

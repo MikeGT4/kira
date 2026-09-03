@@ -51,7 +51,7 @@ class Recorder:
             channels=CHANNELS,
             dtype=DTYPE,
             callback=self._callback,
-            blocksize=1600,  # 100 ms
+            blocksize=1600,
         )
         self._stream.start()
 
@@ -75,7 +75,7 @@ class Recorder:
         return audio.astype(np.float32)
 
     def _shutdown(self) -> None:
-        """Abort PortAudio before Python teardown."""
+        """atexit/signal handler: abort PortAudio before Python teardown."""
         if self._closed:
             return
         self._closed = True

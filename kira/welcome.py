@@ -15,46 +15,24 @@ for _brew_bin in ("/opt/homebrew/bin", "/usr/local/bin"):
 
 
 def run_if_needed() -> bool:
-    """Show welcome if any permission missing or Ollama absent.
-    Returns True if all OK to proceed."""
+    """Check permissions and Ollama presence. Returns True if all OK."""
     status = check_all()
     ollama_ok = shutil.which("ollama") is not None
     if status.all_granted and ollama_ok:
         return True
-
-    msg_parts = ["Kira needs a quick setup:\n"]
     if not status.microphone:
-        msg_parts.append("• Microphone permission")
+        log.warning("Microphone permission missing — grant in Systemeinstellungen")
     if not status.accessibility:
-        msg_parts.append("• Accessibility permission")
+        log.warning("Accessibility permission missing — grant in Systemeinstellungen")
     if not status.input_monitoring:
-        msg_parts.append("• Input Monitoring permission")
+        log.warning("Input Monitoring permission missing — grant in Systemeinstellungen")
     if not ollama_ok:
-        msg_parts.append("• Ollama installed (brew install ollama)")
-
-    msg_parts.append("\nOpen the relevant System Settings pane now?")
-    response = rumps.alert(
-        title="Welcome to Kira",
-        message="\n".join(msg_parts),
-        ok="Open Settings",
-        cancel="Later",
-    )
-    if response == 1:
-        if not status.accessibility:
-            open_settings("accessibility")
-        elif not status.input_monitoring:
-            open_settings("input_monitoring")
-        elif not status.microphone:
-            open_settings("microphone")
-        elif not ollama_ok:
-            subprocess.Popen(["open", "https://ollama.com/download"])
+        log.warning("Ollama CLI not on PATH; styler will fall back to raw text")
     return False
 
 
 def ensure_ollama_model(model: str) -> bool:
-    """Check if Ollama model is present. Returns True if ready.
-    Does NOT pull in foreground — that blocks the event loop. Caller should
-    pull in background if returning False."""
+    """Check if Ollama model is present. Returns True if ready."""
     if shutil.which("ollama") is None:
         return False
     try:

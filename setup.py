@@ -1,18 +1,17 @@
 """py2app build config for Kira.app"""
 import sys
-sys.setrecursionlimit(10000)  # py2app + Python 3.12 modulefinder needs headroom
+sys.setrecursionlimit(10000)
+
+import zlib as _zlib
+if not hasattr(_zlib, "__file__"):
+    _zlib.__file__ = __file__
+
 from setuptools import setup
 from py2app.build_app import py2app as _py2app_cmd
 
 
 class py2app(_py2app_cmd):
-    """Override to strip install_requires so py2app 0.28 works with PEP 621 pyproject.toml.
-
-    Modern setuptools auto-populates ``install_requires`` from pyproject.toml's
-    ``[project.dependencies]``. py2app 0.28 explicitly rejects that. Clearing the
-    attribute on the distribution before py2app's finalize runs sidesteps the check
-    without losing our pyproject.toml metadata.
-    """
+    """Override to strip install_requires so py2app 0.28 works with PEP 621 pyproject.toml."""
 
     def finalize_options(self):
         self.distribution.install_requires = None
@@ -51,8 +50,15 @@ OPTIONS = {
     "packages": [
         "rumps", "pynput", "sounddevice", "mlx_whisper", "numpy",
         "pydantic", "yaml", "ollama", "pyperclip",
-        "_sounddevice_data", "_soundfile_data", "llvmlite",
-        "anyio", "httpx", "httpcore", "h11", "certifi", "idna",
+        "_sounddevice_data",
+        "_soundfile_data",
+        "llvmlite",
+        "anyio",
+        "httpx",
+        "httpcore",
+        "h11",
+        "certifi",
+        "idna",
     ],
     "includes": [
         "kira", "kira.ui",

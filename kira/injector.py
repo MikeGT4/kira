@@ -14,7 +14,7 @@ from Quartz import (
 
 log = logging.getLogger(__name__)
 
-KEYCODE_V = 9  # US keyboard layout
+KEYCODE_V = 9
 
 
 def _send_cmd_v() -> None:
@@ -27,14 +27,7 @@ def _send_cmd_v() -> None:
 
 
 class Injector:
-    """Clipboard-based injector.
-
-    Flow:
-      1. Save current clipboard
-      2. Set clipboard to our text
-      3. Post Cmd+V keystroke
-      4. Restore original clipboard after delay
-    """
+    """Clipboard-based injector."""
 
     def __init__(self, restore_after_ms: int = 100) -> None:
         self._restore_after_ms = restore_after_ms
@@ -51,7 +44,6 @@ class Injector:
         except Exception:
             log.exception("failed to set clipboard")
             return
-        # Give pasteboard a moment to settle
         time.sleep(0.02)
         _send_cmd_v()
         def restore():

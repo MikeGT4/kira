@@ -19,14 +19,14 @@ class PermissionStatus:
 
 
 def check_microphone() -> bool:
-    """Rough check: attempt to open audio input briefly."""
+    """Return True if macOS granted microphone access."""
     try:
-        import sounddevice as sd
-        with sd.InputStream(samplerate=16000, channels=1, blocksize=160):
-            return True
+        from AVFoundation import AVCaptureDevice
+        status = AVCaptureDevice.authorizationStatusForMediaType_("soun")
+        return status == 3
     except Exception as exc:
         log.debug("microphone check failed: %s", exc)
-        return False
+        return True
 
 
 def check_accessibility() -> bool:

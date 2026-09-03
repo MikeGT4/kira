@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 def _on_main(fn, *args, **kwargs):
-    """Run ``fn(*args, **kwargs)`` on the AppKit main thread."""
+    """Run ``fn(*args, **kwargs)`` on the AppKit main thread (fire-and-forget)."""
     if threading.current_thread() is threading.main_thread():
         try:
             fn(*args, **kwargs)
@@ -116,6 +116,7 @@ class PopupHUD:
         flipped_y = main.frame().size.height - loc.y
         return float(loc.x) + 14, float(flipped_y) - 90
 
+
     def _do_show(self, status: str) -> None:
         self._ensure_panel()
         x, y = self._cursor_location()
@@ -136,6 +137,7 @@ class PopupHUD:
     def _do_hide(self) -> None:
         if self._panel:
             self._panel.orderOut_(None)
+
 
     def show(self, status: str = "Recording…") -> None:
         _on_main(self._do_show, status)
