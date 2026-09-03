@@ -45,8 +45,6 @@ Sicherheit:
   programmgenerated, nicht user-supplied.
 - Ollama-API-URL ist hart 127.0.0.1 (NICHT localhost) — Win11 24H2+
   resolved localhost zu IPv6 ::1, Ollama bindet IPv4 0.0.0.0.
-
-Spec: docs/superpowers/plans/2026-05-10-wsl-decoupling-and-installer-redesign.md
 """
 from __future__ import annotations
 import html
