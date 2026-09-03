@@ -1,5 +1,6 @@
 """Audio capture via sounddevice. Start/stop controlled by caller."""
 from __future__ import annotations
+import atexit
 import logging
 import threading
 from typing import Callable
@@ -21,6 +22,8 @@ class Recorder:
         self._buffer: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._on_level: Callable[[float], None] | None = None
+        self._closed = False
+        atexit.register(self._shutdown)
 
     def set_level_callback(self, cb: Callable[[float], None] | None) -> None:
         """Register a callback invoked with RMS level (float) for each audio block."""
@@ -56,14 +59,37 @@ class Recorder:
         """Stop recording and return mono float32 audio array."""
         if self._stream is None:
             return np.zeros(0, dtype=np.float32)
-        self._stream.stop()
-        self._stream.close()
-        self._stream = None
+        stream, self._stream = self._stream, None
+        try:
+            stream.stop()
+        except Exception:
+            log.exception("stream.stop() raised")
+        try:
+            stream.close()
+        except Exception:
+            log.exception("stream.close() raised")
         with self._lock:
             if not self._buffer:
                 return np.zeros(0, dtype=np.float32)
             audio = np.concatenate(self._buffer, axis=0).reshape(-1)
         return audio.astype(np.float32)
+
+    def _shutdown(self) -> None:
+        """Abort PortAudio before Python teardown."""
+        if self._closed:
+            return
+        self._closed = True
+        stream, self._stream = self._stream, None
+        if stream is None:
+            return
+        try:
+            stream.abort()
+        except Exception:
+            pass
+        try:
+            stream.close()
+        except Exception:
+            pass
 
     @property
     def is_recording(self) -> bool:

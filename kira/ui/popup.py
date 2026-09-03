@@ -1,6 +1,7 @@
 """Floating popup HUD near cursor. Shows live waveform + status text."""
 from __future__ import annotations
 import logging
+import threading
 from AppKit import (
     NSPanel,
     NSBackingStoreBuffered,
@@ -15,9 +16,21 @@ from AppKit import (
     NSFont,
     NSScreen,
 )
+from PyObjCTools import AppHelper
 from Quartz import CGEventCreate, CGEventGetLocation
 
 log = logging.getLogger(__name__)
+
+
+def _on_main(fn, *args, **kwargs):
+    """Run ``fn(*args, **kwargs)`` on the AppKit main thread."""
+    if threading.current_thread() is threading.main_thread():
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            log.exception("main-thread call raised")
+        return
+    AppHelper.callAfter(lambda: fn(*args, **kwargs))
 
 
 class WaveformView(NSView):
@@ -55,7 +68,7 @@ class WaveformView(NSView):
 
 
 class PopupHUD:
-    """Floating popup positioned near cursor."""
+    """Floating popup positioned near cursor. Thread-safe public API."""
 
     def __init__(self) -> None:
         self._panel = None
@@ -93,9 +106,6 @@ class PopupHUD:
     def _cursor_location(self):
         """Return (x, y) in Cocoa window coords (origin bottom-left)."""
         loc = CGEventGetLocation(CGEventCreate(None))
-        # CGEventGetLocation returns Quartz global coords (origin top-left).
-        # NSPanel expects Cocoa coords (origin bottom-left).
-        # Flip against the screen containing the cursor.
         for screen in NSScreen.screens():
             frame = screen.frame()
             if (frame.origin.x <= loc.x < frame.origin.x + frame.size.width and
@@ -106,7 +116,7 @@ class PopupHUD:
         flipped_y = main.frame().size.height - loc.y
         return float(loc.x) + 14, float(flipped_y) - 90
 
-    def show(self, status: str = "Recording…") -> None:
+    def _do_show(self, status: str) -> None:
         self._ensure_panel()
         x, y = self._cursor_location()
         self._panel.setFrameOrigin_(NSMakePoint(x, y))
@@ -115,14 +125,26 @@ class PopupHUD:
         self._waveform.setNeedsDisplay_(True)
         self._panel.orderFrontRegardless()
 
-    def update_status(self, status: str) -> None:
+    def _do_update_status(self, status: str) -> None:
         if self._label:
             self._label.setStringValue_(status)
 
-    def push_level(self, level: float) -> None:
+    def _do_push_level(self, level: float) -> None:
         if self._waveform:
             self._waveform.pushLevel_(level)
 
-    def hide(self) -> None:
+    def _do_hide(self) -> None:
         if self._panel:
             self._panel.orderOut_(None)
+
+    def show(self, status: str = "Recording…") -> None:
+        _on_main(self._do_show, status)
+
+    def update_status(self, status: str) -> None:
+        _on_main(self._do_update_status, status)
+
+    def push_level(self, level: float) -> None:
+        _on_main(self._do_push_level, float(level))
+
+    def hide(self) -> None:
+        _on_main(self._do_hide)
