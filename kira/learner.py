@@ -10,16 +10,24 @@ Bearbeitung, kein Hörfehler.
 """
 from __future__ import annotations
 
+import ast
 import bisect
 import difflib
+import json
+import logging
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from kira.correction_source import SentMessage
-from kira.lexicon import KIND_GLOSSARY, KIND_REPLACEMENT
+from kira.correction_source import SentMessage, SourceReader
+from kira.history import HistoryRecord, prune, read_records
+from kira.lexicon import KIND_GLOSSARY, KIND_REPLACEMENT, Lexicon
 from kira.phonetics import sound_similarity
 from kira.wordlist import is_common
+
+log = logging.getLogger(__name__)
 
 MATCH_MIN_RATIO = 0.75
 PAIR_MIN_SOUND = 0.65
@@ -130,3 +138,207 @@ def classify(pair: Pair, words: frozenset[str]) -> tuple[str, bool]:
 def week_key(when: datetime) -> str:
     iso = when.isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
+
+
+_LOG_LINE_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ INFO kira\.app: "
+    r"Polish out \(mode=(\w+), (\d+) chars\): (.*)$"
+)
+
+
+def _new_counter() -> dict[str, int]:
+    return {"dictations": 0, "terminal": 0, "matched": 0, "terminal_matched": 0, "corrected": 0}
+
+
+@dataclass
+class LearningState:
+    """Was der Lernlauf zwischen zwei Läufen und über Neustarts behält."""
+    offsets: dict[str, int] = field(default_factory=dict)
+    started: str | None = None
+    processed_until: str | None = None
+    buffer: list[dict] = field(default_factory=list)
+    weeks: dict[str, dict[str, int]] = field(default_factory=dict)
+    baseline: dict[str, int] | None = None
+    bootstrapped: bool = False
+
+    @classmethod
+    def load(cls, path: Path) -> "LearningState":
+        try:
+            return cls(**json.loads(path.read_text(encoding="utf-8")))
+        except FileNotFoundError:
+            return cls()
+        except (OSError, ValueError, TypeError) as exc:
+            log.warning("Lernen: Zustand %s unlesbar (%s), beginne neu", path, exc)
+            return cls()
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(asdict(self), ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+
+
+@dataclass
+class RunResult:
+    processed: int = 0
+    matched: int = 0
+    corrected: int = 0
+    pairs: int = 0
+
+
+def _learn_from(
+    record: HistoryRecord, *, truncated: bool, messages: list[SentMessage],
+    times: list[datetime], lexicon: Lexicon, words: frozenset[str],
+    counter: dict[str, int], result: RunResult,
+) -> None:
+    counter["dictations"] += 1
+    if record.mode == "terminal":
+        counter["terminal"] += 1
+    window = match_message(record.text, record.time, messages, times)
+    if window is None:
+        return
+    counter["matched"] += 1
+    if record.mode == "terminal":
+        counter["terminal_matched"] += 1
+    result.matched += 1
+    # Aus kira.log kommen nur 80 Zeichen; das letzte Wort kann angeschnitten sein.
+    dictated = record.text.rsplit(" ", 1)[0] if truncated else record.text
+    pairs = extract_pairs(dictated, window)
+    if not pairs:
+        return
+    counter["corrected"] += 1
+    result.corrected += 1
+    for pair in pairs:
+        kind, vocab = classify(pair, words)
+        entry = lexicon.observe(
+            pair.wrong, pair.right, kind=kind, vocab=vocab,
+            example=record.text, when=record.time,
+        )
+        if entry is not None:
+            result.pairs += 1
+            log.info(
+                "Lernen: %s %r -> %r (%s, %dx)",
+                entry.status, entry.wrong, entry.right, entry.kind, entry.count,
+            )
+
+
+def run_once(
+    *, now: datetime, history_dir: Path, reader: SourceReader, lexicon: Lexicon,
+    words: frozenset[str], state: LearningState,
+) -> RunResult:
+    """Ein Lernlauf. Ein Diktat wird erst verarbeitet, wenn sein Zeitfenster
+    geschlossen ist; bis dahin gelesene Nachrichten warten im Puffer."""
+    result = RunResult()
+    started = datetime.fromisoformat(state.started) if state.started else now
+    for message in reader.read_new(modified_since=started - timedelta(days=1)):
+        state.buffer.append({"time": message.time.isoformat(), "text": message.text})
+    state.offsets = dict(reader.offsets)
+    messages = sorted(
+        (SentMessage(datetime.fromisoformat(b["time"]), b["text"]) for b in state.buffer),
+        key=lambda m: m.time,
+    )
+    times = [m.time for m in messages]
+    until = now - WINDOW_AFTER - timedelta(minutes=1)
+    since = datetime.fromisoformat(state.processed_until) if state.processed_until else started
+    if until > since:
+        for record in read_records(history_dir, since=since):
+            if record.time > until:
+                continue
+            result.processed += 1
+            counter = state.weeks.setdefault(week_key(record.time), _new_counter())
+            _learn_from(
+                record, truncated=False, messages=messages, times=times,
+                lexicon=lexicon, words=words, counter=counter, result=result,
+            )
+        state.processed_until = until.isoformat(timespec="seconds")
+    keep_from = datetime.fromisoformat(state.processed_until or until.isoformat()) - WINDOW_BEFORE
+    state.buffer = [
+        b for b in state.buffer if datetime.fromisoformat(b["time"]) >= keep_from
+    ]
+    prune(history_dir, now)
+    if result.pairs:
+        lexicon.save()
+    return result
+
+
+def parse_log_dictations(paths: list[Path]) -> list[tuple[HistoryRecord, bool]]:
+    """``Polish out``-Zeilen aus kira.log als Kurz-Verlauf: (Eintrag, gekürzt?)."""
+    items: list[tuple[HistoryRecord, bool]] = []
+    for path in paths:
+        try:
+            fh = path.open(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if "Polish out" not in line:
+                    continue
+                match = _LOG_LINE_RE.match(line.rstrip("\n"))
+                if not match:
+                    continue
+                try:
+                    text = ast.literal_eval(match.group(4))
+                except (ValueError, SyntaxError):
+                    continue
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                when = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").astimezone()
+                record = HistoryRecord(
+                    ts=when.isoformat(timespec="seconds"), app=None,
+                    mode=match.group(2), raw=text, text=text,
+                )
+                items.append((record, int(match.group(3)) > len(text)))
+    items.sort(key=lambda item: item[0].time)
+    return items
+
+
+def bootstrap(
+    *, log_paths: list[Path], source_dirs: list[Path], lexicon: Lexicon,
+    words: frozenset[str], state: LearningState,
+) -> RunResult:
+    """Einmalig: Diktate aus kira.log vor Verlaufsbeginn gegen alle Verläufe
+    abgleichen. Misst dabei den Ausgangswert der Korrekturquote."""
+    result = RunResult()
+    started = datetime.fromisoformat(state.started) if state.started else None
+    items = [
+        (record, truncated) for record, truncated in parse_log_dictations(log_paths)
+        if started is None or record.time < started
+    ]
+    baseline = _new_counter()
+    if items:
+        reader = SourceReader(source_dirs)
+        messages = reader.read_new(modified_since=items[0][0].time)
+        times = [m.time for m in messages]
+        for record, truncated in items:
+            result.processed += 1
+            _learn_from(
+                record, truncated=truncated, messages=messages, times=times,
+                lexicon=lexicon, words=words, counter=baseline, result=result,
+            )
+        lexicon.save()
+    state.baseline = baseline
+    state.bootstrapped = True
+    return result
+
+
+def correction_rate(counter: dict[str, int] | None) -> tuple[int, int] | None:
+    """(korrigiert, zugeordnet) oder None ohne zugeordnete Diktate."""
+    if not counter or not counter.get("matched"):
+        return None
+    return counter["corrected"], counter["matched"]
+
+
+def coverage_rate(counter: dict[str, int] | None) -> tuple[int, int] | None:
+    """(zugeordnete, alle) Terminal-Diktate: wie viel die Quellen abdecken."""
+    if not counter or not counter.get("terminal"):
+        return None
+    return counter.get("terminal_matched", 0), counter["terminal"]
+
+
+def metrics_summary(state: LearningState, now: datetime) -> dict[str, tuple[int, int] | None]:
+    return {
+        "this_week": correction_rate(state.weeks.get(week_key(now))),
+        "last_week": correction_rate(state.weeks.get(week_key(now - timedelta(days=7)))),
+        "baseline": correction_rate(state.baseline),
+        "coverage": coverage_rate(state.weeks.get(week_key(now))),
+    }
