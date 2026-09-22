@@ -1000,3 +1000,35 @@ async def test_timeout_resets_connection_counter():
     for _ in range(5):
         await styler.polish("hallo welt", mode="plain")
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_polish_without_glossary_sends_unchanged_prompt():
+    styler = Styler(Config())
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "Hallo Welt."}})
+    styler._client = fake_client
+    await styler.polish("hallo welt", mode="plain")
+    sent = fake_client.chat.call_args.kwargs["messages"][0]["content"]
+    assert sent == load_prompt("plain").format(text="hallo welt")
+
+
+@pytest.mark.asyncio
+async def test_polish_with_glossary_inserts_block_before_input():
+    styler = Styler(Config())
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    styler._client = fake_client
+    await styler.polish("leg das auf das nass", mode="terminal", glossary=["NAS", "Kubernetes"])
+    sent = fake_client.chat.call_args.kwargs["messages"][0]["content"]
+    block_at = sent.index("Möglicherweise gemeinte Begriffe: NAS, Kubernetes.")
+    assert block_at < sent.index("\nInput:")
+    assert "leg das auf das nass" in sent
+    assert sent.rstrip().endswith("Output:")
+
+
+def test_glossary_block_is_prepended_without_input_line_and_braces_survive():
+    from kira.styler import _template_with_glossary
+    out = _template_with_glossary("Nur {text}", ["A{B}"]).format(text="x")
+    assert out.startswith("Möglicherweise gemeinte Begriffe: A{B}.")
+    assert out.endswith("Nur x")

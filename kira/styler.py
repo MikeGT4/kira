@@ -67,6 +67,32 @@ def load_prompt(mode: str) -> str:
     return candidate.read_text(encoding="utf-8")
 
 
+# Hinweisblock für die Politur. Bewusst ohne Beispiele: Kleine Modelle
+# hängen sich an Beispiele (git-status-Befund vom 17.05.2026).
+GLOSSARY_INSTRUCTION = (
+    "Möglicherweise gemeinte Begriffe: {terms}. Ersetze ein Wort nur, wenn es "
+    "offensichtlich falsch erkannt wurde und einem dieser Begriffe entspricht. "
+    "Sonst nichts ändern."
+)
+
+
+def _template_with_glossary(template: str, glossary: list[str] | None) -> str:
+    """Setzt den Glossar-Block vor die Zeile ``Input:`` der Vorlage.
+
+    Vorlagen ohne diese Zeile (eigene Modi) bekommen ihn vorangestellt.
+    Geschweifte Klammern in Begriffen werden für ``str.format`` maskiert.
+    """
+    if not glossary:
+        return template
+    block = GLOSSARY_INSTRUCTION.format(terms=", ".join(glossary))
+    block = block.replace("{", "{{").replace("}", "}}")
+    marker = "\nInput:"
+    idx = template.find(marker)
+    if idx == -1:
+        return block + "\n\n" + template
+    return template[:idx] + "\n" + block + "\n" + template[idx:]
+
+
 # Modelle mit Hybrid-Reasoning, bei denen der Denk-Modus per Default AN ist.
 # Deckt Schreibvarianten ab: gemma4:12b, gemma-4-abliterated, qwen3.6 usw.
 _THINKING_MODEL_RE = re.compile(r"qwen3|gemma[-_ ]?[4-9]", re.IGNORECASE)
@@ -420,10 +446,10 @@ class Styler:
             return "gpu"
         return None
 
-    async def polish(self, text: str, mode: str) -> str:
+    async def polish(self, text: str, mode: str, glossary: list[str] | None = None) -> str:
         if not text.strip():
             return text
-        prompt = load_prompt(mode).format(text=text)
+        prompt = _template_with_glossary(load_prompt(mode), glossary).format(text=text)
         # Per-Mode-Override: timeout + temperature koennen je Mode in
         # StylerConfig.modes definiert sein. Fehlt der Mode dort oder ist
         # ein Feld None, faellt's auf den globalen StylerConfig zurueck.
