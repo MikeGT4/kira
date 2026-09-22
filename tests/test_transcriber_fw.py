@@ -462,3 +462,109 @@ def test_transcribe_file_passes_vad_threshold(monkeypatch, fake_config):
     fake_config.whisper.vad_threshold = 0.4
     t.transcribe_file("/tmp/b.wav")
     assert seen["vad_parameters"] == {"threshold": 0.4}
+
+
+class _FakeTokenizer:
+    def encode(self, text, add_special_tokens=False):
+        class _Encoding:
+            pass
+        enc = _Encoding()
+        enc.ids = text.split()
+        return enc
+
+
+class _FakeLexicon:
+    def __init__(self, terms, replacements, version=1):
+        self._terms = terms
+        self._replacements = replacements
+        self.version = version
+        self.term_calls = 0
+
+    def vocabulary_terms(self):
+        self.term_calls += 1
+        return list(self._terms)
+
+    def active_replacements(self):
+        return dict(self._replacements)
+
+
+def _model_capturing(seen, segments=()):
+    class FakeInfo:
+        language = "de"
+
+    class FakeWhisperModel:
+        def __init__(self, *a, **kw):
+            self.hf_tokenizer = _FakeTokenizer()
+
+        def transcribe(self, audio, **kw):
+            seen.update(kw)
+            return iter(list(segments)), FakeInfo()
+
+    return FakeWhisperModel
+
+
+def test_learned_terms_extend_initial_prompt(monkeypatch, fake_config):
+    from kira.transcriber_fw import Transcriber
+    seen: dict = {}
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", _model_capturing(seen))
+    fake_config.whisper.initial_prompt = "Mike Kira Ollama"
+    t = Transcriber(fake_config)
+    t.set_lexicon(_FakeLexicon(["Zettelkasten"], {}))
+    t.transcribe(np.ones(1600, dtype=np.float32))
+    assert seen["initial_prompt"] == "Mike Kira Ollama, Zettelkasten."
+
+
+def test_prompt_is_rebuilt_only_when_lexicon_changes(monkeypatch, fake_config):
+    from kira.transcriber_fw import Transcriber
+    monkeypatch.setattr("kira.transcriber_fw.WhisperModel", _model_capturing({}))
+    lexicon = _FakeLexicon(["Zettelkasten"], {})
+    t = Transcriber(fake_config)
+    t.set_lexicon(lexicon)
+    t.transcribe(np.ones(1600, dtype=np.float32))
+    t.transcribe(np.ones(1600, dtype=np.float32))
+    assert lexicon.term_calls == 1
+    lexicon.version = 2
+    t.transcribe(np.ones(1600, dtype=np.float32))
+    assert lexicon.term_calls == 2
+
+
+def test_learned_replacements_apply_and_manual_entries_win(monkeypatch, fake_config):
+    from kira.transcriber_fw import Transcriber
+
+    class FakeSegment:
+        def __init__(self, text):
+            self.text = text
+            self.avg_logprob = -0.4
+            self.no_speech_prob = 0.1
+
+    seen: dict = {}
+    monkeypatch.setattr(
+        "kira.transcriber_fw.WhisperModel",
+        _model_capturing(seen, [FakeSegment("start auf kuh bernetes mit doku")]),
+    )
+    fake_config.whisper.replacements = {"doku": "Docker"}
+    t = Transcriber(fake_config)
+    t.set_lexicon(_FakeLexicon([], {"kuh bernetes": "Kubernetes", "doku": "Dokumentation"}))
+    result = t.transcribe(np.ones(1600, dtype=np.float32))
+    assert result.text == "start auf Kubernetes mit Docker"
+    assert result.raw_text == "start auf kuh bernetes mit doku"
+    assert result.avg_logprob == -0.4
+
+
+def test_each_applied_replacement_is_logged(monkeypatch, fake_config, caplog):
+    import logging
+    from kira.transcriber_fw import Transcriber
+
+    class FakeSegment:
+        def __init__(self, text):
+            self.text = text
+
+    monkeypatch.setattr(
+        "kira.transcriber_fw.WhisperModel",
+        _model_capturing({}, [FakeSegment("start auf kuh bernetes")]),
+    )
+    fake_config.whisper.replacements = {"kuh bernetes": "Kubernetes"}
+    t = Transcriber(fake_config)
+    with caplog.at_level(logging.INFO, logger="kira.transcriber_fw"):
+        t.transcribe(np.ones(1600, dtype=np.float32))
+    assert "Ersetzung: 'kuh bernetes' -> 'Kubernetes'" in caplog.text

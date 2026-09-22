@@ -37,6 +37,7 @@ import numpy as np
 from faster_whisper import WhisperModel
 from kira.config import Config
 from kira import replacements
+from kira.lexicon import build_initial_prompt
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ log = logging.getLogger(__name__)
 class TranscriptionResult:
     text: str
     language: str
+    # Whisper-Text vor den Ersetzungen und der schwächste Segmentwert; beides
+    # landet im Diktat-Verlauf der Lernschleife.
+    raw_text: str = ""
+    avg_logprob: float | None = None
 
 
 _MLX_PREFIX = "mlx-community/whisper-"
@@ -97,6 +102,11 @@ def _is_hallucination(text: str) -> bool:
     return text.strip().lower() in _KNOWN_HALLUCINATIONS
 
 
+def _log_replacement(found: str, replacement: str) -> None:
+    """Jede angewandte Ersetzung ins Log (Spec: Rücknahme prüfbar)."""
+    log.info("Ersetzung: %r -> %r", found, replacement)
+
+
 def _translate_model_name(name: str) -> str:
     """Translate a Mac MLX model name to its faster-whisper equivalent.
 
@@ -119,6 +129,9 @@ class Transcriber:
             log.info("Translated MLX model %s -> %s for faster-whisper", original, self._model_name)
         self._model: WhisperModel | None = None
         self._model_lock = threading.Lock()
+        # Lernschleife (v0.4.0): gelernte Begriffe und Ersetzungen. None = aus.
+        self._lexicon = None
+        self._prompt_cache: tuple[int | None, str | None] = (None, None)
 
     def _ensure_model(self) -> WhisperModel:
         with self._model_lock:
@@ -157,6 +170,43 @@ class Transcriber:
                 exc_info=True,
             )
 
+    def set_lexicon(self, lexicon) -> None:
+        """Late-Binding aus main.py, sobald die Lernschleife steht."""
+        self._lexicon = lexicon
+        self._prompt_cache = (None, None)
+
+    def _initial_prompt(self, model) -> str | None:
+        """Whisper-Prompt aus config.yaml plus gelernte Begriffe, im Budget.
+
+        Neu gebaut wird nur, wenn sich das Lexikon geändert hat.
+        """
+        base = self._config.whisper.initial_prompt
+        lexicon = self._lexicon
+        if lexicon is None:
+            return base
+        version = lexicon.version
+        if self._prompt_cache[0] == version:
+            return self._prompt_cache[1]
+        tokenizer = getattr(model, "hf_tokenizer", None)
+
+        def count_tokens(text: str) -> int:
+            if tokenizer is None:
+                return len(text) // 2
+            return len(tokenizer.encode(" " + text, add_special_tokens=False).ids)
+
+        prompt = build_initial_prompt(base, lexicon.vocabulary_terms(), count_tokens)
+        self._prompt_cache = (version, prompt)
+        if prompt != base:
+            log.info("Whisper-Prompt mit gelernten Begriffen: %d Token", count_tokens(prompt or ""))
+        return prompt
+
+    def _replacements(self) -> dict[str, str]:
+        """Handgepflegte Ersetzungen aus config.yaml gewinnen gegen gelernte."""
+        manual = self._config.whisper.replacements
+        if self._lexicon is None:
+            return manual
+        return {**self._lexicon.active_replacements(), **manual}
+
     def transcribe(self, audio: np.ndarray) -> TranscriptionResult:
         if audio.size == 0:
             return TranscriptionResult(text="", language="")
@@ -192,7 +242,7 @@ class Transcriber:
                 beam_size=5,
                 vad_filter=False,
                 condition_on_previous_text=wcfg.condition_on_previous_text,
-                initial_prompt=wcfg.initial_prompt,
+                initial_prompt=self._initial_prompt(model),
                 no_speech_threshold=0.9,
                 # 1.8 was rejecting legitimately repetitive PTT speech
                 # ("ja ja ja ja", "test test test test", etc.) on Mike's
@@ -231,6 +281,10 @@ class Transcriber:
             else:
                 log.info("Whisper produced 0 segments (silence?)")
             text = " ".join(s.text.strip() for s in seg_list).strip()
+            raw_text = text
+            logprobs = [getattr(s, "avg_logprob", None) for s in seg_list]
+            logprobs = [lp for lp in logprobs if lp is not None]
+            min_logprob = min(logprobs) if logprobs else None
             if _is_hallucination(text):
                 # Safety net for hallucinations that slip through despite
                 # temperature=0.0 (cold-start codec artifacts, very brief
@@ -247,9 +301,9 @@ class Transcriber:
             # Logging diff-aware: nur wenn die Map tatsaechlich was geaendert
             # hat, damit kira.log nicht bei jedem F8 ein "applied 0 fixes"
             # zeigt.
-            mapping = wcfg.replacements
+            mapping = self._replacements()
             if mapping:
-                fixed = replacements.apply(text, mapping)
+                fixed = replacements.apply(text, mapping, on_replace=_log_replacement)
                 if fixed != text:
                     log.info(
                         "Replacements changed transcription "
@@ -257,7 +311,10 @@ class Transcriber:
                         len(mapping), len(text), len(fixed),
                     )
                     text = fixed
-            return TranscriptionResult(text=text, language=info.language)
+            return TranscriptionResult(
+                text=text, language=info.language,
+                raw_text=raw_text, avg_logprob=min_logprob,
+            )
         except Exception as exc:
             log.exception("faster-whisper transcription failed: %s", exc)
             raise
@@ -307,7 +364,7 @@ class Transcriber:
                 # Installer-Template auf 0.15 getunt) war tote Config.
                 vad_parameters={"threshold": wcfg.vad_threshold},
                 condition_on_previous_text=wcfg.condition_on_previous_text,
-                initial_prompt=wcfg.initial_prompt,
+                initial_prompt=self._initial_prompt(model),
             )
             # Per-Segment-Hallu-Filter: jedes Segment, das exakt-gleich
             # einer bekannten Boilerplate-Zeile ist, raus. So bleiben
@@ -330,8 +387,9 @@ class Transcriber:
             text = " ".join(kept_segments).strip()
             if dropped:
                 log.info("File-mode: %d Segmente als Halluzination gefiltert", dropped)
-            if wcfg.replacements:
-                fixed = replacements.apply(text, wcfg.replacements)
+            mapping = self._replacements()
+            if mapping:
+                fixed = replacements.apply(text, mapping, on_replace=_log_replacement)
                 if fixed != text:
                     log.info(
                         "File-Replacements: %d chars -> %d chars",
