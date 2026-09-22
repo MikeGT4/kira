@@ -17,6 +17,13 @@ class FakeLearning:
         return self.pending
 
 
+class FakeLearningPendingCountRaises:
+    """Simuliert ein kaputtes Lexikon: pending_count() wirft."""
+
+    def pending_count(self):
+        raise RuntimeError("boom")
+
+
 def _tray(learning=None):
     from kira.ui.tray_win import KiraTray
     return KiraTray(on_quit=lambda: None, learning=learning)
@@ -36,6 +43,19 @@ def test_menu_label_without_pending_words():
 
 def test_menu_hides_entry_without_learning():
     assert not any("Gelernte Wörter" in t for t in _texts(_tray()._build_menu()))
+
+
+def test_menu_label_survives_pending_count_error():
+    """pending_count() kann werfen (kaputtes Lexikon, IO-Fehler): das Menü
+    zeigt dann trotzdem den Grundtext, statt den Aufbau abzubrechen."""
+    texts = _texts(_tray(FakeLearningPendingCountRaises())._build_menu())
+    assert "Gelernte Wörter…" in texts
+
+
+def test_menu_entry_directly_after_settings():
+    texts = _texts(_tray(FakeLearning(3))._build_menu())
+    idx = texts.index("Einstellungen…")
+    assert texts[idx + 1] == "Gelernte Wörter (3 neu)…"
 
 
 def test_open_when_already_open_raises_existing():

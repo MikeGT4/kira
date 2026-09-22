@@ -30,6 +30,35 @@ COLUMNS = ("Erkannt", "Richtig", "Art", "Anzahl", "Beispiel")
 _BUTTON_MIN_WIDTH = 120
 _BUTTON_ROW_SPACING = 8
 
+# apply_light_theme() (kira/ui/_dialog_style.py) deckt weder QTableWidget noch
+# QHeaderView ab, darum blieben beide im dunklen Windows-11-Standardstil
+# (Befund aus dem Screenshot-Abgleich der ersten Fassung). Hier lokal
+# nachgezogen, nur für dieses Fenster.
+_TABLE_QSS = (
+    "QTableWidget {"
+    " background: #ffffff;"
+    " color: #222;"
+    " border: 1px solid #c0c0c0;"
+    " border-radius: 4px;"
+    " gridline-color: #e5e5e5;"
+    "}"
+    "QTableWidget::item:selected {"
+    " background: #cce4f7;"
+    " color: #222;"
+    "}"
+    "QHeaderView::section {"
+    " background: #f3f3f3;"
+    " color: #222;"
+    " border: none;"
+    " border-bottom: 1px solid #d0d0d0;"
+    " padding: 4px 6px;"
+    "}"
+    "QTableCornerButton::section {"
+    " background: #f3f3f3;"
+    " border: none;"
+    "}"
+)
+
 
 def format_rate(value: tuple[int, int] | None) -> str:
     if not value or value[1] == 0:
@@ -59,6 +88,7 @@ class LearnedWordsDialog(QDialog):
         self.setStyleSheet(
             self.styleSheet()
             + f"QPushButton {{ min-width: {_BUTTON_MIN_WIDTH}px; }}"
+            + _TABLE_QSS
         )
 
         outer = QVBoxLayout(self)
@@ -75,15 +105,26 @@ class LearnedWordsDialog(QDialog):
         outer.addWidget(self.pending_table)
         self.accept_button = QPushButton("Übernehmen")
         self.reject_button = QPushButton("Verwerfen")
+        # Kein Knopf in den beiden Listen darf der Dialog-Default sein, sonst
+        # löscht oder verwirft ein bloßes Enter versehentlich ein Paar. Der
+        # Default ist der harmlose Schließen-Knopf ganz unten.
+        self.accept_button.setAutoDefault(False)
+        self.reject_button.setAutoDefault(False)
         outer.addLayout(self._button_row(self.reject_button, self.accept_button))
 
         outer.addWidget(self._section_title("Aktiv"))
         self.active_table = self._make_table()
         outer.addWidget(self.active_table)
         self.delete_button = QPushButton("Löschen")
+        self.delete_button.setAutoDefault(False)
         outer.addLayout(self._button_row(self.delete_button))
 
+        # Zusätzlicher Abstand vor dem Schließen-Knopf: er zählt zum Dialog
+        # als Ganzes, nicht zur "Aktiv"-Liste darüber, und soll optisch davon
+        # abgesetzt sein (zusätzlich zu outer.setSpacing(12)).
+        outer.addSpacing(12)
         close_button = QPushButton("Schließen")
+        close_button.setDefault(True)
         close_button.clicked.connect(self.accept)
         outer.addLayout(self._button_row(close_button))
 
@@ -172,7 +213,7 @@ class LearnedWordsDialog(QDialog):
         self.metrics_label.setText(
             f"Korrekturquote diese Woche: {format_rate(metrics.get('this_week'))} · "
             f"Vorwoche: {format_rate(metrics.get('last_week'))} · "
-            f"Ausgangswert: {format_rate(metrics.get('baseline'))} · "
+            f"Ausgangswert: {format_rate(metrics.get('baseline'))}\n"
             f"Zuordnung diese Woche: {format_rate(metrics.get('coverage'))}"
         )
 
