@@ -200,3 +200,50 @@ def test_bootstrap_learns_from_log_and_sets_baseline(tmp_path):
     assert (r.processed, r.matched, r.pairs) == (1, 1, 1)
     assert state.bootstrapped is True
     assert metrics_summary(state, local)["baseline"] == (1, 1)
+
+
+def test_parse_log_dictations_skips_impossible_timestamps(tmp_path):
+    log_path = tmp_path / "kira.log"
+    log_path.write_text(
+        "2026-13-40 10:00:00,000 INFO kira.app: Polish out (mode=plain, 5 chars): 'hallo'\n"
+        "2026-09-20 10:00:00,000 INFO kira.app: Polish out (mode=plain, 5 chars): 'hallo'\n",
+        encoding="utf-8",
+    )
+    items = parse_log_dictations([log_path])
+    assert len(items) == 1
+    assert items[0][0].text == "hallo"
+
+
+def test_bootstrap_without_pairs_does_not_write_lexicon(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    lex = Lexicon(tmp_path / "learned.json")
+    log_path = tmp_path / "kira.log"
+    log_path.write_text(
+        f"{T0:%Y-%m-%d %H:%M:%S},000 INFO kira.app: Polish out (mode=plain, 35 chars): "
+        "'wir deployen heute auf kuh bernetes'\n",
+        encoding="utf-8",
+    )
+    state = LearningState(started=(T0 - timedelta(hours=1)).isoformat(timespec="seconds"))
+    r = bootstrap(log_paths=[log_path], source_dirs=[src], lexicon=lex, words=WORDS, state=state)
+    assert r.processed == 1
+    assert r.pairs == 0
+    assert state.bootstrapped is True
+    assert not (tmp_path / "learned.json").exists()
+
+
+def test_run_once_skips_a_failing_dictation(tmp_path, monkeypatch):
+    hist, src, lex, state = _setup(tmp_path)
+    _history(hist, T0, "wir deployen heute auf kuh bernetes")
+    _history(hist, T0 + timedelta(minutes=1), "und morgen wieder auf kuh bernetes deployen")
+    _sent(src, T0 + timedelta(minutes=2), "Wir deployen heute auf Kubernetes")
+    _sent(src, T0 + timedelta(minutes=3), "Und morgen wieder auf Kubernetes deployen")
+    original_extract_pairs = __import__("kira.learner", fromlist=["extract_pairs"]).extract_pairs
+    def extract_pairs_with_error(dictated, sent):
+        if dictated.startswith("wir"):
+            raise RuntimeError("Simulated error")
+        return original_extract_pairs(dictated, sent)
+    monkeypatch.setattr("kira.learner.extract_pairs", extract_pairs_with_error)
+    r = _run(T0 + timedelta(minutes=40), hist, src, lex, state)
+    assert r.processed == 2
+    assert r.pairs == 1

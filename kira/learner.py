@@ -246,10 +246,13 @@ def run_once(
                 continue
             result.processed += 1
             counter = state.weeks.setdefault(week_key(record.time), _new_counter())
-            _learn_from(
-                record, truncated=False, messages=messages, times=times,
-                lexicon=lexicon, words=words, counter=counter, result=result,
-            )
+            try:
+                _learn_from(
+                    record, truncated=False, messages=messages, times=times,
+                    lexicon=lexicon, words=words, counter=counter, result=result,
+                )
+            except Exception:
+                log.exception("Lernen: Diktat vom %s übersprungen", record.ts)
         state.processed_until = until.isoformat(timespec="seconds")
     keep_from = datetime.fromisoformat(state.processed_until or until.isoformat()) - WINDOW_BEFORE
     state.buffer = [
@@ -282,7 +285,10 @@ def parse_log_dictations(paths: list[Path]) -> list[tuple[HistoryRecord, bool]]:
                     continue
                 if not isinstance(text, str) or not text.strip():
                     continue
-                when = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").astimezone()
+                try:
+                    when = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").astimezone()
+                except ValueError:
+                    continue
                 record = HistoryRecord(
                     ts=when.isoformat(timespec="seconds"), app=None,
                     mode=match.group(2), raw=text, text=text,
@@ -302,7 +308,7 @@ def bootstrap(
     started = datetime.fromisoformat(state.started) if state.started else None
     items = [
         (record, truncated) for record, truncated in parse_log_dictations(log_paths)
-        if started is None or record.time < started
+        if started is None or record.time <= started
     ]
     baseline = _new_counter()
     if items:
@@ -311,11 +317,15 @@ def bootstrap(
         times = [m.time for m in messages]
         for record, truncated in items:
             result.processed += 1
-            _learn_from(
-                record, truncated=truncated, messages=messages, times=times,
-                lexicon=lexicon, words=words, counter=baseline, result=result,
-            )
-        lexicon.save()
+            try:
+                _learn_from(
+                    record, truncated=truncated, messages=messages, times=times,
+                    lexicon=lexicon, words=words, counter=baseline, result=result,
+                )
+            except Exception:
+                log.exception("Lernen: Diktat vom %s übersprungen", record.ts)
+        if result.pairs:
+            lexicon.save()
     state.baseline = baseline
     state.bootstrapped = True
     return result
