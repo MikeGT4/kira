@@ -88,3 +88,14 @@ def test_callback_reports_each_replacement():
     apply("auf kuh bernetes und Kuh Bernetes", {"kuh bernetes": "Kubernetes"},
           on_replace=lambda found, new: seen.append((found, new)))
     assert seen == [("kuh bernetes", "Kubernetes"), ("Kuh Bernetes", "Kubernetes")]
+
+
+def test_sharp_s_and_ss_keys_stay_distinct():
+    """ß und ss sollten nicht unter casefold() zusammenfallen."""
+    mapping = {
+        "straße": "Straße (Adresse)",
+        "strasse": "Strasse (CH-Schreibweise)",
+    }
+    text = "Die Straße ist gesperrt, die strasse auch."
+    out = apply(text, mapping)
+    assert out == "Die Straße (Adresse) ist gesperrt, die Strasse (CH-Schreibweise) auch."
