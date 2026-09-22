@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from ollama import ProcessResponse
@@ -978,5 +979,24 @@ async def test_other_errors_do_not_count_as_connection_loss():
     fake_client.chat = AsyncMock(side_effect=RuntimeError("model not found"))
     styler._client = fake_client
     for _ in range(4):
+        await styler.polish("hallo welt", mode="plain")
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_timeout_resets_connection_counter():
+    """Ein Timeout heißt: Ollama war erreichbar. Es unterbricht die
+    Verbindungsfehler-Serie genau wie ein Erfolg, statt sie zu ignorieren."""
+    calls = []
+    styler = Styler(Config())
+    styler.set_on_connection_lost(lambda: calls.append(1))
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=[
+        ConnectionError("x"), ConnectionError("x"),
+        asyncio.TimeoutError(),
+        ConnectionError("x"), ConnectionError("x"),
+    ])
+    styler._client = fake_client
+    for _ in range(5):
         await styler.polish("hallo welt", mode="plain")
     assert calls == []

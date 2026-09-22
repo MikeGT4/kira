@@ -478,6 +478,7 @@ class Styler:
                 )
             return polished
         except asyncio.TimeoutError:
+            self._note_connection_result(False)
             # asyncio.TimeoutError has str(exc) == "" — the original generic
             # except branch logged "Styler failed ()." with empty parens,
             # which during the 2026-04-25 debug session masked exactly this
