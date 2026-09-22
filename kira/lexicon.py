@@ -1,0 +1,215 @@
+# © 2026 Mike Pollow, Digitalroots. Alle Rechte vorbehalten.
+"""Gelernte Wortpaare: Ablage, Freigabe-Regeln und Sichten für die Anwendung.
+
+Ein Eintrag ist ein Paar „falsch erkannt → richtig". Art ``replacement``
+ersetzt fest, Art ``glossary`` geht nur als Hinweis an die Politur. Status
+``pending`` wartet auf Mike, ``active`` wirkt, ``rejected`` ist dauerhaft
+gesperrt. Auftreten in zwei verschiedenen Diktaten aktiviert ein Paar von
+selbst, außer dieselbe falsche Seite hat mehrere richtige Seiten. Von Mike
+bestätigte Einträge (``confirmed``) bleiben auch dann aktiv.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Iterable
+
+log = logging.getLogger(__name__)
+
+KIND_REPLACEMENT = "replacement"
+KIND_GLOSSARY = "glossary"
+STATUS_PENDING = "pending"
+STATUS_ACTIVE = "active"
+STATUS_REJECTED = "rejected"
+AUTO_ACTIVATE_COUNT = 2
+EXAMPLE_MAX_CHARS = 120
+PROMPT_TOKEN_BUDGET = 223
+_SCHEMA_VERSION = 1
+
+Key = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class Entry:
+    wrong: str
+    right: str
+    kind: str
+    status: str
+    count: int
+    vocab: bool
+    confirmed: bool
+    first_seen: str
+    last_seen: str
+    example: str
+
+    @property
+    def key(self) -> Key:
+        return (self.wrong.casefold(), self.right.casefold())
+
+
+def default_lexicon_path() -> Path:
+    base = os.environ.get("APPDATA")
+    root = Path(base) if base else Path.home() / "AppData" / "Roaming"
+    return root / "Kira" / "learned.json"
+
+
+class Lexicon:
+    """Thread-sicher: Lernlauf, Oberfläche und Diktat greifen parallel zu."""
+
+    def __init__(self, path: Path, entries: Iterable[Entry] = ()) -> None:
+        self._path = path
+        self._lock = threading.RLock()
+        self._entries: dict[Key, Entry] = {e.key: e for e in entries}
+        self._version = 0
+
+    @classmethod
+    def load(cls, path: Path) -> "Lexicon":
+        if not path.exists():
+            return cls(path)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            entries = [Entry(**raw) for raw in data["entries"]]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            backup = path.with_name(path.name + ".bak")
+            try:
+                os.replace(path, backup)
+            except OSError:
+                log.exception("Lernen: %s ließ sich nicht beiseitelegen", path)
+            log.warning(
+                "Lernen: %s unlesbar (%s), als %s gesichert, Lexikon beginnt leer",
+                path, exc, backup.name,
+            )
+            return cls(path)
+        return cls(path, entries)
+
+    def save(self) -> None:
+        with self._lock:
+            payload = {
+                "version": _SCHEMA_VERSION,
+                "entries": [asdict(e) for e in self._entries.values()],
+            }
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_name(self._path.name + ".tmp")
+            tmp.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8",
+            )
+            os.replace(tmp, self._path)
+
+    @property
+    def version(self) -> int:
+        with self._lock:
+            return self._version
+
+    def observe(
+        self, wrong: str, right: str, *, kind: str, vocab: bool,
+        example: str, when: datetime,
+    ) -> Entry | None:
+        """Ein Auftreten aus einem Diktat verbuchen. None bei gesperrtem Paar."""
+        stamp = when.isoformat(timespec="seconds")
+        key = (wrong.casefold(), right.casefold())
+        with self._lock:
+            current = self._entries.get(key)
+            if current is not None and current.status == STATUS_REJECTED:
+                return None
+            if current is None:
+                entry = Entry(
+                    wrong=wrong, right=right, kind=kind, status=STATUS_PENDING,
+                    count=1, vocab=vocab, confirmed=False, first_seen=stamp,
+                    last_seen=stamp, example=example[:EXAMPLE_MAX_CHARS],
+                )
+            else:
+                entry = replace(
+                    current, count=current.count + 1, last_seen=stamp,
+                    example=example[:EXAMPLE_MAX_CHARS],
+                )
+            self._entries[key] = entry
+            self._apply_rules(key[0])
+            self._version += 1
+            return self._entries[key]
+
+    def _apply_rules(self, wrong_folded: str) -> None:
+        siblings = [
+            e for e in self._entries.values()
+            if e.key[0] == wrong_folded and e.status != STATUS_REJECTED
+        ]
+        conflict = len({e.key[1] for e in siblings}) > 1
+        for e in siblings:
+            if e.confirmed:
+                continue
+            if not conflict and e.count >= AUTO_ACTIVATE_COUNT:
+                status = STATUS_ACTIVE
+            else:
+                status = STATUS_PENDING
+            if status != e.status:
+                self._entries[e.key] = replace(e, status=status)
+
+    def accept(self, key: Key) -> None:
+        with self._lock:
+            e = self._entries[key]
+            self._entries[key] = replace(e, status=STATUS_ACTIVE, confirmed=True)
+            self._version += 1
+
+    def reject(self, key: Key) -> None:
+        with self._lock:
+            e = self._entries[key]
+            self._entries[key] = replace(e, status=STATUS_REJECTED, confirmed=False)
+            self._apply_rules(key[0])
+            self._version += 1
+
+    def entries(self) -> list[Entry]:
+        with self._lock:
+            return sorted(
+                self._entries.values(),
+                key=lambda e: (-e.count, e.wrong.casefold(), e.right.casefold()),
+            )
+
+    def pending(self) -> list[Entry]:
+        return [e for e in self.entries() if e.status == STATUS_PENDING]
+
+    def active(self) -> list[Entry]:
+        return [e for e in self.entries() if e.status == STATUS_ACTIVE]
+
+    def active_replacements(self) -> dict[str, str]:
+        return {e.wrong: e.right for e in self.active() if e.kind == KIND_REPLACEMENT}
+
+    def glossary_entries(self) -> list[Entry]:
+        return [e for e in self.active() if e.kind == KIND_GLOSSARY]
+
+    def vocabulary_terms(self) -> list[str]:
+        """Richtige Schreibweisen für Whispers Wortliste, wichtigste zuerst."""
+        terms: list[str] = []
+        seen: set[str] = set()
+        ranked = sorted(self.active(), key=lambda e: (e.count, e.last_seen), reverse=True)
+        for e in ranked:
+            folded = e.right.casefold()
+            if e.vocab and folded not in seen:
+                seen.add(folded)
+                terms.append(e.right)
+        return terms
+
+
+def build_initial_prompt(
+    base: str | None,
+    terms: Iterable[str],
+    count_tokens: Callable[[str], int],
+    budget: int = PROMPT_TOKEN_BUDGET,
+) -> str | None:
+    """Whisper-Prompt: Begriffe aus config.yaml vorn, gelernte dahinter.
+
+    Hängt Begriffe an, solange ``count_tokens`` im Budget bleibt. Ein zu
+    langer Begriff wird übersprungen, kürzere dahinter dürfen noch.
+    """
+    prompt = (base or "").strip()
+    for raw in terms:
+        term = raw.strip()
+        if not term or term.casefold() in prompt.casefold():
+            continue
+        candidate = f"{prompt.rstrip('.')}, {term}." if prompt else f"{term}."
+        if count_tokens(candidate) <= budget:
+            prompt = candidate
+    return prompt or None
