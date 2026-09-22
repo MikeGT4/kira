@@ -157,6 +157,18 @@ def _load_branded_pixmap(size: int) -> QPixmap | None:
         return None
 
 
+def _ollama_client():
+    """Das Modul ``ollama`` oder ein Client mit Loopback-Adresse.
+
+    Steht in ``OLLAMA_HOST`` eine Bind-alles-Adresse (s. kira.ollama_host),
+    würden ``ollama.list()``/``ollama.pull()`` ins Leere greifen.
+    """
+    import ollama
+    from kira.ollama_host import client_host
+    host = client_host()
+    return ollama if host is None else ollama.Client(host=host)
+
+
 def _ollama_model_installed(model: str) -> bool:
     """Best-effort check ob ein Modell schon im lokalen Ollama-Cache liegt.
 
@@ -166,8 +178,7 @@ def _ollama_model_installed(model: str) -> bool:
     (kein Schaden ausser ein paar Sekunden Hash-Verify).
     """
     try:
-        import ollama
-        result = ollama.list()
+        result = _ollama_client().list()
         # API-Variation: result.models (neuere Versions, .model-Attribut)
         # vs. result['models'] (alte dict-Form, 'name'-Key).
         models = getattr(result, "models", None)
@@ -260,7 +271,7 @@ class _PullWorker(QObject):
             self.finished.emit(False, f"ollama-Library nicht verfügbar: {e}")
             return
         try:
-            for event in ollama.pull(self._model, stream=True):
+            for event in _ollama_client().pull(self._model, stream=True):
                 if self._cancelled:
                     self.finished.emit(False, "Abgebrochen.")
                     return

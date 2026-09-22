@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 import ollama
 from kira.config import Config, ModeConfig
+from kira.ollama_host import client_host
 
 log = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ class Styler:
         on_cpu_fallback_detected: Callable[[str], None] | None = None,
     ):
         self._config = config
-        self._client = ollama.AsyncClient()
+        self._client = ollama.AsyncClient(host=client_host())
         # Polish-Latenz-Detection (v0.2.6): Wenn das Polish-Modell auf
         # CPU rutscht (Ollama-Bug auf Win11, bekannt seit v0.2.5), dauert
         # Polish 10-15s statt <1s. Wir zaehlen Slow-Polishes in Folge

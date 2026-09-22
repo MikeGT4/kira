@@ -18,10 +18,12 @@ if sys.platform != "win32":
 
 def _install_fake_ollama(monkeypatch, events):
     """Plant ein Mini-Ollama-Modul in sys.modules. `events` ist Iterable;
-    `_PullWorker.run()` macht `import ollama` und ruft `ollama.pull(...)`."""
+    `_PullWorker.run()` holt sich über `_ollama_client()` das Modul und ruft
+    `pull(...)`. OLLAMA_HOST wird gelöscht, damit kein Client gebaut wird."""
     fake = types.ModuleType("ollama")
     fake.pull = lambda model, stream=False: iter(events)
     monkeypatch.setitem(sys.modules, "ollama", fake)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
 
 def test_resolve_edit_combo_disabled_returns_none():
@@ -250,6 +252,7 @@ def test_pull_worker_finished_false_when_ollama_raises(qtbot, monkeypatch):
 
     fake.pull = boom  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "ollama", fake)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
     finished_calls: list = []
     w = _PullWorker("foo")
@@ -317,3 +320,25 @@ def test_pull_worker_does_not_emit_progress_after_cancel(qtbot, monkeypatch):
     w.run()
 
     assert len(progress_calls) == 1, progress_calls
+
+
+def test_ollama_client_helper_returns_module_without_bind_all_host(monkeypatch):
+    fake = types.ModuleType("ollama")
+    monkeypatch.setitem(sys.modules, "ollama", fake)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    from kira.ui.settings_dialog import _ollama_client
+    assert _ollama_client() is fake
+
+
+def test_ollama_client_helper_builds_loopback_client_for_bind_all_host(monkeypatch):
+    fake = types.ModuleType("ollama")
+
+    class FakeClient:
+        def __init__(self, host=None):
+            self.host = host
+
+    fake.Client = FakeClient
+    monkeypatch.setitem(sys.modules, "ollama", fake)
+    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11434")
+    from kira.ui.settings_dialog import _ollama_client
+    assert _ollama_client().host == "http://127.0.0.1:11434"

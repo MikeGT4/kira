@@ -911,3 +911,29 @@ async def test_polish_passes_think_false_for_gemma4():
     await styler.polish("hallo welt", mode="plain")
 
     assert styler._client.chat.await_args.kwargs["think"] is False
+
+
+def test_styler_client_targets_loopback_for_bind_all_host(monkeypatch):
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, host=None, **kwargs):
+            seen["host"] = host
+
+    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11434")
+    monkeypatch.setattr("kira.styler.ollama.AsyncClient", FakeAsyncClient)
+    Styler(Config())
+    assert seen["host"] == "http://127.0.0.1:11434"
+
+
+def test_styler_client_keeps_library_default_for_remote_host(monkeypatch):
+    seen = {}
+
+    class FakeAsyncClient:
+        def __init__(self, host=None, **kwargs):
+            seen["host"] = host
+
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.5:11434")
+    monkeypatch.setattr("kira.styler.ollama.AsyncClient", FakeAsyncClient)
+    Styler(Config())
+    assert seen["host"] is None
