@@ -14,7 +14,7 @@ from enum import Enum, auto
 from typing import Callable
 import numpy as np
 from kira.config import Config
-from kira.recorder import Recorder, DeviceUnavailable
+from kira.recorder import Recorder, DeviceUnavailable, SAMPLE_RATE
 
 if sys.platform == "win32":
     from kira.transcriber_fw import TranscriptionResult
@@ -57,6 +57,7 @@ class KiraApp:
         styler,
         injector,
         on_state_change: Callable[[State], None] = lambda s: None,
+        learning=None,
     ) -> None:
         self._config = config
         self._recorder = recorder
@@ -64,6 +65,9 @@ class KiraApp:
         self._styler = styler
         self._injector = injector
         self._on_state_change = on_state_change
+        # Lernschleife (v0.4.0, nur Windows verdrahtet): Glossar je Diktat und
+        # Verlaufseintrag nach dem Einfügen. None = aus.
+        self._learning = learning
         self._state = State.IDLE
         self._press_time: float | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -203,6 +207,7 @@ class KiraApp:
         # das Verhalten der laufenden Pipeline ändert.
         edit_mode = self._edit_mode
         captured_selection = self._captured_selection
+        mode: str | None = None
         try:
             self._set_state(State.TRANSCRIBING)
             # asyncio.to_thread: Whisper-transcribe ist CPU/GPU-bound +
@@ -238,7 +243,13 @@ class KiraApp:
                 )
             else:
                 mode = detect_mode(self._config)
-                polished = await self._styler.polish(transcription.text, mode=mode)
+                glossary = self._glossary_for(transcription.text)
+                # Nur mit Begriffen übergeben: Styler-Attrappen und der
+                # Mac-Zweig kennen den Parameter nicht (tests/test_state_machine.py).
+                extra = {"glossary": glossary} if glossary else {}
+                polished = await self._styler.polish(
+                    transcription.text, mode=mode, **extra,
+                )
                 log.info(
                     "Polish out (mode=%s, %d chars): %r",
                     mode, len(polished), polished[:80],
@@ -251,6 +262,8 @@ class KiraApp:
                 return
             self._set_state(State.INJECTING)
             self._injector.inject(polished)
+            if mode is not None:
+                self._record_dictation(mode, transcription, polished, audio)
         except Exception:
             log.exception("pipeline failed")
             self._set_state(State.ERROR)
@@ -273,6 +286,26 @@ class KiraApp:
             else:
                 self._set_state(State.IDLE)
 
+    def _glossary_for(self, text: str) -> list[str] | None:
+        if self._learning is None:
+            return None
+        try:
+            return self._learning.glossary_for(text) or None
+        except Exception:
+            log.exception("Lernen: Glossar-Auswahl fehlgeschlagen, Diktat läuft ohne")
+            return None
+
+    def _record_dictation(self, mode: str, transcription, text: str, audio: np.ndarray) -> None:
+        if self._learning is None:
+            return
+        try:
+            self._learning.after_inject(
+                mode=mode, transcription=transcription, text=text,
+                duration_s=audio.size / SAMPLE_RATE,
+            )
+        except Exception:
+            log.exception("Lernen: Verlaufseintrag fehlgeschlagen")
+
 
 class _StubTranscriber:
     def transcribe(self, audio):
@@ -281,7 +314,7 @@ class _StubTranscriber:
 
 class _StubStyler:
     def __init__(self, cfg): self.cfg = cfg
-    async def polish(self, text, mode): return text
+    async def polish(self, text, mode, glossary=None): return text
 
 
 class _StubInjector:
