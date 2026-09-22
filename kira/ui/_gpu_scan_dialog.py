@@ -3,7 +3,7 @@
 SettingsDialog._run_gpu_check zeigt diesen Dialog waehrend des
 Hintergrund-GPU-Checks. nvidia-smi kann unter GPU-Last mehrere
 Sekunden brauchen; statt eines statischen Hinweises laeuft hier eine
-scrollende Neon-Sinuswelle — Patina (#278390), pixel-scharf wie das
+scrollende Neon-Sinuswelle: Patina (#278390), pixel-scharf wie das
 HUD-Oszilloskop (kira/ui/hud_qt.py, dieselbe Wellenfarbe).
 """
 from __future__ import annotations

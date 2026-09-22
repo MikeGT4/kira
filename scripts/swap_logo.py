@@ -13,7 +13,6 @@ Aufruf:
 """
 from __future__ import annotations
 import argparse
-import shutil
 from pathlib import Path
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -93,7 +92,7 @@ def main() -> None:
     white = Image.open(args.logo_dir / "digitalroots-logo-weiss-original.png").convert("RGBA")
     if color.size != white.size:
         raise SystemExit("Farb- und Weißfassung haben verschiedene Maße")
-    shutil.copyfile(color_path, ASSETS / "digitalroots-logo.png")
+    _save_png(color, ASSETS / "digitalroots-logo.png")
     logo = two_tone_logo(color, white)
     splash = Image.open(ASSETS / "kira-splash.png").convert("RGBA")
     _save_png(replace_logo(splash, find_logo_box(splash), logo), ASSETS / "kira-splash.png")
