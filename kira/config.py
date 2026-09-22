@@ -139,6 +139,19 @@ class UpdatesConfig(BaseModel):
     check_on_start: bool = True
 
 
+class LearningConfig(BaseModel):
+    """Aus Korrekturen lernen (v0.4.0).
+
+    ``sources`` sind Ordner mit JSONL-Chatverläufen, aus denen abgeschickte
+    Nachrichten gelesen werden. Leer heißt: Der Diktat-Verlauf wird
+    geschrieben, gelernt wird nicht. ``enabled: false`` schaltet Verlauf und
+    Lernen ab.
+    """
+
+    enabled: bool = True
+    sources: list[str] = Field(default_factory=list)
+
+
 DEFAULT_CONTEXT_MODES_MAC: dict[str, str] = {
     "com.apple.mail": "email",
     "com.microsoft.Outlook": "email",
@@ -211,6 +224,7 @@ class Config(BaseModel):
     injector: InjectorConfig = Field(default_factory=InjectorConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     context_modes: dict[str, str] = Field(default_factory=platform_context_modes)
 
 

@@ -498,6 +498,18 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             log.exception("recorder.close raised during quit")
         QTimer.singleShot(0, qt_app.quit)
 
+    # Lernschleife (v0.4.0): Diktat-Verlauf, gelernte Wörter, Lernlauf-Thread.
+    # Ein Fehler hier darf den Start nie verhindern.
+    learning = None
+    if cfg.learning.enabled:
+        try:
+            from kira.learning_win import LearningService
+            learning = LearningService.create(cfg)
+            transcriber.set_lexicon(learning.lexicon)
+        except Exception:
+            log.exception("Lernschleife konnte nicht starten; Kira läuft ohne")
+            learning = None
+
     if sys.platform == "win32":
         from kira.ui.qt_marshal import MainThreadMarshal
         # Construct on the main thread so its signal/slot dispatch lands here.
@@ -563,6 +575,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     app = KiraApp(
         config=cfg, recorder=recorder, transcriber=transcriber,
         styler=styler, injector=injector, on_state_change=handle_state,
+        learning=learning,
     )
 
     if popup is not None:
@@ -632,6 +645,9 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             )
 
     tray.run_detached()
+
+    if learning is not None:
+        learning.start()
 
     # Tray is up — splash has done its job.
     if splash is not None:

@@ -171,3 +171,22 @@ def test_context_modes_absent_yields_full_builtin_table(tmp_path):
     yaml_file.write_text("styler:\n  model: gemma3:12b\n")
     cfg = load_config(yaml_file)
     assert len(cfg.context_modes) > 5
+
+
+def test_learning_defaults():
+    from kira.config import Config
+    cfg = Config()
+    assert cfg.learning.enabled is True
+    assert cfg.learning.sources == []
+
+
+def test_learning_section_is_read_from_yaml(tmp_path):
+    from kira.config import load_config
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "learning:\n  enabled: false\n  sources:\n    - C:/daten/verlaeufe\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(path)
+    assert cfg.learning.enabled is False
+    assert cfg.learning.sources == ["C:/daten/verlaeufe"]
