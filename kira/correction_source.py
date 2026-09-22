@@ -30,7 +30,8 @@ class SentMessage:
 def _message_text(obj: dict) -> str | None:
     if obj.get("type") != "user" or obj.get("isSidechain") or obj.get("isMeta"):
         return None
-    content = (obj.get("message") or {}).get("content")
+    message = obj.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
         text = content
     elif isinstance(content, list):
@@ -67,6 +68,9 @@ class SourceReader:
         self.bytes_read = 0
         out: list[SentMessage] = []
         for directory in self._dirs:
+            if not directory.is_dir():
+                log.info("Lernquelle nicht erreichbar, übersprungen: %s", directory)
+                continue
             try:
                 files = sorted(directory.rglob("*.jsonl"))
             except OSError as exc:
@@ -81,7 +85,8 @@ class SourceReader:
         key = str(path)
         try:
             st = path.stat()
-        except OSError:
+        except OSError as exc:
+            log.info("Lernquelle %s nicht lesbar (%s)", path, exc)
             return []
         if modified_since is not None:
             if datetime.fromtimestamp(st.st_mtime).astimezone() < modified_since:

@@ -3,6 +3,7 @@
 eine JSON-Nachricht je Zeile, abgeschickte Nachrichten mit type == "user"."""
 from __future__ import annotations
 import json
+import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -90,3 +91,32 @@ def test_files_older_than_modified_since_are_ignored(tmp_path):
     os.utime(path, (old, old))
     since = datetime.now(timezone.utc) - timedelta(days=1)
     assert SourceReader([tmp_path]).read_new(modified_since=since) == []
+
+
+def test_missing_directory_is_logged(tmp_path, caplog):
+    with caplog.at_level(logging.INFO):
+        result = SourceReader([tmp_path / "fehlt"]).read_new()
+    assert result == []
+    assert "nicht erreichbar" in caplog.text
+
+
+def test_non_dict_message_is_skipped_without_losing_other_files(tmp_path):
+    _write(tmp_path / "a.jsonl", [
+        _line({"type": "user", "timestamp": "2026-09-22T18:00:00Z", "message": "kein Objekt"}),
+    ])
+    _write(tmp_path / "b.jsonl", [
+        _line(_user("bleibt")),
+    ])
+    msgs = SourceReader([tmp_path]).read_new()
+    assert [m.text for m in msgs] == ["bleibt"]
+
+
+def test_messages_from_several_files_are_sorted_by_time(tmp_path):
+    _write(tmp_path / "a.jsonl", [
+        _line(_user("später", ts="2026-09-22T18:10:00Z")),
+    ])
+    _write(tmp_path / "b.jsonl", [
+        _line(_user("früher", ts="2026-09-22T18:05:00Z")),
+    ])
+    msgs = SourceReader([tmp_path]).read_new()
+    assert [m.text for m in msgs] == ["früher", "später"]
