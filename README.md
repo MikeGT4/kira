@@ -83,6 +83,14 @@ ollama pull gemma4:12b
 
 Settings, cleanup model: the checkbox **fast mode** switches to `gemma4:e4b`. Use it when the 12B model keeps sliding into CPU offload (`ollama ps` shows a `49/51 CPU/GPU` split). The small model is pulled once when you enable it. Standard cleanup (punctuation, fillers) stays practically identical, F9 edit commands get noticeably weaker. Off by default.
 
+### Learning from corrections
+
+Since v0.4.0 Kira keeps a local dictation history (`%LOCALAPPDATA%\Kira\history`, deleted after three months) and compares it every 30 minutes with the messages you actually sent. If you fixed a misrecognised word before sending, Kira records the pair. A pair seen in two dictations applies on its own; single cases wait under tray, **Gelernte Wörter**, until you accept them. Rejected pairs are never learned again.
+
+The messages come from JSONL chat histories in the folders listed under `learning.sources` (one message per line, sent messages marked `"type": "user"`). Without sources Kira only writes the history; `learning.enabled: false` turns both off. Everything stays on your machine.
+
+Learned pairs go three ways: unusual words join Whisper's vocabulary prompt, misrecognitions that are not real words become fixed replacements (whole words only), and misrecognitions that are real words only reach the cleanup model as a hint, because only the sentence tells which one was meant.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -91,6 +99,7 @@ Settings, cleanup model: the checkbox **fast mode** switches to `gemma4:e4b`. Us
 | F8 does nothing visible | Watch `kira.log`: every press logs either `Recorder.stop` (success) or `WARNING kira.app: Hotkey press but input device unavailable` (microphone missing). The tray icon turns yellow for 3 seconds in the second case. If your tray icons are auto-hidden, pin Kira's icon. |
 | `faster-whisper` cuDNN error | `py -3.12 -m uv pip install --python C:\Users\<user>\kira-venv\Scripts\python.exe --force-reinstall nvidia-cudnn-cu12` |
 | "Ollama unreachable" toast | `curl http://127.0.0.1:11434/api/tags` from PowerShell. If it fails, restart `ollama app.exe` from `%LOCALAPPDATA%\Programs\Ollama\` or reinstall via `winget install Ollama.Ollama`. Use `127.0.0.1`, not `localhost`: Windows 11 24H2 and later resolve localhost to IPv6, Ollama binds IPv4. |
+| Cleanup never runs, `kira.log` shows `Styler failed (Failed to connect to Ollama)` while Ollama is up | Check `OLLAMA_HOST` in your user environment. `0.0.0.0:11434` lets other machines reach Ollama but is no valid target for a client. Since v0.4.0 Kira connects to `127.0.0.1` in that case and shows a tray notice after three failed attempts in a row. |
 | Cleanup takes 5 to 15 seconds instead of staying near-instant | `ollama ps` shows the model as `100% CPU`. Known Ollama-on-Windows issue: the GPU discovery probe can time out at model load. Fix: disable hardware-accelerated GPU scheduling under Settings, System, Display, Graphics, add a Windows Defender exclusion for the Ollama processes (`ollama.exe`, `ollama app.exe`, `ollama_llama_server.exe`), update Ollama, reboot. |
 | The "cleanup on CPU" toast names WSL or Docker as port owner | Since v0.3.3 Kira checks who holds port 11434. If `wslrelay.exe` or a Docker process holds it, an Ollama from WSL2 or a container answers and the Windows Ollama never gets the port. Stop the foreign Ollama or move it to another port (Docker Compose: `"127.0.0.1:11435:11434"`); the Windows tray app retries the bind and takes over. |
 | Text lands in the wrong window | The foreground window at release time is the target. Do not Alt+Tab while recording. |
@@ -99,5 +108,7 @@ Settings, cleanup model: the checkbox **fast mode** switches to `gemma4:e4b`. Us
 ## License
 
 Personal use. See [`LICENSE`](LICENSE) (English and German). Commercial use needs written consent.
+
+The German word list `assets/wordlist-de.txt` is derived from [wordfreq](https://github.com/rspeer/wordfreq) data, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 
 Made by [digital roots](https://www.digitalroots.de), Mike Pollow.

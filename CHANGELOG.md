@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.4.0 (unveröffentlicht)
+
+### Kira lernt aus Korrekturen
+
+Korrigierst du ein falsch erkanntes Wort, bevor du den Text abschickst, merkt
+sich Kira das Paar. Grundlage ist ein lokaler Diktat-Verlauf
+(`%LOCALAPPDATA%\Kira\history`, Löschfrist drei Monate), den ein Lernlauf alle
+30 Minuten mit den abgeschickten Nachrichten aus den Ordnern unter
+`learning.sources` abgleicht.
+
+- Wortpaare zählen nur, wenn beide Seiten ähnlich klingen: Kölner Phonetik plus
+  Varianten für regionale Aussprache (ch/sch, g/j am Wortanfang).
+- Einordnung per deutscher Wortliste: Unsinnswörter werden feste Ersetzungen,
+  echte Wörter nur ein Glossar-Hinweis an die Politur, ungebräuchliche richtige
+  Schreibweisen kommen in Whispers Wortliste (Budget 223 Token).
+- Freigabe als Mischform: Ab zwei Diktaten greift ein Paar selbst, Einzelfälle
+  warten im neuen Fenster „Gelernte Wörter“ (Tray und Einstellungen). Verworfenes
+  wird nie wieder gelernt.
+- Einmalige Erstbefüllung aus den bisherigen `kira.log`-Einträgen, dabei wird
+  der Ausgangswert der Korrekturquote gemessen.
+- Neue Einstellungen `learning.enabled` und `learning.sources`.
+
+### Ersetzungen nur noch für ganze Wörter
+
+`whisper.replacements` ersetzte bisher Teilstrings und wandte Regeln
+nacheinander auf das Ergebnis an. Jetzt gilt: ganze Wörter, längere Schlüssel
+zuerst, ein Durchgang, Ersetzungstext wörtlich.
+
+### Politur scheiterte bei `OLLAMA_HOST=0.0.0.0`
+
+Die Python-Bibliothek liest `OLLAMA_HOST` als Zieladresse. Steht dort die
+Bind-Adresse `0.0.0.0` (gesetzt, damit andere Rechner den Server erreichen),
+schlägt unter Windows jede Verbindung fehl, und Kira fügte still den Rohtext
+ein. Kira spricht in diesem Fall `127.0.0.1` an und meldet sich nach drei
+Verbindungsfehlern in Folge im Tray.
+
+### Aktualisiert
+
+Gebündeltes Ollama auf 0.32.15 (war 0.31.1). Signatur geprüft, Prüfsummen-Pin neu gesetzt. Ist Ollama bereits installiert, lässt das Setup es unverändert.
+
+### Marke
+
+digitalroots-Logo in der Patina-Fassung, Oszilloskop-Welle in Patina `#278390`.
+
 ## v0.3.4 — 2026-08-14
 
 ### Gemma 4 denkt — und Kira hat es nie abgeschaltet (Latenz-Fix)

@@ -23,3 +23,8 @@ styler:
   # Seconds to wait for the cleanup before falling back to the raw text.
   timeout_seconds: 30.0
   fallback_to_raw: true
+
+# Learning from corrections: on/off, folders with chat histories to learn from.
+learning:
+  enabled: true
+  sources: []

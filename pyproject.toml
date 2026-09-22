@@ -1,6 +1,6 @@
 [project]
 name = "kira"
-version = "0.3.4"
+version = "0.4.0"
 description = "Voice-to-text menubar app — macOS + Windows 11"
 requires-python = ">=3.12"
 dependencies = [
@@ -77,6 +77,7 @@ packages = ["kira"]
 "assets/icon.ico" = "kira/_assets/icon.ico"
 "assets/digitalroots-logo.png" = "kira/_assets/digitalroots-logo.png"
 "assets/kira-splash.png" = "kira/_assets/kira-splash.png"
+"assets/wordlist-de.txt" = "kira/_assets/wordlist-de.txt"
 "prompts" = "kira/_prompts"
 # OllamaSetup.exe (~1.98 GB) wird BEWUSST NICHT ins wheel gepackt:
 #  - waere das Wheel ~2.1 GB statt ~50 KB

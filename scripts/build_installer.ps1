@@ -140,7 +140,7 @@ Write-Host "==> 1/7 git archive source"
 $sourceZip = Join-Path $BuildDir "kira-source.zip"
 & git -c safe.directory='*' -C $RepoRoot archive `
     --format=zip --output=$sourceZip windows-port -- `
-    kira/ prompts/ assets/icon.ico assets/icon-branded.ico assets/digitalroots-logo.png assets/kira-splash.png pyproject.toml README.md
+    kira/ prompts/ assets/icon.ico assets/icon-branded.ico assets/digitalroots-logo.png assets/kira-splash.png assets/wordlist-de.txt pyproject.toml README.md
 if ($LASTEXITCODE -ne 0) { throw "git archive failed (exit $LASTEXITCODE)" }
 $sourceDir = Join-Path $BuildDir "kira-source"
 New-Item -ItemType Directory -Force -Path $sourceDir | Out-Null

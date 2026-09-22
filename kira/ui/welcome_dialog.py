@@ -156,8 +156,17 @@ whisper:
     "chat g pt": "ChatGPT"
     "java skript": "JavaScript"
 </pre>
+<p>Ersetzt werden nur ganze Wörter; längere Einträge gehen vor.</p>
 
-<h3>5. Unzensiertes Polish-Modell (optional)</h3>
+<h3>5. Aus Korrekturen lernen</h3>
+<p>Korrigierst du ein falsch erkanntes Wort, bevor du den Text abschickst,
+merkt sich Kira das Paar. Taucht es in zwei Diktaten auf, greift es von
+selbst; Einzelfälle warten unter Tray → <b>„Gelernte Wörter…“</b> auf dein
+Häkchen. Was du dort verwirfst, lernt Kira nicht wieder. Die Nachrichten
+stammen aus Chat-Verläufen, deren Ordner in der Rohconfig unter
+<code>learning.sources</code> stehen. Alles bleibt lokal.</p>
+
+<h3>6. Unzensiertes Polish-Modell (optional)</h3>
 <p>Standardmäßig poliert Kira mit <code>gemma4:12b</code>. In Settings →
 „Polish-LLM" kannst du über <b>„Unzensiertes Modell laden..."</b> optional
 ein abliteriertes Modell (Qwen3.6 27B, ~17 GB) nachladen, dessen
@@ -165,7 +174,7 @@ Inhaltsfilter entfernt sind — nützlich, wenn der Standard-Polish
 Formulierungen abschwächt oder zurückweist. Kira prüft vorher deinen
 verfügbaren VRAM.</p>
 
-<h3>6. Updates</h3>
+<h3>7. Updates</h3>
 <p>Kira prüft beim Start automatisch, ob auf GitHub eine neuere Version
 vorliegt, und fragt dann nach. Abschaltbar in der Rohconfig über
 <code>updates.check_on_start</code>.</p>
@@ -174,7 +183,7 @@ Update-Button. Kira prüft GitHub Releases, lädt das Multi-Asset-Bundle
 (Stub + Splits), verifiziert SHA256-Hashes (falls im Release vorhanden),
 und startet den Setup-Wizard. Kira beendet sich dafür kurz.</p>
 
-<h3>7. Tray &amp; Status</h3>
+<h3>8. Tray &amp; Status</h3>
 <p>Das Tray-Icon zeigt den Zustand:</p>
 <ul>
   <li><b>Grau</b>: bereit (Idle)</li>
