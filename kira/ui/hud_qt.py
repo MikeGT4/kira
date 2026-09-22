@@ -22,7 +22,7 @@ WF_W, WF_H = HUD_W - 20, 42  # 240 x 42 waveform area
 MAX_WAVE_POINTS = WF_W       # one sample column per pixel at fill
 SAMPLES_PER_BLOCK = 30       # peak-downsample audio blocks to this many points
 BG_ALPHA = 220
-WAVE_COLOR = QColor(60, 220, 110)  # digitalroots green, neon variant
+WAVE_COLOR = QColor(0x27, 0x83, 0x90)  # Patina „mittel“ #278390 (Farbleiter digitalroots, seit v0.4.0)
 
 
 class _HudSignals(QObject):

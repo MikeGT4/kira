@@ -3,7 +3,7 @@
 SettingsDialog._run_gpu_check zeigt diesen Dialog waehrend des
 Hintergrund-GPU-Checks. nvidia-smi kann unter GPU-Last mehrere
 Sekunden brauchen; statt eines statischen Hinweises laeuft hier eine
-scrollende Neon-Sinuswelle — digitalroots-Gruen, pixel-scharf wie das
+scrollende Neon-Sinuswelle — Patina (#278390), pixel-scharf wie das
 HUD-Oszilloskop (kira/ui/hud_qt.py, dieselbe Wellenfarbe).
 """
 from __future__ import annotations
@@ -13,8 +13,10 @@ from PyQt6.QtCore import Qt, QRect, QTimer, QPointF
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QPolygonF
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
-# digitalroots-Neon-Gruen — identisch zu hud_qt.WAVE_COLOR.
-_NEON = QColor(60, 220, 110)
+# Patina „mittel“, identisch zu hud_qt.WAVE_COLOR. Text in Patina „Linie“,
+# weil #278390 als Schrift auf dem dunklen Grund unter 4,5:1 bleibt.
+_NEON = QColor(0x27, 0x83, 0x90)
+_TEXT = QColor(0xDA, 0xE5, 0xE7)
 _PANEL_W, _PANEL_H = 320, 132
 
 
@@ -49,10 +51,10 @@ class _ScanWidget(QWidget):
         # Panel + Text mit AA: glatter Rahmen, lesbare Schrift.
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setBrush(QBrush(QColor(12, 12, 12)))
-        p.setPen(QPen(QColor(60, 220, 110, 110), 1))
+        p.setPen(QPen(QColor(0x27, 0x83, 0x90, 110), 1))
         p.drawRect(0, 0, _PANEL_W - 1, _PANEL_H - 1)
 
-        p.setPen(QPen(_NEON))
+        p.setPen(QPen(_TEXT))
         p.setFont(QFont("Consolas", 10, QFont.Weight.DemiBold))
         p.drawText(
             QRect(0, 16, _PANEL_W, 20),
@@ -76,7 +78,7 @@ class _ScanWidget(QWidget):
             poly.append(QPointF(float(wf_x + px), float(y)))
 
         # Glow (breit, transparent) + Kern (schmal, voll) = Neon-Look.
-        glow = QPen(QColor(60, 220, 110, 70))
+        glow = QPen(QColor(0x27, 0x83, 0x90, 70))
         glow.setWidth(6)
         glow.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(glow)
