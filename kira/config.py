@@ -56,7 +56,7 @@ class WhisperConfig(BaseModel):
     # Post-Whisper Find/Replace-Map fuer Eigennamen, Fachbegriffe
     # und Produktnamen, die Whisper systematisch falsch transkribiert.
     # Wird angewendet NACH Halluzinations-Filter und VOR dem Polish.
-    # Match ist case-insensitive Substring; siehe kira/replacements.py.
+    # Nur ganze Wörter, Groß/klein egal, ein Durchgang; siehe kira/replacements.py.
     replacements: dict[str, str] = Field(default_factory=dict)
 
 
