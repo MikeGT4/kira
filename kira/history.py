@@ -60,12 +60,16 @@ def read_records(
     """Alle Einträge nach ``since``, chronologisch (Monatsdateien sortiert)."""
     if not directory.is_dir():
         return
+    if since is not None and since.tzinfo is None:
+        since = since.astimezone()
     for path in sorted(directory.glob("*.jsonl")):
         with path.open(encoding="utf-8") as fh:
             for line in fh:
                 try:
                     record = HistoryRecord(**json.loads(line))
                     when = record.time
+                    if when.tzinfo is None:
+                        when = when.astimezone()
                 except (ValueError, TypeError):
                     continue
                 if since is None or when > since:

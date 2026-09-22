@@ -44,3 +44,31 @@ def test_prune_keeps_three_months(tmp_path):
     removed = prune(tmp_path, datetime(2026, 9, 22, tzinfo=timezone.utc))
     assert [p.name for p in removed] == ["2026-05.jsonl"]
     assert sorted(p.name for p in tmp_path.glob("*.jsonl")) == ["2026-06.jsonl", "2026-09.jsonl"]
+
+
+def test_read_records_accepts_naive_since(tmp_path):
+    HistoryWriter(tmp_path).append(_rec("2026-09-02T10:00:00+02:00", "Eintrag"))
+    since = datetime(2026, 9, 1, 0, 0)  # naive datetime
+    records = [r.text for r in read_records(tmp_path, since)]
+    assert records == ["Eintrag"]
+
+
+def test_read_records_accepts_record_without_offset(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    # Write a record with timestamp without offset
+    record_data = {
+        "ts": "2026-09-01T10:00:00",
+        "app": "notepad.exe",
+        "mode": "plain",
+        "raw": "text",
+        "text": "Text",
+        "avg_logprob": -0.2,
+        "duration_s": 1.5
+    }
+    (tmp_path / "2026-09.jsonl").write_text(
+        json.dumps(record_data, ensure_ascii=False) + "\n",
+        encoding="utf-8"
+    )
+    since = datetime(2026, 8, 31, 0, 0, tzinfo=timezone.utc)
+    records = [r.text for r in read_records(tmp_path, since)]
+    assert records == ["Text"]
