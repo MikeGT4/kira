@@ -937,3 +937,46 @@ def test_styler_client_keeps_library_default_for_remote_host(monkeypatch):
     monkeypatch.setattr("kira.styler.ollama.AsyncClient", FakeAsyncClient)
     Styler(Config())
     assert seen["host"] is None
+
+
+@pytest.mark.asyncio
+async def test_connection_lost_notice_fires_once_after_three_failures():
+    calls = []
+    styler = Styler(Config())
+    styler.set_on_connection_lost(lambda: calls.append(1))
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=ConnectionError("Failed to connect to Ollama"))
+    styler._client = fake_client
+    for _ in range(5):
+        assert await styler.polish("hallo welt", mode="plain") == "hallo welt"
+    assert calls == [1]
+
+
+@pytest.mark.asyncio
+async def test_connection_counter_resets_after_success():
+    calls = []
+    styler = Styler(Config())
+    styler.set_on_connection_lost(lambda: calls.append(1))
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=[
+        ConnectionError("x"), ConnectionError("x"),
+        {"message": {"content": "Hallo Welt."}},
+        ConnectionError("x"), ConnectionError("x"),
+    ])
+    styler._client = fake_client
+    for _ in range(5):
+        await styler.polish("hallo welt", mode="plain")
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_other_errors_do_not_count_as_connection_loss():
+    calls = []
+    styler = Styler(Config())
+    styler.set_on_connection_lost(lambda: calls.append(1))
+    fake_client = MagicMock()
+    fake_client.chat = AsyncMock(side_effect=RuntimeError("model not found"))
+    styler._client = fake_client
+    for _ in range(4):
+        await styler.polish("hallo welt", mode="plain")
+    assert calls == []

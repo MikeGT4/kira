@@ -24,6 +24,11 @@ SLOW_POLISH_TRIGGER_COUNT = 3
 # permanent das schwaechere Modell anbleiben laesst.
 FORCE_FAST_DURATION_SEC = 5 * 60
 
+# Verbindungsfehler in Folge bis zum Tray-Hinweis (einmal pro Sitzung). Anlass:
+# Vom 17. bis 22.09.2026 scheiterte jede Politur an „Failed to connect to
+# Ollama“, und Kira fügte sechs Tage lang still den Rohtext ein.
+CONNECTION_FAIL_TRIGGER_COUNT = 3
+
 # Forciert alle Modell-Layer auf die GPU. Ollama 0.23.x trifft auf
 # Win11 + RTX 5090 bei gemma3:12b (Q4_K_M) gelegentlich die falsche
 # Auto-Layer-Decision und laesst ~787 MiB Embedding-Tensor auf CPU
@@ -127,6 +132,9 @@ class Styler:
         # und holt den Warmup nur nach, wenn der Boot-Warmup scheiterte —
         # z. B. weil Ollama beim Kira-Start noch nicht oben war.
         self._warmup_succeeded = False
+        self._on_connection_lost: Callable[[], None] | None = None
+        self._connection_fail_count = 0
+        self._connection_notice_sent = False
 
     def set_on_slow_polish_detected(
         self, callback: Callable[[], None] | None,
@@ -143,6 +151,29 @@ class Styler:
         Tray-Callback ist erst nach KiraTray-Konstruktion verfuegbar, der
         Styler wird davor in run() erzeugt."""
         self._on_cpu_fallback_detected = callback
+
+    def set_on_connection_lost(
+        self, callback: Callable[[], None] | None,
+    ) -> None:
+        """Late-Binding wie die übrigen Tray-Callbacks: Hinweis, wenn Ollama
+        dreimal in Folge nicht erreichbar war (einmal pro Sitzung)."""
+        self._on_connection_lost = callback
+
+    def _note_connection_result(self, failed: bool) -> None:
+        if not failed:
+            self._connection_fail_count = 0
+            return
+        self._connection_fail_count += 1
+        if (
+            self._connection_fail_count >= CONNECTION_FAIL_TRIGGER_COUNT
+            and not self._connection_notice_sent
+            and self._on_connection_lost is not None
+        ):
+            self._connection_notice_sent = True
+            try:
+                self._on_connection_lost()
+            except Exception:
+                log.exception("connection-lost callback raised")
 
     @property
     def warmup_succeeded(self) -> bool:
@@ -422,6 +453,7 @@ class Styler:
                 timeout=timeout,
             )
             polished = response["message"]["content"].strip()
+            self._note_connection_result(False)
             if not polished:
                 # gemma3 occasionally returns an empty string (or pure
                 # whitespace) when the prompt ends with "Output:" — Ollama
@@ -462,6 +494,7 @@ class Styler:
                 return text
             raise
         except Exception as exc:
+            self._note_connection_result(isinstance(exc, ConnectionError))
             log.warning("Styler failed (%s). Fallback to raw.", exc)
             if self._config.styler.fallback_to_raw:
                 return text

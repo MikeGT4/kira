@@ -537,6 +537,13 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             tray.notify("Kira — Polish auf CPU", msg)
 
         styler.set_on_cpu_fallback_detected(_notify_cpu_fallback)
+        styler.set_on_connection_lost(
+            lambda: tray.notify(
+                "Kira: Politur nicht erreichbar",
+                "Ollama antwortet nicht. Kira fügt bis auf Weiteres den "
+                "Rohtext ein. Details im Log.",
+            )
+        )
     else:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 
