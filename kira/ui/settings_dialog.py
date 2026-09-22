@@ -347,7 +347,7 @@ hotkey:
 class SettingsDialog(QDialog):
     """Runtime settings + Polish-Modell update."""
 
-    def __init__(self) -> None:
+    def __init__(self, open_learned_words=None) -> None:
         super().__init__()
         self.setWindowTitle("Kira-Einstellungen")
         icon_path = _ASSETS / "icon-branded.ico"
@@ -363,6 +363,8 @@ class SettingsDialog(QDialog):
         self._pull_worker: _PullWorker | None = None
         self._gpu_thread: QThread | None = None
         self._gpu_worker: _GpuCheckWorker | None = None
+        # Öffnet das Fenster „Gelernte Wörter" (vom Tray gereicht); None = Knopf entfällt.
+        self._open_learned_words = open_learned_words
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 16, 20, 16)
@@ -521,6 +523,18 @@ class SettingsDialog(QDialog):
             "fixiert -> ~5%% bessere Accuracy bei sauberen Mono-Sprache-Sessions."
         )
         card.add_row("Sprache", self._language)
+
+        self._learning_enabled = QCheckBox("Aus Korrekturen lernen")
+        self._learning_enabled.setChecked(self._cfg.learning.enabled)
+        self._learning_enabled.setToolTip(
+            "Kira merkt sich Wörter, die du nach dem Diktieren korrigierst.\n"
+            "Wirkt nach dem Neustart."
+        )
+        card.add_row("Lernen", self._learning_enabled)
+        if self._open_learned_words is not None:
+            learned_button = QPushButton("Gelernte Wörter…")
+            learned_button.clicked.connect(self._open_learned_words)
+            card.add_row("", learned_button)
 
         return card
 
@@ -989,6 +1003,7 @@ class SettingsDialog(QDialog):
             "audio.input_gain": float(self._gain.value()),
             "audio.input_device": device_value,
             "whisper.language": self._language.currentText(),
+            "learning.enabled": self._learning_enabled.isChecked(),
             "styler.model": self._styler_model.text().strip(),
             "styler.fast_mode": new_fast_mode,
             "styler.timeout_seconds": float(self._styler_timeout.value()),

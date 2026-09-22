@@ -156,3 +156,9 @@ def test_blank_lines_between_sections_preserved():
     out = update_scalars(SAMPLE_CONFIG, {"audio.input_gain": 5.0})
     # Two blank lines flank the "whisper:" section in the original
     assert "\n\nwhisper:" in out or "\n  \nwhisper:" in out
+
+
+def test_learning_switch_is_appended_to_old_config():
+    from kira.config_writer import update_scalars
+    out = update_scalars("audio:\n  input_gain: 1.8\n", {"learning.enabled": False})
+    assert "learning:\n  enabled: false\n" in out

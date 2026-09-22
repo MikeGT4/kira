@@ -518,6 +518,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             on_quit=_on_tray_quit,
             qt_marshal=qt_marshal,
             transcriber=transcriber,
+            learning=learning,
         )
         # v0.2.6: Polish-Latenz-Detection — wenn das Polish-Modell auf
         # CPU rutscht (Ollama-on-Win11-Bug), feuert der Styler nach 3

@@ -257,6 +257,7 @@ class KiraTray:
         on_quit: Callable[[], None],
         qt_marshal=None,
         transcriber=None,
+        learning=None,
     ) -> None:
         self._on_quit = on_quit
         self._qt_marshal = qt_marshal
@@ -274,6 +275,9 @@ class KiraTray:
         # None). Verhindert, dass ein zweiter Tray-Klick einen weiteren
         # modalen Dialog über den ersten stapelt — s. _show_settings_dialog.
         self._settings_dlg = None
+        # Lernschleife (v0.4.0): None = Menüeintrag „Gelernte Wörter…" entfällt.
+        self._learning = learning
+        self._learned_dlg = None
         # File-Transcription-Anker: QThread/Worker/Progress MUESSEN an
         # einem langlebigen, extern verankerten Objekt haengen. Vorher
         # hingen sie als Attribute am Progress-Dialog, der selbst nur noch
@@ -312,9 +316,15 @@ class KiraTray:
             pystray.MenuItem(
                 "Einstellungen…", self._open_settings, default=True,
             ),
+        ]
+        if self._learning is not None:
+            items.append(
+                pystray.MenuItem(self._learned_words_label(), self._open_learned_words),
+            )
+        items.extend([
             pystray.MenuItem("Anleitung…", self._open_help),
             pystray.MenuItem("Open Log…", self._open_log),
-        ]
+        ])
         # File-Transcription-Eintrag nur sichtbar wenn ein Transcriber
         # gewired ist — im Test-/Headless-Modus hängt das Menue sonst
         # auf einer toten Aktion.
@@ -366,7 +376,14 @@ class KiraTray:
             self._settings_dlg.activateWindow()
             return
         from kira.ui.settings_dialog import SettingsDialog
-        dlg = SettingsDialog()
+        # open_learned_words nur reichen, wenn eine Lernschleife wired ist:
+        # der Default-Wert von SettingsDialog ist ohnehin None, ein
+        # unnötiges Keyword würde nur bestehende Fakes ohne dieses
+        # Argument in Tests brechen (s. test_tray_settings_guard.py).
+        if self._learning is not None:
+            dlg = SettingsDialog(open_learned_words=self._show_learned_words_dialog)
+        else:
+            dlg = SettingsDialog()
         self._settings_dlg = dlg
         # exec() calls show() + enters the Qt event loop. Do NOT call
         # show() manually before exec(): with setModal(True) already set
@@ -384,6 +401,35 @@ class KiraTray:
             getattr(dlg, "exec")()
         finally:
             self._settings_dlg = None
+
+    def _learned_words_label(self) -> str:
+        try:
+            pending = self._learning.pending_count()
+        except Exception:
+            log.exception("Lernen: Zähler fürs Tray-Menü nicht lesbar")
+            pending = 0
+        return f"Gelernte Wörter ({pending} neu)…" if pending else "Gelernte Wörter…"
+
+    def _open_learned_words(self, _icon, _item) -> None:
+        self._marshal_to_qt(self._show_learned_words_dialog, "learned words dialog")
+
+    def _show_learned_words_dialog(self) -> None:
+        # Single-Instance-Guard wie bei den Einstellungen.
+        if self._learning is None:
+            return
+        if self._learned_dlg is not None:
+            self._learned_dlg.raise_()
+            self._learned_dlg.activateWindow()
+            return
+        from kira.ui.learned_words_dialog import LearnedWordsDialog
+        dlg = LearnedWordsDialog(self._learning)
+        self._learned_dlg = dlg
+        try:
+            getattr(dlg, "exec")()
+        finally:
+            self._learned_dlg = None
+            if self._icon is not None:
+                self._icon.menu = self._build_menu()
 
     def _open_log(self, _icon, _item) -> None:
         log_path = Path(os.environ["LOCALAPPDATA"]) / "Kira" / "kira.log"
