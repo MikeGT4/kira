@@ -109,8 +109,9 @@ def _glued(wrong: str, right: str) -> bool:
 
     Diktate werden ohne Leerzeichen eingefügt; zwei Diktate hintereinander
     oder Tippen plus Diktat kommen verklebt an („durchUnd“, „durch.2“,
-    „wegBei“, „0Das“). Hinten Angehängtes zählt immer als angeklebt. Vorn
-    nur mit sichtbarer Naht (Ziffer, Satzzeichen, klein vor groß), sonst hat
+    „wegBei“, „0Das“, „VoIPAlso“). Hinten Angehängtes zählt immer als
+    angeklebt. Vorn nur mit sichtbarer Naht: Vor der falschen Seite steht
+    ein Nicht-Buchstabe, oder sie beginnt mit einem Großbuchstaben. Sonst hat
     Whisper den Wortanfang verschluckt („Lama“ → „Ollama“), und das ist ein
     Paar. Die Gegenrichtung bleibt ebenfalls ein Paar („nass“ → „NAS“).
     """
@@ -126,7 +127,7 @@ def _glued(wrong: str, right: str) -> bool:
     if not rl.endswith(wl):
         return False
     before, first = right[len(right) - len(wrong) - 1], right[len(right) - len(wrong)]
-    return not before.isalpha() or (before.islower() and first.isupper())
+    return not before.isalpha() or first.isupper()
 
 
 def _spelling_only(wrong: str, right: str) -> bool:

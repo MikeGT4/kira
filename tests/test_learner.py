@@ -99,7 +99,9 @@ def test_shorter_or_equal_right_side_stays_a_pair(dictated, sent, pair):
     ("Wir machen weiter", "8.Wir machen weiter"),
     ("Einfach neu starten", "127.0.0.1Einfach neu starten"),
     ("Wir gehen das durch", "Wir gehen das durch.2"),
-], ids=["0Das", "8.Wir", "IP-Einfach", "durch.2"])
+    ("Also dann los", "VoIPAlso dann los"),
+    ("Figma ist offen", "3DFigma ist offen"),
+], ids=["0Das", "8.Wir", "IP-Einfach", "durch.2", "VoIPAlso", "3DFigma"])
 def test_glued_digits_or_punctuation_are_not_a_pair(dictated, sent):
     assert extract_pairs(dictated, sent) == []
 
@@ -107,7 +109,8 @@ def test_glued_digits_or_punctuation_are_not_a_pair(dictated, sent):
 @pytest.mark.parametrize("dictated, sent, pair", [
     ("starte den Lama Server", "starte den Ollama Server", Pair("Lama", "Ollama")),
     ("das läuft auf Buntu", "das läuft auf Ubuntu", Pair("Buntu", "Ubuntu")),
-], ids=["Lama-Ollama", "Buntu-Ubuntu"])
+    ("frag mal Ermes", "frag mal Hermes", Pair("Ermes", "Hermes")),
+], ids=["Lama-Ollama", "Buntu-Ubuntu", "Ermes-Hermes"])
 def test_lost_word_start_stays_a_pair(dictated, sent, pair):
     # Ohne Naht (Ziffer, Satzzeichen, klein-groß) ist das kein angeklebtes Wort.
     assert extract_pairs(dictated, sent) == [pair]
