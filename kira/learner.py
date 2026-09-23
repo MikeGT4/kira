@@ -38,6 +38,7 @@ WINDOW_AFTER = timedelta(minutes=20)
 
 _TOKEN_RE = re.compile(r"\S+")
 _EDGE_RE = re.compile(r"^[^\w]+|[^\w]+$")
+_NOT_LETTER_RE = re.compile(r"[^a-zäöüß]")
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,19 @@ def match_message(
     return best_text if best_ratio >= MATCH_MIN_RATIO else None
 
 
+def _glued(wrong: str, right: str) -> bool:
+    """Die richtige Seite ist die falsche plus ein angeklebtes Nachbarwort.
+
+    Diktate werden ohne Leerzeichen eingefügt; zwei Diktate hintereinander
+    oder Tippen plus Diktat kommen verklebt an („durchUnd“, „wegBei“).
+    Verglichen werden nur die Buchstaben, klein. Die Gegenrichtung bleibt
+    ein Paar, so sehen echte Fehlerkennungen aus („nass“ → „NAS“).
+    """
+    w = _NOT_LETTER_RE.sub("", wrong.casefold())
+    r = _NOT_LETTER_RE.sub("", right.casefold())
+    return len(r) > len(w) and (r.startswith(w) or r.endswith(w))
+
+
 def extract_pairs(dictated: str, sent: str) -> list[Pair]:
     """Klangähnliche Austausche zwischen Diktat und abgeschicktem Text."""
     d_orig, d_norm = _tokens(dictated)
@@ -119,6 +133,8 @@ def extract_pairs(dictated: str, sent: str) -> list[Pair]:
         if key[0] == key[1] or key in seen:
             continue
         if sum(ch.isalpha() for ch in wrong) < MIN_WRONG_LETTERS:
+            continue
+        if _glued(wrong, right):
             continue
         if sound_similarity(wrong, right) < PAIR_MIN_SOUND:
             continue

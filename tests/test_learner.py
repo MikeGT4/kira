@@ -2,11 +2,13 @@
 """Tests für kira.learner."""
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
+import pytest
 from kira.correction_source import SentMessage
 from kira.learner import (
-    Pair, best_window, classify, extract_pairs, match_message, week_key,
+    PAIR_MIN_SOUND, Pair, best_window, classify, extract_pairs, match_message, week_key,
 )
 from kira.lexicon import KIND_GLOSSARY, KIND_REPLACEMENT
+from kira.phonetics import sound_similarity
 
 T0 = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 
@@ -69,6 +71,36 @@ def test_long_rewrites_are_not_pairs():
         "das sind vier falsche worte hier",
         "das sind ganz andere begriffe jetzt hier",
     ) == []
+
+
+@pytest.mark.parametrize("dictated, sent", [
+    ("Wir gehen die Liste einmal durch", "Wir gehen die Liste einmal durch.Und"),
+    ("Bei der Abfrage fehlt ein Feld", "wegBei der Abfrage fehlt ein Feld"),
+    ("Bitte prüf die Markdowns", "Bitte prüf die MarkdownsUnd"),
+], ids=["durch.Und", "wegBei", "MarkdownsUnd"])
+def test_glued_neighbour_word_is_not_a_pair(dictated, sent):
+    # Diktate kommen ohne Leerzeichen an; das Nachbarwort klebt an der richtigen Seite.
+    assert extract_pairs(dictated, sent) == []
+
+
+@pytest.mark.parametrize("dictated, sent, pair", [
+    ("leg die Datei auf das nass", "leg die Datei auf das NAS", Pair("nass", "NAS")),
+    ("Wir deployen heute auf kuh bernetes.", "Wir deployen heute auf Kubernetes.",
+     Pair("kuh bernetes", "Kubernetes")),
+    ("das Projekt liegt auf Git Hub", "das Projekt liegt auf GitHub", Pair("Git Hub", "GitHub")),
+], ids=["nass-NAS", "kuh bernetes-Kubernetes", "Git Hub-GitHub"])
+def test_shorter_or_equal_right_side_stays_a_pair(dictated, sent, pair):
+    assert extract_pairs(dictated, sent) == [pair]
+
+
+def test_pair_min_sound_boundary():
+    above = sound_similarity("Wagen", "Regen")
+    below = sound_similarity("Mappe", "Marke")
+    assert (above, below) == (pytest.approx(2 / 3), pytest.approx(3 / 5))
+    assert below < PAIR_MIN_SOUND <= above
+    assert extract_pairs("wir warten auf den Wagen", "wir warten auf den Regen") == [
+        Pair("Wagen", "Regen")]
+    assert extract_pairs("gib mir die Mappe dort", "gib mir die Marke dort") == []
 
 
 def test_classify_uses_the_word_list():
