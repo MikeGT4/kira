@@ -4,6 +4,7 @@
 ``LearningService.create(cfg)`` baut alles aus der Konfiguration. main.py
 reicht den Dienst an KiraApp (Haken), Transcriber (Lexikon) und Tray
 (Fenster „Gelernte Wörter") weiter und startet den Lernlauf-Thread.
+``prune_history()`` läuft bei jedem Start, auch bei ausgeschaltetem Lernen.
 """
 from __future__ import annotations
 
@@ -36,6 +37,17 @@ def _local_kira_dir() -> Path:
 
 def _now() -> datetime:
     return datetime.now().astimezone()
+
+
+def prune_history() -> None:
+    """Löschfrist des Verlaufs (drei Monate), unabhängig vom Lernen."""
+    try:
+        removed = prune(default_history_dir(), _now())
+    except Exception:
+        log.exception("Verlauf: alte Monatsdateien ließen sich nicht löschen")
+        return
+    if removed:
+        log.info("Verlauf: %d alte Monatsdateien gelöscht", len(removed))
 
 
 class LearningService:

@@ -10,7 +10,7 @@ import pytest
 if sys.platform != "win32":
     pytest.skip("windows-only tests", allow_module_level=True)
 
-from kira.learning_win import LearningService
+from kira.learning_win import LearningService, prune_history
 from kira.lexicon import Lexicon
 from kira.transcriber_fw import TranscriptionResult
 
@@ -99,3 +99,28 @@ def test_failing_run_is_logged_not_raised(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.ERROR):
         svc.run_once()
     assert "Lauf fehlgeschlagen" in caplog.text
+
+
+def test_prune_history_deletes_old_months(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    history = tmp_path / "Kira" / "history"
+    history.mkdir(parents=True)
+    old = history / "2020-01.jsonl"
+    current = history / f"{datetime.now():%Y-%m}.jsonl"
+    for path in (old, current):
+        path.write_text("{}\n", encoding="utf-8")
+    prune_history()
+    assert not old.exists()
+    assert current.exists()
+
+
+def test_prune_history_logs_errors_instead_of_raising(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    def boom(directory, now):
+        raise OSError("gesperrt")
+
+    monkeypatch.setattr("kira.learning_win.prune", boom)
+    with caplog.at_level(logging.ERROR):
+        prune_history()
+    assert "Verlauf" in caplog.text

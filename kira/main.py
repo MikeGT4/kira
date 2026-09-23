@@ -499,7 +499,10 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         QTimer.singleShot(0, qt_app.quit)
 
     # Lernschleife (v0.4.0): Diktat-Verlauf, gelernte Wörter, Lernlauf-Thread.
-    # Ein Fehler hier darf den Start nie verhindern.
+    # Ein Fehler hier darf den Start nie verhindern. Die Löschfrist des
+    # Verlaufs gilt auch bei ausgeschaltetem Lernen.
+    from kira.learning_win import prune_history
+    prune_history()
     learning = None
     if cfg.learning.enabled:
         try:
