@@ -443,3 +443,27 @@ def test_error_during_abort_fade_starts_fresh(qapp, key):
     elif key == "stimmabdruck":
         assert int(d.style._buf[..., 3].max()) == 0
 
+
+def test_host_error_during_abort_fade_prepares_again(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(cfg, "phosphor")
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    hud.set_phase("rec")
+    _feed(hud)
+    qtbot.wait(200)
+    hud.set_phase("trans")
+    hud.set_phase("polish")
+    qtbot.wait(50)
+    assert hud._frame.polishing
+    hud.set_phase("idle")                 # Politur leer → Abbruch-Ausblendung
+    hud.set_phase("error", "Nichts markiert.|Erst Text markieren, dann erneut.")
+    qtbot.wait(50)
+    assert hud.isVisible()
+    assert not hud._frame.polishing       # _prepare lief erneut
+    assert hud._style.mode == "error"
+    hud.set_phase("idle")
+    qtbot.waitUntil(lambda: not hud.isVisible(), timeout=2000)
+    assert not hud._style.leaving
+

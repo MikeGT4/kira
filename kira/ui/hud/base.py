@@ -350,7 +350,7 @@ class HudStyle:
     @property
     def leaving(self) -> bool:
         """Blendet gerade aus (Übergabe oder Abbruch); ein Fehler setzt dann neu an."""
-        return self.mode == "done" or self.fade_t >= 0
+        return self.mode != "hidden" and (self.mode == "done" or self.fade_t >= 0)
 
     def fade_alpha(self, t: float) -> float:
         return 1.0 if self.fade_t < 0 else 1.0 - prog(t, self.fade_t, FADE_S)
