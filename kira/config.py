@@ -162,9 +162,26 @@ class UpdatesConfig(BaseModel):
     Auf False gesetzt deaktiviert das den Start-Check komplett — der
     manuelle "Updates suchen…"-Eintrag im Tray-Menue bleibt davon
     unberuehrt. Nur unter Windows relevant; der Mac-Build ignoriert das
-    Feld (kein Start-Check-Pfad in _run_mac)."""
+    Feld (kein Start-Check-Pfad in _run_mac).
+
+    check_interval_hours (v0.4.1): solange Kira läuft, alle N Stunden erneut
+    prüfen; bei neuerer Version Menüeintrag im Tray und einmal je Version eine
+    Windows-Meldung. 0 = nur beim Start. check_on_start=False schaltet beide
+    automatischen Prüfungen ab."""
 
     check_on_start: bool = True
+    check_interval_hours: float = 6.0
+
+    @field_validator("check_interval_hours", mode="before")
+    @classmethod
+    def _bounded_interval(cls, value: object) -> float:
+        try:
+            hours = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 6.0
+        if math.isnan(hours):
+            return 6.0
+        return min(168.0, max(0.0, hours))
 
 
 class LearningConfig(BaseModel):

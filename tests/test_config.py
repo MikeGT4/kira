@@ -219,3 +219,11 @@ def test_hud_scale_is_bounded(tmp_path, raw, expected):
     yaml_file = tmp_path / "config.yaml"
     yaml_file.write_text(f"ui:\n  hud_scale: {raw}\n", encoding="utf-8")
     assert load_config(yaml_file).ui.hud_scale == expected
+
+
+def test_update_interval_default_and_bounds(tmp_path):
+    assert load_config(tmp_path / "missing.yaml").updates.check_interval_hours == 6.0
+    yaml_file = tmp_path / "config.yaml"
+    for raw, expected in (("0", 0.0), ("-3", 0.0), ("12", 12.0), ("1000", 168.0), ("'oft'", 6.0), (".nan", 6.0)):
+        yaml_file.write_text(f"updates:\n  check_interval_hours: {raw}\n", encoding="utf-8")
+        assert load_config(yaml_file).updates.check_interval_hours == expected

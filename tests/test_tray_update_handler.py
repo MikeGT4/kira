@@ -167,3 +167,28 @@ def test_prompt_start_update_no_without_callback_is_safe(tray, monkeypatch):
     _patch_qt(monkeypatch, 2)  # 2 == StandardButton.No
     with patch("kira.ui._update_runner.run_update_flow"):
         tray.prompt_start_update("0.4.0")  # darf NICHT werfen
+
+
+def test_update_menu_entry_appears_when_version_is_known(tray):
+    labels = [str(item.text) for item in tray._build_menu().items]
+    assert not any("installieren" in label for label in labels)
+    tray.set_update_available("0.4.2")
+    labels = [str(item.text) for item in tray._build_menu().items]
+    assert "Update auf v0.4.2 installieren…" in labels
+    assert labels.index("Update auf v0.4.2 installieren…") < labels.index("Einstellungen…")
+
+
+def test_update_menu_entry_runs_the_update_flow(tray):
+    tray.set_update_available("0.4.2")
+    entry = next(i for i in tray._build_menu().items if "installieren" in str(i.text))
+    tray._marshal_to_qt = MagicMock()
+    entry(None)
+    tray._marshal_to_qt.assert_called_once()
+
+
+def test_notify_update_names_the_version(tray):
+    tray.notify = MagicMock()
+    tray.notify_update("0.4.2")
+    title, message = tray.notify.call_args.args
+    assert "Update" in title
+    assert "v0.4.2" in message and "installieren" in message

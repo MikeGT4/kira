@@ -288,6 +288,9 @@ class KiraTray:
         self._transcribe_thread = None
         self._transcribe_worker = None
         self._transcribe_progress = None
+        # Update-Meldung (v0.4.1): neuere Version aus Start- oder Stundenprüfung;
+        # None = kein Menüeintrag „Update auf … installieren…".
+        self._update_available: str | None = None
 
     def set_transcriber(self, transcriber) -> None:
         """Wird im main.py nach Tray-Konstruktion gerufen — die Tray
@@ -313,10 +316,20 @@ class KiraTray:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(self._status_label, None, enabled=False),
             pystray.Menu.SEPARATOR,
+        ]
+        if self._update_available:
+            items.extend([
+                pystray.MenuItem(
+                    f"Update auf v{self._update_available} installieren…",
+                    self._check_for_updates,
+                ),
+                pystray.Menu.SEPARATOR,
+            ])
+        items.append(
             pystray.MenuItem(
                 "Einstellungen…", self._open_settings, default=True,
             ),
-        ]
+        )
         if self._learning is not None:
             items.append(
                 pystray.MenuItem(self._learned_words_label(), self._open_learned_words),
@@ -649,6 +662,24 @@ class KiraTray:
         self._marshal_to_qt(
             lambda: self._run_update_flow_marshalled(self._on_quit),
             "update flow",
+        )
+
+    def set_update_available(self, version: str) -> None:
+        """Neuere Version bekannt (Start- oder Stundenprüfung): Menüeintrag oben einblenden.
+
+        Läuft auf dem Prüf-Thread; das Menü wird wie in update_state neu gesetzt."""
+        if version == self._update_available:
+            return
+        self._update_available = version
+        if self._icon is not None:
+            self._icon.menu = self._build_menu()
+
+    def notify_update(self, version: str) -> None:
+        """Windows-Meldung für eine neue Version, einmal je Version (siehe kira/update_watch.py)."""
+        self.notify(
+            "Kira: Update verfügbar",
+            f"Kira v{version} ist verfügbar. Installieren im Tray-Menü: "
+            f"„Update auf v{version} installieren…“.",
         )
 
     @staticmethod

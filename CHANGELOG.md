@@ -32,6 +32,17 @@ in der Rohconfig (0,75 bis 3).
 
 Schrift der Anzeige: IBM Plex Mono (SIL Open Font License 1.1), mitgeliefert.
 
+### Update-Meldung im Tray
+
+Solange Kira läuft, prüft es alle sechs Stunden, ob auf GitHub eine neuere
+Version liegt (bisher nur beim Start). Gibt es eine, kommt einmal je Version
+eine Windows-Meldung, und oben im Tray-Menü steht „Update auf … installieren…“;
+der Eintrag startet den bekannten Ablauf mit Download und Prüfsummen. Der
+Dialog beim Start bleibt. Takt über `updates.check_interval_hours` (0 = nur beim
+Start), `updates.check_on_start: false` schaltet beide Prüfungen ab. Der
+Lizenztext nennt die Update-Prüfung jetzt vollständig (bisher stand dort, nur
+die manuelle Prüfung gehe ins Netz).
+
 ## v0.4.0 (2026-09-23)
 
 ### Kira lernt aus Korrekturen

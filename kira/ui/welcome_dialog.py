@@ -180,8 +180,11 @@ verfügbaren VRAM.</p>
 
 <h3>7. Updates</h3>
 <p>Kira prüft beim Start automatisch, ob auf GitHub eine neuere Version
-vorliegt, und fragt dann nach. Abschaltbar in der Rohconfig über
-<code>updates.check_on_start</code>.</p>
+vorliegt, und fragt dann nach. Solange Kira läuft, prüft es alle sechs
+Stunden erneut; eine neue Version meldet es dann einmal im Tray, und oben im
+Tray-Menü steht „Update auf … installieren…“. Abschaltbar in der Rohconfig über
+<code>updates.check_on_start</code>, den Takt ändert
+<code>updates.check_interval_hours</code>.</p>
 <p>Manuell: Tray → <b>„Updates suchen..."</b> oder Settings → „Über Kira" →
 Update-Button. Kira prüft GitHub Releases, lädt das Multi-Asset-Bundle
 (Stub + Splits), verifiziert SHA256-Hashes (falls im Release vorhanden),

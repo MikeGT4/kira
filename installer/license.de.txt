@@ -18,8 +18,9 @@ keine Haftung fuer Schaeden, die aus der Nutzung entstehen.
 3. Lokale Datenverarbeitung
 Kira verarbeitet alle Sprach- und Textdaten ausschliesslich lokal auf
 deinem Computer. Es erfolgt keine Uebertragung an Server des Autors
-oder Dritter, ausgenommen der manuell ausgeloesten Update-Pruefung
-(GitHub Releases API).
+oder Dritter, ausgenommen die Update-Pruefung (GitHub Releases API)
+beim Start, alle sechs Stunden und auf Anforderung; die automatischen
+Pruefungen sind in der config.yaml abschaltbar (updates.check_on_start).
 
 4. Drittsoftware
 Die Installation enthaelt Komponenten unter eigenen Lizenzen
