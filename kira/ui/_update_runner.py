@@ -116,6 +116,9 @@ class _UpdateWorker(QObject):
                     )
                     return
                 ok, errors = verify_sha256sums(sums_path, self._target_dir)
+                if self._cancelled:
+                    self.failed.emit("Abgebrochen.")
+                    return
                 if not ok:
                     log.warning("SHA256 mismatch: %s", errors)
                     self.failed.emit(
@@ -369,7 +372,11 @@ def _run_update_flow(
     worker.progress.connect(on_progress)
     worker.succeeded.connect(on_succeeded)
     worker.failed.connect(on_failed)
-    progress.canceled.connect(worker.cancel)
+    # Lambda statt worker.cancel: Den gebundenen Slot eines in den Thread
+    # verschobenen QObject stellt PyQt in dessen Warteschlange, und die läuft
+    # erst nach run(), also nach dem Download. Das Lambda läuft im Hauptthread
+    # und setzt das Flag sofort (gemessen 23.09.2026, PyQt 6.11).
+    progress.canceled.connect(lambda: worker.cancel())
     thread.start()
 
     _anchor = (thread, worker, progress)

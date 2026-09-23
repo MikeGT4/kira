@@ -105,8 +105,10 @@ def test_real_early_return_releases_the_flag(monkeypatch, qapp, _reset_flag):
     assert any("aktuell" in text for text in _reset_flag)
 
 
-def test_cancel_during_download_releases_the_flag(monkeypatch, qapp, tmp_path):
-    """„Abbrechen“ beendet den Download am nächsten Block, nicht erst nach 3 GB."""
+def test_cancel_button_stops_the_download_and_releases_the_flag(monkeypatch, qapp, tmp_path):
+    """Der echte Knopf („canceled“ des Fortschrittsdialogs) beendet den Download am
+    nächsten Block, nicht erst nach 3 GB. Der Test löst das Signal aus, statt
+    worker.cancel() direkt zu rufen: Genau die Verbindung war der Fehler."""
     import time
 
     from PyQt6.QtCore import QCoreApplication
@@ -116,9 +118,14 @@ def test_cancel_during_download_releases_the_flag(monkeypatch, qapp, tmp_path):
     from kira.updater import ReleaseAsset, UpdateCheckResult
 
     class _Endless:
+        """Liefert rund 3 s lang Daten, dann Ende (zu kurz für die angekündigten 3 GB)."""
         headers = {"Content-Length": str(3 * 1024**3)}
+        reads = 0
 
         def read(self, n):
+            self.reads += 1
+            if self.reads > 1500:
+                return b""
             time.sleep(0.002)
             return b"x" * min(n, 4096)
 
@@ -146,10 +153,10 @@ def test_cancel_during_download_releases_the_flag(monkeypatch, qapp, tmp_path):
 
     runner.run_update_flow(None)
     assert runner._flow_active is True
-    thread, worker, _progress = runner._anchor
+    thread, _worker, progress = runner._anchor
     time.sleep(0.05)
-    worker.cancel()
-    deadline = time.monotonic() + 5
+    progress.canceled.emit()
+    deadline = time.monotonic() + 10
     while runner._flow_active and time.monotonic() < deadline:
         QCoreApplication.processEvents()
         time.sleep(0.01)
