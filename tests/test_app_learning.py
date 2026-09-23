@@ -13,8 +13,10 @@ class FakeLearning:
         self.glossary = glossary or []
         self.fail = fail
         self.records = []
+        self.glossary_calls = []
 
     def glossary_for(self, text):
+        self.glossary_calls.append(text)
         if self.fail:
             raise RuntimeError("kaputt")
         return self.glossary
@@ -28,10 +30,26 @@ class FakeLearning:
 class RecordingStyler:
     def __init__(self):
         self.calls = []
+        self.edits = []
 
     async def polish(self, text, mode, glossary=None):
         self.calls.append((text, mode, glossary))
         return text.upper()
+
+    async def edit_command(self, selection, command):
+        self.edits.append((selection, command))
+        return selection.upper()
+
+
+class KeywordStyler:
+    """Nimmt beliebige Schlüsselwörter an und merkt sie sich."""
+
+    def __init__(self):
+        self.kwargs = []
+
+    async def polish(self, text, mode, **kwargs):
+        self.kwargs.append(kwargs)
+        return text
 
 
 def _app(learning, styler):
@@ -67,3 +85,28 @@ def test_without_learning_polish_gets_no_glossary(monkeypatch):
     app = _app(None, styler)
     asyncio.run(app._run_pipeline(np.ones(16000, dtype=np.float32)))
     assert styler.calls == [("stub", "plain", None)]
+
+
+def test_edit_path_skips_glossary_and_history(monkeypatch):
+    monkeypatch.setattr("kira.app.detect_mode", lambda cfg: "plain")
+    learning = FakeLearning(glossary=["Zettelkasten"])
+    styler = RecordingStyler()
+    app = _app(learning, styler)
+    app._edit_mode = True
+    app._captured_selection = "markierter Text"
+    asyncio.run(app._run_pipeline(np.ones(16000, dtype=np.float32)))
+    assert styler.edits == [("markierter Text", "stub")]
+    assert styler.calls == []
+    assert learning.glossary_calls == []
+    assert learning.records == []
+    assert app._injector.last == "MARKIERTER TEXT"
+
+
+def test_empty_glossary_reaches_polish_without_the_parameter(monkeypatch):
+    monkeypatch.setattr("kira.app.detect_mode", lambda cfg: "plain")
+    learning = FakeLearning(glossary=[])
+    styler = KeywordStyler()
+    app = _app(learning, styler)
+    asyncio.run(app._run_pipeline(np.ones(16000, dtype=np.float32)))
+    assert learning.glossary_calls == ["stub"]
+    assert styler.kwargs == [{}]

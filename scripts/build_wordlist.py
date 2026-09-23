@@ -2,7 +2,8 @@
 """Erzeugt assets/wordlist-de.txt aus wordfreq (Deutsch).
 
 Einmal pro Release in einer Bau-Umgebung mit ``pip install wordfreq==3.1.1``:
-    python scripts/build_wordlist.py --min-zipf 3.0
+    python scripts/build_wordlist.py
+``--min-zipf`` ist ohne Angabe 2.5, der Wert der ausgelieferten Liste.
 Zur Laufzeit braucht Kira wordfreq nicht.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ _GERMAN_WORD = re.compile(r"[a-zäöüß]+")
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--min-zipf", type=float, required=True)
+    parser.add_argument("--min-zipf", type=float, default=2.5)
     parser.add_argument(
         "--out", type=Path,
         default=Path(__file__).resolve().parent.parent / "assets" / "wordlist-de.txt",

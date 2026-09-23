@@ -1,7 +1,7 @@
 # © 2026 Mike Pollow, Digitalroots. Alle Rechte vorbehalten.
 """Tauscht das digitalroots-Logo in Kiras Bildern gegen die Patina-Fassung.
 
-Quelle ist ausschließlich der Logo-Ordner (OneDrive\\Digitalroots\\LOGO\\png):
+Quelle ist ausschließlich der Logo-Ordner (``--logo-dir``):
 - assets/digitalroots-logo.png: 1:1 die Farbfassung (1001 × 188)
 - assets/kira-splash.png und assets/readme-splash.jpg: bisheriges Bild, nur das
   Logo ersetzt. „digital“ stammt aus der weißen Datei, „roots“ und die
@@ -9,7 +9,7 @@ Quelle ist ausschließlich der Logo-Ordner (OneDrive\\Digitalroots\\LOGO\\png):
   Freigabe Mike 22.09.2026.
 
 Aufruf:
-    python scripts/swap_logo.py --logo-dir /mnt/c/Users/mike/OneDrive/Digitalroots/LOGO/png
+    python scripts/swap_logo.py --logo-dir <Ordner mit den Logo-Dateien>
 """
 from __future__ import annotations
 import argparse

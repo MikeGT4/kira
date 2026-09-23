@@ -213,7 +213,7 @@ def _words(text: str) -> int:
 
 
 def test_prompt_without_terms_keeps_base_unchanged():
-    assert build_initial_prompt("Mike Kira Ollama", [], _words) == "Mike Kira Ollama"
+    assert build_initial_prompt("Linux Kira Ollama", [], _words) == "Linux Kira Ollama"
     assert build_initial_prompt(None, [], _words) is None
 
 

@@ -94,6 +94,18 @@ def test_has_sources_follows_the_configuration(tmp_path):
     assert _service(tmp_path, Clock(T0), sources=False).has_sources is False
 
 
+def test_create_uses_the_user_folders(tmp_path, monkeypatch):
+    from kira.config import Config
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    svc = LearningService.create(Config())
+    assert (tmp_path / "local" / "Kira" / "learning-state.json").exists()
+    assert svc.lexicon.entries() == []
+    assert "haus" in svc._words
+    svc.lexicon.save()
+    assert (tmp_path / "roaming" / "Kira" / "learned.json").exists()
+
+
 def test_failing_run_is_logged_not_raised(tmp_path, monkeypatch, caplog):
     svc = _service(tmp_path, Clock(T0))
 

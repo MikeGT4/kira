@@ -15,7 +15,7 @@ Map-Format (whisper.replacements in config.yaml):
 
 Seit v0.4.0 gelten dieselben Regeln wie für gelernte Ersetzungen:
 - nur ganze Wörter (Umlaute und ß zählen als Buchstaben), Groß/klein egal
-- längere Schlüssel zuerst, damit „vieh es code" vor „code" greift
+- längere Schlüssel zuerst, damit „vieh es code“ vor „code“ greift
 - ein Durchgang: das Ergebnis einer Ersetzung wird nicht erneut ersetzt
 - der Ersetzungstext wird wörtlich eingefügt
 - ``on_replace(gefunden, ersetzt)`` meldet jeden Treffer (für das Log)

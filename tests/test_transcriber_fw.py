@@ -507,11 +507,11 @@ def test_learned_terms_extend_initial_prompt(monkeypatch, fake_config):
     from kira.transcriber_fw import Transcriber
     seen: dict = {}
     monkeypatch.setattr("kira.transcriber_fw.WhisperModel", _model_capturing(seen))
-    fake_config.whisper.initial_prompt = "Mike Kira Ollama"
+    fake_config.whisper.initial_prompt = "Linux Kira Ollama"
     t = Transcriber(fake_config)
     t.set_lexicon(_FakeLexicon(["Zettelkasten"], {}))
     t.transcribe(np.ones(1600, dtype=np.float32))
-    assert seen["initial_prompt"] == "Mike Kira Ollama, Zettelkasten."
+    assert seen["initial_prompt"] == "Linux Kira Ollama, Zettelkasten."
 
 
 def test_prompt_is_rebuilt_only_when_lexicon_changes(monkeypatch, fake_config):
