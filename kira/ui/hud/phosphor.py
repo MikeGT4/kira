@@ -7,6 +7,11 @@ additive Überblendung, Nachleuchten. Beim Sprechen steht die Schwingung
 dank Trigger still im Bild; nach dem Loslassen zeichnet der Strahl im
 XY-Betrieb eine Lissajous-Figur (3:2 Entschlüsselung, 5:4 Politur); zum Schluss
 geht die Röhre aus: Bild, Strich, Punkt.
+
+Abgestimmt an Mikes echter Aufnahme (23.09.2026): Die Stimme ist glatter als
+die Simulation der Muster, deshalb weiche Verstärkung (tanh, Faktor 3,5),
+30 ms Zeitfenster und 0,14 s Nachleuchten; die Nulllinie leuchtet schwächer
+als die Schwingung. Übersteuerung bleibt rot, gemessen am Rohsignal.
 """
 from __future__ import annotations
 
@@ -50,8 +55,10 @@ from kira.ui.hud.base import (
 )
 
 SX, SY, SW, SH = 6.0, 6.0, 248.0, 68.0
-TRACE_N = 320                 # 20 ms bei 16 kHz, 2 ms je Teilung
-AFTERGLOW_S = 0.09
+TRACE_N = 480                 # 30 ms bei 16 kHz, 3 ms je Teilung
+AFTERGLOW_S = 0.14
+DISPLAY_GAIN = 3.5            # weiche Verstärkung der Anzeige, der Pegel bleibt echt
+AMPLITUDE = 21.0              # Ausschlag in Entwurfs-Pixeln, bleibt zwischen den Schriftzeilen
 BUCKETS = 6
 
 
@@ -86,12 +93,19 @@ class Phosphor(HudStyle):
         g.fillRect(img.rect(), qc(RED, 0.85))
         g.end()
 
-    def _beam(self, g: QPainter, xs: np.ndarray, ys: np.ndarray, hot: np.ndarray) -> None:
-        """Strahl zeichnen: Helligkeit umgekehrt zur Segmentlänge, rote Segmente bei Übersteuerung."""
+    def _beam(self, g: QPainter, xs: np.ndarray, ys: np.ndarray, hot: np.ndarray,
+              level: np.ndarray | None = None) -> None:
+        """Strahl zeichnen: Helligkeit umgekehrt zur Segmentlänge, rote Segmente bei Übersteuerung.
+
+        ``level`` (0..1 je Punkt) dämpft die Nulllinie, damit die Schwingung
+        und nicht die Ruhelage am hellsten ist."""
         dx = np.diff(xs)
         dy = np.diff(ys)
         length = np.sqrt(dx * dx + dy * dy) + 1e-3
         inten = np.clip(1.5 / length, 0.08, 1.0)
+        if level is not None:
+            near = np.maximum(level[1:], level[:-1])
+            inten = inten * (0.35 + 0.65 * np.clip(near * 5.0, 0.0, 1.0))
         bucket = np.minimum(BUCKETS - 1, (inten * BUCKETS).astype(int))
         clipped = hot[1:] | hot[:-1]
         bucket[clipped] = BUCKETS
@@ -136,12 +150,13 @@ class Phosphor(HudStyle):
         g.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         g.scale(f.px, f.px)
         if self.mode == "rec":
-            b = tap.tail(1600)
+            b = tap.tail(TRACE_N + 1280)
             start = self._trigger(b)
             seg = b[start:start + TRACE_N]
+            shown = np.tanh(seg * DISPLAY_GAIN)
             xs = 4.0 + np.arange(TRACE_N) * (240.0 / (TRACE_N - 1))
-            ys = SH / 2 - np.clip(seg, -1.0, 1.0) * 29.0
-            self._beam(g, xs, ys, np.abs(seg) >= 0.985)
+            ys = SH / 2 - shown * AMPLITUDE
+            self._beam(g, xs, ys, np.abs(seg) >= 0.985, np.abs(shown))
         elif self.mode == "proc":
             self._lph += 0.0 if f.reduced else dt * 1.25
             a, bb = (5, 4) if f.polishing else (3, 2)
@@ -256,11 +271,15 @@ class Phosphor(HudStyle):
         glow = qc(PATINA, 0.3)
         shown, target, color = self.status_text(t, f, an)
         font = mono(10.5, 500, 0.6)
-        glow_text(p, SX + 7, SY + 13, shown, font, qc(color, 0.95), glow)
+        # Statuswort so gedämpft wie die Messwerte unten (Mike 23.09.2026);
+        # nur Warnungen und Fehler leuchten voll.
+        signal = color in (RED, AMBER)
+        glow_text(p, SX + 7, SY + 13, shown, font, qc(color, 0.95 if signal else 0.56),
+                  glow if signal else qc(PATINA, 0.16))
         if self.mode == "done" and shown == target:
-            check_mark(p, SX + 7 + text_width(font, target) + 6, SY + 5, 9, LINE, 0.95)
+            check_mark(p, SX + 7 + text_width(font, target) + 6, SY + 5, 9, LINE, 0.56)
         glow_text(p, SX + SW - 7, SY + 13, fmt_time(self.elapsed(t)), mono(10.5, 400, 0.2),
-                  qc(LINE, 0.7 if self.mode == "rec" else 0.42), glow, align="right")
+                  qc(LINE, 0.56 if self.mode == "rec" else 0.4), qc(PATINA, 0.16), align="right")
         small = mono(9, 500, 0.4)
         base_y = SY + SH - 6
         if self.mode == "rec":
@@ -273,7 +292,7 @@ class Phosphor(HudStyle):
             p.fillRect(QRectF(SX + 7, SY + SH - 12, 5, 5),
                        qc(mix(PATINA, LINE, 0.3), 1.0) if self._trig else qc(MARKE, 0.6))
             glow_text(p, SX + 16, base_y, "TRIG", small, qc(LINE, 0.5), glow)
-            glow_text(p, SX + 46, base_y, "2 ms/div", small, qc(LINE, 0.36), glow)
+            glow_text(p, SX + 46, base_y, "3 ms/div", small, qc(LINE, 0.36), glow)
         elif self.mode == "proc":
             glow_text(p, SX + 7, base_y, "XY", small, qc(LINE, 0.5), glow)
             glow_text(p, SX + SW - 7, base_y, "5:4" if f.polishing else "3:2", small,
