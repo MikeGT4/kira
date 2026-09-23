@@ -166,8 +166,9 @@ class UpdatesConfig(BaseModel):
 
     check_interval_hours (v0.4.1): solange Kira läuft, alle N Stunden erneut
     prüfen; bei neuerer Version Menüeintrag im Tray und einmal je Version eine
-    Windows-Meldung. 0 = nur beim Start. check_on_start=False schaltet beide
-    automatischen Prüfungen ab."""
+    Windows-Meldung. 0 = nur beim Start, sonst 1 bis 168 Stunden (kleinere
+    Werte gelten als 1, damit die GitHub-API nicht im Minutentakt gefragt
+    wird). check_on_start=False schaltet beide automatischen Prüfungen ab."""
 
     check_on_start: bool = True
     check_interval_hours: float = 6.0
@@ -181,7 +182,9 @@ class UpdatesConfig(BaseModel):
             return 6.0
         if math.isnan(hours):
             return 6.0
-        return min(168.0, max(0.0, hours))
+        if hours <= 0:
+            return 0.0
+        return min(168.0, max(1.0, hours))
 
 
 class LearningConfig(BaseModel):

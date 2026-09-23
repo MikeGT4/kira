@@ -178,6 +178,13 @@ def test_update_menu_entry_appears_when_version_is_known(tray):
     assert labels.index("Update auf v0.4.2 installieren…") < labels.index("Einstellungen…")
 
 
+def test_update_menu_entry_disappears_when_cleared(tray):
+    tray.set_update_available("0.4.2")
+    tray.set_update_available(None)
+    labels = [str(item.text) for item in tray._build_menu().items]
+    assert not any("installieren" in label for label in labels)
+
+
 def test_update_menu_entry_runs_the_update_flow(tray):
     tray.set_update_available("0.4.2")
     entry = next(i for i in tray._build_menu().items if "installieren" in str(i.text))

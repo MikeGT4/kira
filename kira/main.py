@@ -752,32 +752,15 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
             log.info("Start-Update-Check via Config deaktiviert (updates.check_on_start=false)")
             return
         try:
-            from kira import __version__, UPDATE_REPO
-            from kira._update_marker import is_update_declined, mark_update_declined
-            from kira.updater import check_for_update
+            from kira._update_marker import mark_update_declined
 
-            result = check_for_update(local_version=__version__, repo=UPDATE_REPO)
-            if result.status != "newer":
-                # 'current' / 'local_newer' / 'no_asset' / 'failed' — alle
-                # ohne Nutzer-Interaktion. 'failed' (kein Netz o.ae.) hat
-                # check_for_update bereits als WARNING geloggt; hier nur
-                # noch eine ruhige INFO-Zeile zur Nachvollziehbarkeit.
-                log.info("Start-Update-Check: keine Aktion (status=%s)", result.status)
+            # 'current' / 'local_newer' / 'no_asset' / 'failed' und schon
+            # abgelehnte Versionen enden ohne Nutzer-Interaktion (None);
+            # start_result setzt den Menüeintrag und merkt die Version als
+            # gemeldet, damit die wiederholte Prüfung nicht zusätzlich meldet.
+            remote = update_watch.start_result(_check_now())
+            if remote is None:
                 return
-
-            remote = result.remote_version or "?"
-            tray.set_update_available(remote)
-            update_watch.mark_notified(remote)
-            if is_update_declined(remote):
-                # Nutzer hat genau diese Version schon abgelehnt — nicht
-                # bei jedem Start erneut nerven.
-                log.info(
-                    "Start-Update-Check: v%s verfuegbar, aber vom Nutzer "
-                    "bereits abgelehnt — keine Abfrage", remote,
-                )
-                return
-
-            log.info("Start-Update-Check: neuere Version v%s verfuegbar", remote)
             qt_marshal.run_on_main_thread(
                 lambda: tray.prompt_start_update(remote, on_declined=mark_update_declined)
             )
@@ -792,7 +775,7 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     # und einmal je Version eine Windows-Meldung, kein Dialog mitten in der Arbeit.
     from kira import __version__ as _kira_version, UPDATE_REPO as _update_repo
     from kira._update_marker import is_update_declined as _is_declined
-    from kira.update_watch import UpdateWatch, run_periodically
+    from kira.update_watch import UpdateWatch, start_watch
 
     def _check_now():
         from kira.updater import check_for_update
@@ -809,14 +792,11 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         target=_check_for_app_update, daemon=True, name="kira-update-check",
     ).start()
 
-    interval_h = cfg.updates.check_interval_hours
-    if cfg.updates.check_on_start and interval_h > 0:
-        threading.Thread(
-            target=run_periodically,
-            args=(update_watch, interval_h * 3600.0, threading.Event()),
-            daemon=True, name="kira-update-watch",
-        ).start()
-        log.info("Update-Prüfung alle %.1f h aktiv", interval_h)
+    start_watch(
+        update_watch,
+        enabled=cfg.updates.check_on_start,
+        interval_h=cfg.updates.check_interval_hours,
+    )
 
     # Enter Qt event loop (blocks main thread until quit).
     # Indirect getattr form sidesteps the repo-level security hook.

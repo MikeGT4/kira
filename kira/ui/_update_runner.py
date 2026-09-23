@@ -141,10 +141,40 @@ def _launch_setup_detached(setup_path: str) -> None:
     )
 
 
+# Läuft schon ein Ablauf (Suche, Rückfrage, Download, Bestätigung)? Tray-Eintrag,
+# „Updates suchen…“, Einstellungen und Startdialog führen alle hierher; ein
+# zweiter Start würde parallel in denselben Ordner laden (v0.4.1).
+_flow_active = False
+
+
 def run_update_flow(
     parent: QWidget | None,
     on_quit_request: Callable[[], None] | None = None,
 ) -> None:
+    global _flow_active
+    if _flow_active:
+        log.info("Update-Flow läuft bereits, zweiter Start ignoriert")
+        light_information(parent, "Kira", "Ein Update läuft bereits.")
+        return
+    _flow_active = True
+    handed_over = False
+    try:
+        handed_over = _run_update_flow(parent, on_quit_request)
+    finally:
+        if not handed_over:
+            _flow_active = False
+
+
+def _flow_finished() -> None:
+    global _flow_active
+    _flow_active = False
+
+
+def _run_update_flow(
+    parent: QWidget | None,
+    on_quit_request: Callable[[], None] | None,
+) -> bool:
+    """Gibt True zurück, wenn der Download-Thread läuft und das Ende selbst meldet."""
     log.info("Update-Flow gestartet, lokale Version=%s", __version__)
 
     busy = QProgressDialog(
@@ -165,27 +195,27 @@ def run_update_flow(
             parent, "Kira",
             f"Update-Suche fehlgeschlagen.\n\n{result.error or 'Unbekannter Fehler'}",
         )
-        return
+        return False
     if result.status == "current":
         light_information(
             parent, "Kira",
             f"Kira ist aktuell (v{__version__}).",
         )
-        return
+        return False
     if result.status == "local_newer":
         light_information(
             parent, "Kira",
             f"Du laeufst eine neuere Version (lokal v{__version__}, "
             f"Release v{result.remote_version}). Wahrscheinlich Dev-Build.",
         )
-        return
+        return False
     if result.status == "no_asset":
         light_warning(
             parent, "Kira",
             f"Release v{result.remote_version} gefunden, aber kein "
             "Setup-Bundle dabei. Bitte spaeter erneut probieren.",
         )
-        return
+        return False
 
     bundle_count = len(result.bundle_assets)
     total_size_mb = sum(a.size for a in result.bundle_assets) / (1024 * 1024)
@@ -208,7 +238,7 @@ def run_update_flow(
     apply_light_theme(msg)
     answer = msg.exec()
     if answer != QMessageBox.StandardButton.Yes:
-        return
+        return False
 
     target = _bundle_dir() / f"v{result.remote_version}"
     progress = QProgressDialog(
@@ -244,6 +274,12 @@ def run_update_flow(
         )
 
     def on_succeeded(setup_path: str, hash_verified: bool) -> None:
+        try:
+            _on_succeeded(setup_path, hash_verified)
+        finally:
+            _flow_finished()
+
+    def _on_succeeded(setup_path: str, hash_verified: bool) -> None:
         progress.setValue(100)
         progress.close()
         thread.quit()
@@ -297,10 +333,13 @@ def run_update_flow(
             )
 
     def on_failed(message: str) -> None:
-        progress.close()
-        thread.quit()
-        thread.wait()
-        light_critical(parent, "Kira", message)
+        try:
+            progress.close()
+            thread.quit()
+            thread.wait()
+            light_critical(parent, "Kira", message)
+        finally:
+            _flow_finished()
 
     worker.phase.connect(on_phase)
     worker.progress.connect(on_progress)
@@ -311,3 +350,4 @@ def run_update_flow(
 
     progress._kira_thread = thread  # type: ignore[attr-defined]
     progress._kira_worker = worker  # type: ignore[attr-defined]
+    return True

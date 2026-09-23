@@ -18,10 +18,13 @@ the software, you agree to the following terms:
 
 3. Local data processing
    Kira processes all voice and text data exclusively on your local
-   machine. No data is transmitted to the author's or third-party
-   servers, with the sole exception of the update check (GitHub Releases
-   API) at start, every six hours and on request; the automatic checks can
-   be switched off in config.yaml (updates.check_on_start).
+   machine. Voice and text data are not transmitted to the author's or
+   third-party servers. Kira connects to the internet only for the update
+   check (GitHub Releases API) at start, every six hours and on request,
+   for downloading an update you have confirmed, and for downloading
+   missing or newly selected models (Hugging Face, Ollama registry); the
+   automatic update checks can be switched off in config.yaml
+   (updates.check_on_start).
 
 4. Third-party software
    The installation includes components under their own licenses

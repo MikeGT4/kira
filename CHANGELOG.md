@@ -39,9 +39,15 @@ Version liegt (bisher nur beim Start). Gibt es eine, kommt einmal je Version
 eine Windows-Meldung, und oben im Tray-Menü steht „Update auf … installieren…“;
 der Eintrag startet den bekannten Ablauf mit Download und Prüfsummen. Der
 Dialog beim Start bleibt. Takt über `updates.check_interval_hours` (0 = nur beim
-Start), `updates.check_on_start: false` schaltet beide Prüfungen ab. Der
-Lizenztext nennt die Update-Prüfung jetzt vollständig (bisher stand dort, nur
-die manuelle Prüfung gehe ins Netz).
+Start, sonst 1 bis 168 Stunden), `updates.check_on_start: false` schaltet beide
+Prüfungen ab. Ist das Release wieder weg, verschwindet der Eintrag. Ein zweiter
+Update-Start, während einer läuft (Tray, Einstellungen, Startdialog), meldet
+„Ein Update läuft bereits.“ statt parallel in denselben Ordner zu laden.
+
+Der Lizenztext nennt jetzt alle Verbindungen ins Netz: Update-Prüfung,
+bestätigter Update-Download und das Laden fehlender oder neu gewählter Modelle
+(Hugging Face, Ollama-Registry). Bisher stand dort, nur die manuelle
+Update-Prüfung gehe ins Netz.
 
 ## v0.4.0 (2026-09-23)
 

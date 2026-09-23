@@ -664,9 +664,10 @@ class KiraTray:
             "update flow",
         )
 
-    def set_update_available(self, version: str) -> None:
-        """Neuere Version bekannt (Start- oder Stundenprüfung): Menüeintrag oben einblenden.
+    def set_update_available(self, version: str | None) -> None:
+        """Neuere Version bekannt (Start- oder Wiederholprüfung): Menüeintrag oben einblenden.
 
+        None nimmt den Eintrag wieder heraus (Release zurückgezogen oder ohne Setup-Dateien).
         Läuft auf dem Prüf-Thread; das Menü wird wie in update_state neu gesetzt."""
         if version == self._update_available:
             return
