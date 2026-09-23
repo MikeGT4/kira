@@ -95,6 +95,12 @@ class _UpdateWorker(QObject):
                 self.failed.emit("Abgebrochen.")
                 return
             except Exception as exc:
+                if self._cancelled:
+                    # Abgebrochen, während ein Lesevorgang hing: das Zeitlimit
+                    # ist Folge des Abbruchs, kein Defekt.
+                    log.info("Update-Download abgebrochen (%s)", exc)
+                    self.failed.emit("Abgebrochen.")
+                    return
                 log.exception("download_bundle failed")
                 self.failed.emit(f"Download fehlgeschlagen: {exc}")
                 return
@@ -110,6 +116,9 @@ class _UpdateWorker(QObject):
                 try:
                     download_asset(r.sha256sums_url, sums_path)
                 except Exception as exc:
+                    if self._cancelled:
+                        self.failed.emit("Abgebrochen.")
+                        return
                     log.exception("SHA256SUMS download failed")
                     self.failed.emit(
                         f"SHA256SUMS konnte nicht geladen werden: {exc}"
@@ -311,6 +320,11 @@ def _run_update_flow(
         progress.close()
         thread.quit()
         thread.wait()
+        if worker._cancelled:
+            # Abbrechen kam nach der letzten Prüfung im Worker, succeeded lag
+            # schon in der Warteschlange: kein „Update bereit“ mehr zeigen.
+            light_critical(parent, "Kira", "Abgebrochen.")
+            return
 
         verify_msg = (
             "SHA256-Verifikation: bestanden.\n"
