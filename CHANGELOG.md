@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.4.0 (unveröffentlicht)
+## v0.4.0 (2026-09-23)
 
 ### Kira lernt aus Korrekturen
 
