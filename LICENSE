@@ -20,11 +20,12 @@ the software, you agree to the following terms:
    Kira processes all voice and text data exclusively on your local
    machine. Voice and text data are not transmitted to the author's or
    third-party servers. Kira connects to the internet only for the update
-   check (GitHub Releases API) at start, every six hours and on request,
-   for downloading an update you have confirmed, and for downloading
-   missing or newly selected models (Hugging Face, Ollama registry); the
-   automatic update checks can be switched off in config.yaml
-   (updates.check_on_start).
+   check (GitHub Releases API) at start, at regular intervals (every six
+   hours by default) and on request, for downloading an update you have
+   confirmed, and for loading speech recognition and language models from
+   Hugging Face and the Ollama registry; the automatic update checks can be
+   switched off in config.yaml (updates.check_on_start). The bundled
+   Ollama app checks for its own updates.
 
 4. Third-party software
    The installation includes components under their own licenses

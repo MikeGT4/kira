@@ -169,6 +169,19 @@ def test_prompt_start_update_no_without_callback_is_safe(tray, monkeypatch):
         tray.prompt_start_update("0.4.0")  # darf NICHT werfen
 
 
+def test_prompt_start_update_skips_while_an_update_runs(tray, monkeypatch):
+    """Hat der Nutzer schon selbst ein Update gestartet, fragt der Startdialog nicht
+    zusätzlich und schreibt keinen Ablehnungs-Marker."""
+    import kira.ui._update_runner as runner
+    monkeypatch.setattr(runner, "_flow_active", True)
+    _patch_qt(monkeypatch, 2)  # wäre „Nein“
+    declined_calls = []
+    with patch("kira.ui._update_runner.run_update_flow") as mock_run:
+        tray.prompt_start_update("0.4.2", on_declined=declined_calls.append)
+    mock_run.assert_not_called()
+    assert declined_calls == []
+
+
 def test_update_menu_entry_appears_when_version_is_known(tray):
     labels = [str(item.text) for item in tray._build_menu().items]
     assert not any("installieren" in label for label in labels)

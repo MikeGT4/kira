@@ -30,6 +30,12 @@ _SETUP_PREFIX = "Kira-Setup-"
 _SETUP_SUFFIX = ".exe"
 _SHA256SUMS_NAME = "SHA256SUMS.txt"
 _TIMEOUT_SECONDS = 10.0
+# Downloads (v0.4.1): Zeitlimit je Lesevorgang statt urlretrieve ohne Limit.
+# Ein hängender Download bricht nach einer Minute ohne Daten ab, statt den
+# Update-Ablauf bis zum Neustart zu blockieren; kleine Blöcke halten die
+# Reaktion auf „Abbrechen“ (Ausnahme aus on_progress) kurz.
+_DOWNLOAD_TIMEOUT_SECONDS = 60.0
+_DOWNLOAD_CHUNK = 64 * 1024
 
 # Asset-Name-Whitelist: 'Kira-Setup-vX.Y.Z.exe' oder
 # 'Kira-Setup-vX.Y.Z-N.bin' (N=1..9). Schuetzt vor Path-Traversal-Tricks
@@ -152,13 +158,41 @@ def check_for_update(local_version: str, repo: str) -> UpdateCheckResult:
     )
 
 
+def _fetch(url: str, target: Path, on_bytes: Callable[[int, int], None] | None = None) -> None:
+    """Wie urlretrieve, aber mit Zeitlimit je Lesevorgang.
+
+    on_bytes(bytes_done, bytes_total) läuft nach jedem Block; eine Ausnahme
+    daraus bricht den Download ab und wird durchgereicht. bytes_total ist -1
+    ohne Content-Length. Kommt weniger an als angekündigt, folgt wie bei
+    urlretrieve ContentTooShortError.
+    """
+    with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310 - https-URL aus der GitHub-API
+        total = int(response.headers.get("Content-Length") or -1)
+        done = 0
+        with open(target, "wb") as out:
+            while True:
+                block = response.read(_DOWNLOAD_CHUNK)
+                if not block:
+                    break
+                out.write(block)
+                done += len(block)
+                if on_bytes is not None:
+                    on_bytes(done, total)
+    if 0 <= total and done < total:
+        raise urllib.error.ContentTooShortError(
+            f"retrieval incomplete: got only {done} out of {total} bytes",
+            (str(target), None),
+        )
+
+
 def download_asset(url: str, target: Path) -> Path:
     """Download a single asset to target. Backwards-compat fuer v0.1-Tests.
 
-    Raises urllib.error.URLError on network failure, OSError on disk-write.
+    Raises urllib.error.URLError on network failure, OSError on disk-write,
+    TimeoutError after a minute without data.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, str(target))
+    _fetch(url, target)
     return target
 
 
@@ -177,7 +211,8 @@ def download_bundle(
     waehrend Downloads gerufen. bytes_total kann -1 sein wenn der Server
     keinen Content-Length-Header schickt — UI-Code muss damit umgehen.
 
-    Raises urllib.error.URLError / OSError beim ersten Fehler. Caller
+    Raises urllib.error.URLError / OSError / TimeoutError beim ersten
+    Fehler; eine Ausnahme aus on_progress bricht ebenfalls ab. Caller
     ist verantwortlich fuer Cleanup partiell heruntergeladener Files.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -209,14 +244,11 @@ def download_bundle(
             continue
         log.info("downloading asset %s -> %s", asset.name, target)
 
-        def _hook(block_num: int, block_size: int, total_size: int,
-                  _name: str = asset.name) -> None:
-            if on_progress is None:
-                return
-            done = block_num * block_size
-            on_progress(_name, done, total_size)
+        def _hook(done: int, total_size: int, _name: str = asset.name) -> None:
+            if on_progress is not None:
+                on_progress(_name, done, total_size)
 
-        urllib.request.urlretrieve(asset.url, str(target), reporthook=_hook)
+        _fetch(asset.url, target, _hook)
         paths.append(target)
     return paths
 

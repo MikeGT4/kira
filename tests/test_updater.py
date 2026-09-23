@@ -21,6 +21,14 @@ def _mock_response(payload: dict):
     return io.BytesIO(json.dumps(payload).encode("utf-8"))
 
 
+class _Download(io.BytesIO):
+    """Antwort eines Asset-Downloads: Inhalt plus Content-Length (auch eine falsche)."""
+
+    def __init__(self, data: bytes, length: int | None = None):
+        super().__init__(data)
+        self.headers = {"Content-Length": str(len(data) if length is None else length)}
+
+
 @pytest.fixture
 def fake_release():
     return {
@@ -111,15 +119,36 @@ def test_check_picks_setup_exe_asset_among_multiple(fake_release):
 def test_download_asset_writes_to_target_path(tmp_path):
     target = tmp_path / "Kira-Setup-v0.2.0.exe"
     fake_bytes = b"fake setup binary content"
-    with patch("kira.updater.urllib.request.urlretrieve") as mock_retrieve:
-        def fake_retrieve(url, filename):
-            with open(filename, "wb") as f:
-                f.write(fake_bytes)
-            return filename, None
-        mock_retrieve.side_effect = fake_retrieve
+    with patch("kira.updater.urllib.request.urlopen",
+               return_value=_Download(fake_bytes)) as mock_open:
         path = download_asset("https://example.com/Kira-Setup-v0.2.0.exe", target)
     assert path == target
     assert target.read_bytes() == fake_bytes
+    # Zeitlimit je Lesevorgang: ein hängender Download blockiert nicht bis zum Neustart.
+    assert mock_open.call_args.kwargs["timeout"] > 0
+
+
+def test_download_raises_when_body_is_shorter_than_announced(tmp_path):
+    import urllib.error
+    with patch("kira.updater.urllib.request.urlopen",
+               return_value=_Download(b"abc", length=10)):
+        with pytest.raises(urllib.error.ContentTooShortError):
+            download_asset("https://example.com/x.exe", tmp_path / "x.exe")
+
+
+def test_exception_from_progress_aborts_the_download(tmp_path):
+    """So bricht „Abbrechen“ im Update-Dialog einen laufenden Download ab."""
+    class Stop(Exception):
+        pass
+
+    def stop(name, done, total):
+        raise Stop()
+
+    assets = [ReleaseAsset(name="Kira-Setup-v0.2.0.exe", url="https://x/setup.exe")]
+    with patch("kira.updater.urllib.request.urlopen",
+               return_value=_Download(b"x" * 300_000)):
+        with pytest.raises(Stop):
+            download_bundle(assets, tmp_path, on_progress=stop)
 
 
 # ===== Multi-Asset Bundle (v0.2) =====================================
@@ -207,18 +236,13 @@ def test_download_bundle_writes_all_files_with_original_names(tmp_path):
     ]
     fake_bytes = {a.name: f"fake-{a.name}".encode() for a in assets}
 
-    def fake_retrieve(url, filename, reporthook=None):
+    def fake_open(url, timeout):
         # Match URL → asset
         name = next(a.name for a in assets if a.url == url)
-        with open(filename, "wb") as f:
-            f.write(fake_bytes[name])
-        if reporthook:
-            reporthook(1, len(fake_bytes[name]), len(fake_bytes[name]))
-        return filename, None
+        return _Download(fake_bytes[name])
 
     progress_calls = []
-    with patch("kira.updater.urllib.request.urlretrieve",
-               side_effect=fake_retrieve):
+    with patch("kira.updater.urllib.request.urlopen", side_effect=fake_open):
         paths = download_bundle(
             assets, tmp_path,
             on_progress=lambda n, d, t: progress_calls.append((n, d, t)),

@@ -19,11 +19,13 @@ keine Haftung fuer Schaeden, die aus der Nutzung entstehen.
 Kira verarbeitet alle Sprach- und Textdaten ausschliesslich lokal auf
 deinem Computer. Sprach- und Textdaten werden nicht an Server des Autors
 oder Dritter uebertragen. Mit dem Internet verbindet sich Kira nur fuer
-die Update-Pruefung (GitHub Releases API) beim Start, alle sechs Stunden
-und auf Anforderung, fuer das Herunterladen eines bestaetigten Updates
-und fuer das Herunterladen fehlender oder neu gewaehlter Modelle
-(Hugging Face, Ollama-Registry); die automatischen Update-Pruefungen
-sind in der config.yaml abschaltbar (updates.check_on_start).
+die Update-Pruefung (GitHub Releases API) beim Start, in festen
+Abstaenden (voreingestellt alle sechs Stunden) und auf Anforderung, fuer
+das Herunterladen eines bestaetigten Updates und zum Laden von
+Spracherkennungs- und Sprachmodellen von Hugging Face und aus der
+Ollama-Registry; die automatischen Update-Pruefungen sind in der
+config.yaml abschaltbar (updates.check_on_start). Die mitinstallierte
+Ollama-App prueft selbst auf eigene Updates.
 
 4. Drittsoftware
 Die Installation enthaelt Komponenten unter eigenen Lizenzen

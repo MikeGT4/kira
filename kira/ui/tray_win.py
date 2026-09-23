@@ -709,6 +709,13 @@ class KiraTray:
         from PyQt6.QtWidgets import QMessageBox
         from kira import __version__
         from kira.ui._dialog_style import apply_light_theme
+        from kira.ui._update_runner import flow_active
+
+        if flow_active():
+            # Nutzer hat schon selbst ein Update gestartet (Tray, Einstellungen),
+            # bevor die Startprüfung zurück war: keine zweite Frage darüber.
+            log.info("Start-Update-Check: Update läuft bereits, keine Abfrage für v%s", remote_version)
+            return
 
         msg = QMessageBox(None)
         msg.setWindowTitle("Kira — Update verfügbar")

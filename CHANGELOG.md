@@ -43,11 +43,13 @@ Start, sonst 1 bis 168 Stunden), `updates.check_on_start: false` schaltet beide
 Prüfungen ab. Ist das Release wieder weg, verschwindet der Eintrag. Ein zweiter
 Update-Start, während einer läuft (Tray, Einstellungen, Startdialog), meldet
 „Ein Update läuft bereits.“ statt parallel in denselben Ordner zu laden.
+„Abbrechen“ beendet den Download jetzt sofort (bisher lief er im Hintergrund
+bis zum Ende weiter), und ein Download ohne Daten bricht nach einer Minute ab.
 
 Der Lizenztext nennt jetzt alle Verbindungen ins Netz: Update-Prüfung,
-bestätigter Update-Download und das Laden fehlender oder neu gewählter Modelle
-(Hugging Face, Ollama-Registry). Bisher stand dort, nur die manuelle
-Update-Prüfung gehe ins Netz.
+bestätigter Update-Download, das Laden der Modelle (Hugging Face,
+Ollama-Registry) und die eigene Update-Prüfung der mitinstallierten
+Ollama-App. Bisher stand dort, nur die manuelle Update-Prüfung gehe ins Netz.
 
 ## v0.4.0 (2026-09-23)
 

@@ -29,7 +29,7 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 - **AI edit commands on F9.** Select text, hold F9, say what to change.
 - **German and English**, detected automatically per dictation.
 - **Uncensored option.** The settings dialog offers an abliterated Qwen model as cleanup model. It is not tuned to refuse or lecture; it only cleans up what you said.
-- **Audio and text stay on your PC.** Kira talks to Ollama on `127.0.0.1`. It goes online only for the update check against the GitHub Releases API (at start, every six hours, on request; the automatic checks can be switched off), for an update download you confirm, and for downloading missing or newly selected models (Hugging Face, Ollama registry).
+- **Audio and text stay on your PC.** Kira talks to Ollama on `127.0.0.1`. It goes online only for the update check against the GitHub Releases API (at start, every six hours by default, on request; the automatic checks can be switched off), for an update download you confirm, and for loading models from Hugging Face and the Ollama registry. The bundled Ollama app checks for its own updates.
 - **Live HUD at the cursor, six styles.** The default is a phosphor oscilloscope with afterglow; Gun Barrel, target lock, voiceprint, terminal and the classic look can be picked in the settings. While you speak it warns about clipping (too close) and a dead microphone (no signal). Red dot on the tray icon while recording, orange-red on errors.
 - **Survives a missing microphone.** If the configured input device is not connected at start, Kira comes up anyway; pressing F8 turns the tray icon yellow for 3 seconds instead of crashing.
 - **Crash diagnostics.** `faulthandler`, threading exception hook, Qt message handler and a 60 second heartbeat all flow into `kira.log`.
@@ -48,12 +48,12 @@ Download everything from the [latest release](https://github.com/MikeGT4/kira/re
 1. Double-click `Kira-Setup-vX.Y.Z.exe`.
 2. If Windows Defender SmartScreen warns: "More info", then "Run anyway". Kira is not code-signed. Verify the download with `certutil -hashfile Kira-Setup-vX.Y.Z.exe SHA256` against `SHA256SUMS.txt` if you want to be sure.
 3. Click through the setup wizard.
-4. On first start a second wizard downloads the models (Whisper large-v3 from Hugging Face, `gemma4:12b` via Ollama). One time only, everything is offline afterwards.
+4. On first start a second wizard downloads the models (Whisper large-v3 from Hugging Face, `gemma4:12b` via Ollama). One time only; dictation works offline afterwards.
 5. Kira starts in the tray with a yellow framed logo. **Hold F8, speak, release.**
 
 ### Installation (Deutsch)
 
-Alle Dateien der [neuesten Release](https://github.com/MikeGT4/kira/releases/latest) in denselben Ordner laden: `Kira-Setup-vX.Y.Z.exe`, die `.bin`-Teile und `SHA256SUMS.txt`. Die `.bin`-Teile müssen neben der `.exe` liegen. Doppelklick auf die `.exe`, bei der SmartScreen-Warnung „Weitere Informationen" und „Trotzdem ausführen" (Kira ist nicht signiert). Beim ersten Start lädt ein zweiter Assistent die Modelle, danach läuft alles ohne Internet. Kira erscheint in der Taskleiste: **F8 halten, sprechen, loslassen.**
+Alle Dateien der [neuesten Release](https://github.com/MikeGT4/kira/releases/latest) in denselben Ordner laden: `Kira-Setup-vX.Y.Z.exe`, die `.bin`-Teile und `SHA256SUMS.txt`. Die `.bin`-Teile müssen neben der `.exe` liegen. Doppelklick auf die `.exe`, bei der SmartScreen-Warnung „Weitere Informationen" und „Trotzdem ausführen" (Kira ist nicht signiert). Beim ersten Start lädt ein zweiter Assistent die Modelle, danach funktioniert das Diktieren ohne Internet. Kira erscheint in der Taskleiste: **F8 halten, sprechen, loslassen.**
 
 ## Install (developers)
 

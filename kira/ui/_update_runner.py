@@ -49,6 +49,10 @@ def _bundle_dir() -> Path:
     return base
 
 
+class _Cancelled(Exception):
+    """„Abbrechen“ im Fortschrittsdialog: beendet den laufenden Download am nächsten Block."""
+
+
 class _UpdateWorker(QObject):
     progress = pyqtSignal(str, int, int)
     phase = pyqtSignal(str)
@@ -63,6 +67,11 @@ class _UpdateWorker(QObject):
 
     def cancel(self) -> None:
         self._cancelled = True
+
+    def _on_bytes(self, name: str, done: int, total: int) -> None:
+        if self._cancelled:
+            raise _Cancelled()
+        self.progress.emit(name, done, total)
 
     def run(self) -> None:
         try:
@@ -79,8 +88,12 @@ class _UpdateWorker(QObject):
                 paths = download_bundle(
                     r.bundle_assets,
                     self._target_dir,
-                    on_progress=lambda n, d, t: self.progress.emit(n, d, t),
+                    on_progress=self._on_bytes,
                 )
+            except _Cancelled:
+                log.info("Update-Download abgebrochen")
+                self.failed.emit("Abgebrochen.")
+                return
             except Exception as exc:
                 log.exception("download_bundle failed")
                 self.failed.emit(f"Download fehlgeschlagen: {exc}")
@@ -145,6 +158,15 @@ def _launch_setup_detached(setup_path: str) -> None:
 # „Updates suchen…“, Einstellungen und Startdialog führen alle hierher; ein
 # zweiter Start würde parallel in denselben Ordner laden (v0.4.1).
 _flow_active = False
+# Thread, Worker und Fortschrittsdialog des laufenden Downloads, modulweit
+# gehalten, damit die Speicherbereinigung sie nicht mitten im Download
+# einsammelt (gleiches Muster wie die Dateitranskription im Tray).
+_anchor: tuple | None = None
+
+
+def flow_active() -> bool:
+    """Läuft gerade ein Update-Ablauf? Der Startdialog fragt dann nicht zusätzlich."""
+    return _flow_active
 
 
 def run_update_flow(
@@ -166,8 +188,9 @@ def run_update_flow(
 
 
 def _flow_finished() -> None:
-    global _flow_active
+    global _flow_active, _anchor
     _flow_active = False
+    _anchor = None
 
 
 def _run_update_flow(
@@ -175,6 +198,7 @@ def _run_update_flow(
     on_quit_request: Callable[[], None] | None,
 ) -> bool:
     """Gibt True zurück, wenn der Download-Thread läuft und das Ende selbst meldet."""
+    global _anchor
     log.info("Update-Flow gestartet, lokale Version=%s", __version__)
 
     busy = QProgressDialog(
@@ -348,6 +372,5 @@ def _run_update_flow(
     progress.canceled.connect(worker.cancel)
     thread.start()
 
-    progress._kira_thread = thread  # type: ignore[attr-defined]
-    progress._kira_worker = worker  # type: ignore[attr-defined]
+    _anchor = (thread, worker, progress)
     return True
