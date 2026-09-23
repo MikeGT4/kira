@@ -568,3 +568,40 @@ def test_each_applied_replacement_is_logged(monkeypatch, fake_config, caplog):
     with caplog.at_level(logging.INFO, logger="kira.transcriber_fw"):
         t.transcribe(np.ones(1600, dtype=np.float32))
     assert "Ersetzung: 'kuh bernetes' -> 'Kubernetes'" in caplog.text
+
+
+class _BrokenLexicon:
+    version = 1
+
+    def vocabulary_terms(self):
+        raise TypeError("bad operand type for unary -: 'str'")
+
+    def active_replacements(self):
+        raise AttributeError("'NoneType' object has no attribute 'casefold'")
+
+
+def test_broken_lexicon_falls_back_to_config(monkeypatch, fake_config, caplog):
+    import logging
+    from kira.transcriber_fw import Transcriber
+
+    class FakeSegment:
+        def __init__(self, text):
+            self.text = text
+
+    seen: dict = {}
+    monkeypatch.setattr(
+        "kira.transcriber_fw.WhisperModel",
+        _model_capturing(seen, [FakeSegment("start auf kuh bernetes")]),
+    )
+    fake_config.whisper.initial_prompt = "Kira Ollama"
+    fake_config.whisper.replacements = {"kuh bernetes": "Kubernetes"}
+    t = Transcriber(fake_config)
+    t.set_lexicon(_BrokenLexicon())
+    with caplog.at_level(logging.WARNING, logger="kira.transcriber_fw"):
+        results = [t.transcribe(np.ones(1600, dtype=np.float32)) for _ in range(2)]
+    assert seen["initial_prompt"] == "Kira Ollama"
+    assert [r.text for r in results] == ["start auf Kubernetes"] * 2
+    warnings = [r.getMessage() for r in caplog.records
+                if "gelernte Begriffe nicht nutzbar" in r.getMessage()]
+    assert len(warnings) == 2
+    assert "TypeError" in warnings[0] and "AttributeError" in warnings[1]

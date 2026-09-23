@@ -132,6 +132,8 @@ class Transcriber:
         # Lernschleife (v0.4.0): gelernte Begriffe und Ersetzungen. None = aus.
         self._lexicon = None
         self._prompt_cache: tuple[int | None, str | None] = (None, None)
+        # Fehlerarten aus dem Lexikon, die schon im Log stehen (je Art eine WARNING).
+        self._lexicon_errors: set[str] = set()
 
     def _ensure_model(self) -> WhisperModel:
         with self._model_lock:
@@ -175,37 +177,60 @@ class Transcriber:
         self._lexicon = lexicon
         self._prompt_cache = (None, None)
 
+    def _lexicon_failed(self, exc: Exception) -> None:
+        """Einmal je Fehlerart ins Log; das Diktat läuft mit config.yaml weiter."""
+        kind = type(exc).__name__
+        if kind in self._lexicon_errors:
+            return
+        self._lexicon_errors.add(kind)
+        log.warning(
+            "Lernen: gelernte Begriffe nicht nutzbar (%s: %s), "
+            "Whisper nimmt die Werte aus config.yaml", kind, exc,
+        )
+
     def _initial_prompt(self, model) -> str | None:
         """Whisper-Prompt aus config.yaml plus gelernte Begriffe, im Budget.
 
-        Neu gebaut wird nur, wenn sich das Lexikon geändert hat.
+        Neu gebaut wird nur, wenn sich das Lexikon geändert hat. Ein Fehler im
+        Lexikon fällt auf den Prompt aus config.yaml zurück.
         """
         base = self._config.whisper.initial_prompt
         lexicon = self._lexicon
         if lexicon is None:
             return base
-        version = lexicon.version
-        if self._prompt_cache[0] == version:
-            return self._prompt_cache[1]
-        tokenizer = getattr(model, "hf_tokenizer", None)
+        try:
+            version = lexicon.version
+            if self._prompt_cache[0] == version:
+                return self._prompt_cache[1]
+            tokenizer = getattr(model, "hf_tokenizer", None)
 
-        def count_tokens(text: str) -> int:
-            if tokenizer is None:
-                return len(text) // 2
-            return len(tokenizer.encode(" " + text, add_special_tokens=False).ids)
+            def count_tokens(text: str) -> int:
+                if tokenizer is None:
+                    return len(text) // 2
+                return len(tokenizer.encode(" " + text, add_special_tokens=False).ids)
 
-        prompt = build_initial_prompt(base, lexicon.vocabulary_terms(), count_tokens)
-        self._prompt_cache = (version, prompt)
-        if prompt != base:
-            log.info("Whisper-Prompt mit gelernten Begriffen: %d Token", count_tokens(prompt or ""))
-        return prompt
+            prompt = build_initial_prompt(base, lexicon.vocabulary_terms(), count_tokens)
+            self._prompt_cache = (version, prompt)
+            if prompt != base:
+                log.info("Whisper-Prompt mit gelernten Begriffen: %d Token", count_tokens(prompt or ""))
+            return prompt
+        except Exception as exc:
+            self._lexicon_failed(exc)
+            return base
 
     def _replacements(self) -> dict[str, str]:
-        """Handgepflegte Ersetzungen aus config.yaml gewinnen gegen gelernte."""
+        """Handgepflegte Ersetzungen aus config.yaml gewinnen gegen gelernte.
+
+        Ein Fehler im Lexikon fällt auf die Ersetzungen aus config.yaml zurück.
+        """
         manual = self._config.whisper.replacements
         if self._lexicon is None:
             return manual
-        return {**self._lexicon.active_replacements(), **manual}
+        try:
+            return {**self._lexicon.active_replacements(), **manual}
+        except Exception as exc:
+            self._lexicon_failed(exc)
+            return manual
 
     def transcribe(self, audio: np.ndarray) -> TranscriptionResult:
         if audio.size == 0:
