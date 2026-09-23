@@ -40,3 +40,14 @@ def test_selection_stays_fast_with_many_entries():
     start = time.perf_counter()
     select_glossary(text, entries)
     assert time.perf_counter() - start < 0.2
+
+
+def test_repeated_sentence_gives_same_selection_as_single_sentence():
+    """Die Entdopplung der Wortgruppen darf nur Tempo, nicht das Ergebnis ändern:
+    ein wiederholter Satz muss dieselbe Auswahl liefern wie der einzelne Satz,
+    auch wenn der Treffer über die Klangähnlichkeit kommt (Kubernetes/kuh bernetes)."""
+    entries = [_entry("kubernetes", "Kubernetes")]
+    sentence = "heute starten wir kuh bernetes auf dem testserver neu"
+    single = select_glossary(sentence, entries)
+    repeated = select_glossary(" ".join([sentence] * 4), entries)
+    assert repeated == single == ["Kubernetes"]

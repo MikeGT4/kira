@@ -15,6 +15,7 @@ und gefärbte Vokale fängt die Kölner Phonetik ohnehin ab.
 from __future__ import annotations
 import difflib
 import re
+from collections import Counter
 from functools import lru_cache
 
 _WORD_RE = re.compile(r"[^\W\d_]+")
@@ -115,6 +116,25 @@ def _upper_bound(a: str, b: str) -> float:
     return 1.0 if total == 0 else 2 * min(len(a), len(b)) / total
 
 
+@lru_cache(maxsize=8192)
+def _char_counts(text: str) -> Counter[str]:
+    """Zeichen-Multiset einer Zeichenkette, zwischengespeichert."""
+    return Counter(text)
+
+
+def _char_upper_bound(a: str, b: str) -> float:
+    """Obergrenze für ``_ratio(a, b)`` aus der Schnittmenge der Zeichen-Multisets.
+
+    ``SequenceMatcher.ratio()`` kann diesen Wert nie übersteigen, jeder
+    Treffer braucht auf beiden Seiten ein gleiches Zeichen.
+    """
+    total = len(a) + len(b)
+    if total == 0:
+        return 1.0
+    overlap = sum((_char_counts(a) & _char_counts(b)).values())
+    return 2 * overlap / total
+
+
 def sound_similarity(a: str, b: str) -> float:
     """Klangwert zweier Wörter oder Wortgruppen, 0 bis 1.
 
@@ -128,15 +148,26 @@ def sound_similarity(a: str, b: str) -> float:
 
 
 def is_similar(a: str, b: str, threshold: float) -> bool:
-    """``sound_similarity(a, b) >= threshold`` mit billiger Längen-Vorprüfung.
+    """``sound_similarity(a, b) >= threshold`` mit billigen Vorprüfungen.
 
-    Für die Glossar-Auswahl je Diktat, wo viele Paare zu prüfen sind.
+    Für die Glossar-Auswahl je Diktat, wo viele Paare zu prüfen sind. Vor
+    jedem teuren ``_ratio``-Aufruf stehen zwei billige Obergrenzen: erst die
+    Längenprüfung ``_upper_bound``, dann die Zeichen-Obergrenze
+    ``_char_upper_bound``.
     """
     la, lb = _letters(a), _letters(b)
-    if _upper_bound(la, lb) >= threshold and _ratio(la, lb) >= threshold:
+    if (
+        _upper_bound(la, lb) >= threshold
+        and _char_upper_bound(la, lb) >= threshold
+        and _ratio(la, lb) >= threshold
+    ):
         return True
     for x in _variant_codes(a):
         for y in _variant_codes(b):
-            if _upper_bound(x, y) >= threshold and _ratio(x, y) >= threshold:
+            if (
+                _upper_bound(x, y) >= threshold
+                and _char_upper_bound(x, y) >= threshold
+                and _ratio(x, y) >= threshold
+            ):
                 return True
     return False

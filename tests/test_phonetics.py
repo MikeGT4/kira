@@ -54,3 +54,31 @@ def test_unrelated_words_stay_below_pair_threshold(a, b):
 ])
 def test_is_similar_agrees_with_sound_similarity(a, b, threshold):
     assert is_similar(a, b, threshold) == (sound_similarity(a, b) >= threshold)
+
+
+_MANY_PAIRS = [
+    ("isch", "ich"), ("jut", "gut"), ("feschd", "fest"),
+    ("kuh bernetes", "Kubernetes"), ("Zettel Kasten", "Zettelkasten"),
+    ("Hintergrund", "Kriminalpolizei"), ("Tisch", "Stuhl"), ("Sonne", "Sonnenschirm"),
+    ("Kubernetes", "kuh bernetes"), ("Haus", "Maus"),
+    ("Straße", "Strasse"), ("Fußball", "Fussball"), ("Größe", "Groesse"),
+    ("Bücherei", "Buecherei"), ("Kühlschrank", "Kuehlschrank"), ("Übung", "Uebung"),
+    ("Straßenbahn", "Strassenbahn"), ("Datenbank Verbindung", "Datenbankverbindung"),
+    ("Betriebssystem", "Betriebs System"), ("Sicherheitslücke", "Sicherheits Luecke"),
+    ("Algorithmus", "Logarithmus"), ("Prozessor", "Prozession"),
+    ("Datenschutz", "Datenschatz"), ("Verschlüsselung", "Verschluesselung"),
+    ("Übertragung", "Uebertragung"), ("Fenster", "Feuster"), ("Tastatur", "Tastratur"),
+    ("Bildschirm", "Bildschirn"), ("Server", "Serwer"), ("Router", "Rauter"),
+    ("Fahrrad", "Fahrstuhl"), ("Kaffee", "Tee"), ("Apfel", "Birne"),
+    ("Wetterbericht", "Wettervorhersage"), ("Nachrichten", "Nachbarschaft"),
+    ("Autobahn", "Eisenbahn"),
+]
+
+
+@pytest.mark.parametrize("threshold", [0.65, 0.8])
+@pytest.mark.parametrize("a, b", _MANY_PAIRS)
+def test_is_similar_matches_sound_similarity_over_many_pairs(a, b, threshold):
+    """Die billige Zeichen-Obergrenze darf das Ergebnis nie ändern: über viele
+    Wortpaare und beide Projekt-Schwellen hinweg muss ``is_similar`` genau das
+    liefern, was der volle Klangwert liefern würde."""
+    assert is_similar(a, b, threshold) == (sound_similarity(a, b) >= threshold)

@@ -35,7 +35,7 @@ def select_glossary(
 ) -> list[str]:
     if not text or not entries:
         return []
-    grams = _grams(text)
+    grams = list(dict.fromkeys(_grams(text)))
     present = set(grams)
     chosen: list[str] = []
     seen: set[str] = set()
