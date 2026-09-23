@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Literal
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _HOME = Path.home()
 
@@ -117,9 +117,36 @@ class InjectorConfig(BaseModel):
     restore_clipboard_after_ms: int = 500
 
 
+HUD_STYLES = ("phosphor", "gun_barrel", "zielerfassung", "stimmabdruck", "klartext", "klassisch")
+DEFAULT_HUD_STYLE = "phosphor"
+
+
 class UIConfig(BaseModel):
     popup: bool = True
     sound_feedback: bool = False
+    # Aufnahme-Anzeige (v0.4.1, Windows): Stil und Größe gegenüber v0.4.0
+    # (260 × 80 px). Ein unbekannter Stil fällt auf den Standard zurück, eine
+    # Größe außerhalb 0,75 bis 3 wird begrenzt: ein Tippfehler in der
+    # Rohconfig darf den Start nicht verhindern.
+    hud_style: str = DEFAULT_HUD_STYLE
+    hud_scale: float = 1.5
+
+    @field_validator("hud_style", mode="before")
+    @classmethod
+    def _known_hud_style(cls, value: object) -> str:
+        key = str(value or "").strip().lower()
+        return key if key in HUD_STYLES else DEFAULT_HUD_STYLE
+
+    @field_validator("hud_scale", mode="before")
+    @classmethod
+    def _bounded_hud_scale(cls, value: object) -> float:
+        try:
+            scale = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 1.5
+        if scale != scale:
+            return 1.5
+        return min(3.0, max(0.75, scale))
 
 
 class UpdatesConfig(BaseModel):

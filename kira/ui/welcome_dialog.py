@@ -117,6 +117,10 @@ poliert.</p>
 </ul>
 <p style='color:#666; font-size:11px;'>Mindestens ~300 ms halten, sonst wird
 die Aufnahme als Aus-Versehen-Tap gewertet.</p>
+<p>Am Mauszeiger zeigt die Aufnahme-Anzeige Pegel und Zustand. Steht dort
+<b>ZU NAH</b>, etwas Abstand zum Mikrofon halten; bei <b>KEIN SIGNAL</b> liefert
+das Mikrofon Stille. Den Stil wählst du in den Einstellungen unter
+„Aufnahme-Anzeige“.</p>
 
 <h3>2. AI-Editing-Commands (Selektion überarbeiten)</h3>
 <ul>
@@ -194,7 +198,8 @@ und startet den Setup-Wizard. Kira beendet sich dafür kurz.</p>
 
 <h3>Konfiguration</h3>
 <p>Tray → <b>„Einstellungen..."</b>: Mic-Gain, Mikrofon-Auswahl,
-Whisper-Sprache, Polish-Modell, Hotkeys (F8 + F9), Clipboard-Restore-Delay.
+Whisper-Sprache, Polish-Modell, Hotkeys (F8 + F9), Clipboard-Restore-Delay,
+Stil der Aufnahme-Anzeige.
 Komplexe Felder (Replacements, Modi, Initial-Prompt) über „Rohconfig öffnen...".</p>
 
 <h3>Logs</h3>

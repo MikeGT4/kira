@@ -76,6 +76,13 @@ class KiraApp:
         # plus im Short-Press-Pfad in on_hotkey_release.
         self._edit_mode: bool = False
         self._captured_selection: str | None = None
+        # Für die Aufnahme-Anzeige (v0.4.1): letzter Whisper-Text, letzter
+        # polierter Text und Grund des letzten Fehlers („Zeile 1|Zeile 2“).
+        # Jeweils gesetzt, BEVOR der passende Zustand gemeldet wird, damit der
+        # Zustands-Handler sie im selben Aufruf lesen kann.
+        self.last_transcript: str = ""
+        self.last_polished: str = ""
+        self.last_error: str = ""
 
     @classmethod
     def for_test(cls) -> "KiraApp":
@@ -107,11 +114,15 @@ class KiraApp:
         if self._state != State.IDLE:
             return
         self._press_time = time.monotonic()
+        self.last_transcript = ""
+        self.last_polished = ""
+        self.last_error = ""
         try:
             self._recorder.start()
         except DeviceUnavailable as e:
             log.warning("Hotkey press but input device unavailable: %s", e)
             self._press_time = None
+            self.last_error = "Mikrofon nicht gefunden.|Gerät prüfen, dann erneut drücken."
             self._set_state(State.ERROR)
             # Auto-Reset nach 3 s analog zum Pipeline-Error-Pfad
             # (_run_pipeline finally-Block) — ohne Reset bliebe state
@@ -142,14 +153,14 @@ class KiraApp:
             # ein sichtbares Fehler-Signal kriegen, sonst weiss er nicht
             # dass F9 was gemacht hat.
             log.warning("Edit hotkey aborted (clipboard unavailable): %s", exc)
-            self._flash_error_briefly()
+            self._flash_error_briefly("Zwischenablage nicht erreichbar.|Gleich noch einmal versuchen.")
             return
         if selection is None:
             # Echte "keine Selection" - User-Feedback via kurzer ERROR-
             # Flash, sonst sieht der User keinen Unterschied zwischen
             # "F9 nicht gebunden" und "ich hatte nichts markiert".
             log.info("Edit hotkey pressed without selection — flashing ERROR")
-            self._flash_error_briefly()
+            self._flash_error_briefly("Nichts markiert.|Erst Text markieren, dann erneut.")
             return
         self._captured_selection = selection
         self._edit_mode = True
@@ -161,12 +172,13 @@ class KiraApp:
             self._edit_mode = False
             self._captured_selection = None
 
-    def _flash_error_briefly(self) -> None:
+    def _flash_error_briefly(self, reason: str = "") -> None:
         """1.5 s ERROR-State (gelbes Tray-Icon) → IDLE. Dient als
         sichtbares 'Hotkey kam an, aber konnte nicht ausgefuehrt werden'-
         Signal für F9-no-selection und Clipboard-Fehler."""
         if self._state != State.IDLE:
             return
+        self.last_error = reason
         self._set_state(State.ERROR)
         threading.Timer(
             1.5, lambda: self._set_state(State.IDLE)
@@ -227,6 +239,7 @@ class KiraApp:
                 log.warning("Whisper returned empty text — pipeline aborted before polish")
                 self._set_state(State.IDLE)
                 return
+            self.last_transcript = transcription.text
             self._set_state(State.STYLING)
             if edit_mode and captured_selection:
                 # F9-Pfad: Voice-Command + erfasste Selektion → LLM rewriteset
@@ -260,12 +273,14 @@ class KiraApp:
                 # silent no-op — user gets no feedback. Treat as IDLE recovery.
                 log.warning("Polish returned empty — skipping inject")
                 return
+            self.last_polished = polished
             self._set_state(State.INJECTING)
             self._injector.inject(polished)
             if mode is not None:
                 self._record_dictation(mode, transcription, polished, audio)
         except Exception:
             log.exception("pipeline failed")
+            self.last_error = "Verarbeitung fehlgeschlagen.|Details im Log."
             self._set_state(State.ERROR)
         finally:
             # Edit-Mode-Flags IMMER resetten — das hier ist der einzige

@@ -311,3 +311,74 @@ def test_edit_flags_reset_after_short_press(monkeypatch):
     assert app.state == State.IDLE
     assert app._edit_mode is False
     assert app._captured_selection is None
+
+
+# ---- Aufnahme-Anzeige (v0.4.1): Texte und Fehlergrund vor der Zustandsmeldung ----
+
+def _app_with_observer(**kwargs):
+    seen: list[tuple] = []
+    holder: dict = {}
+
+    def observe(state):
+        a = holder["app"]
+        seen.append((state, a.last_transcript, a.last_polished, a.last_error))
+
+    base = KiraApp.for_test()
+    app = KiraApp(
+        config=base._config,
+        recorder=kwargs.get("recorder", base._recorder),
+        transcriber=base._transcriber,
+        styler=kwargs.get("styler", base._styler),
+        injector=base._injector,
+        on_state_change=observe,
+    )
+    holder["app"] = app
+    return app, seen
+
+
+def test_texts_are_set_before_styling_and_injecting_are_reported():
+    app, seen = _app_with_observer()
+    app.on_hotkey_press()
+    app.on_hotkey_release(duration_ms=500)
+    by_state = {s: rest for s, *rest in seen}
+    assert by_state[State.STYLING][0] == "stub"
+    assert by_state[State.INJECTING][:2] == ["stub", "stub"]
+
+
+def test_next_press_clears_texts_and_reason():
+    app, seen = _app_with_observer()
+    app.on_hotkey_press()
+    app.on_hotkey_release(duration_ms=500)
+    app.last_error = "alt|alt"
+    app.on_hotkey_press()
+    state, transcript, polished, error = seen[-1]
+    assert state == State.RECORDING
+    assert (transcript, polished, error) == ("", "", "")
+
+
+def test_device_error_reports_a_reason():
+    app, seen = _app_with_observer(recorder=_BrokenRecorder())
+    app.on_hotkey_press()
+    state, *_, error = seen[-1]
+    assert state == State.ERROR
+    assert error.startswith("Mikrofon nicht gefunden.")
+
+
+def test_pipeline_failure_reports_a_reason():
+    class _FailingStyler:
+        async def polish(self, text, mode, glossary=None):
+            raise RuntimeError("boom")
+
+    app, seen = _app_with_observer(styler=_FailingStyler())
+    app.on_hotkey_press()
+    app.on_hotkey_release(duration_ms=500)
+    errors = [e for s, _, _, e in seen if s == State.ERROR]
+    assert errors == ["Verarbeitung fehlgeschlagen.|Details im Log."]
+
+
+def test_edit_press_without_selection_reports_a_reason(monkeypatch):
+    monkeypatch.setattr("kira.app.read_selection", lambda: None)
+    app = KiraApp.for_test()
+    app.on_edit_press()
+    assert app.state == State.ERROR
+    assert app.last_error.startswith("Nichts markiert.")

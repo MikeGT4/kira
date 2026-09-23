@@ -190,3 +190,32 @@ def test_learning_section_is_read_from_yaml(tmp_path):
     cfg = load_config(path)
     assert cfg.learning.enabled is False
     assert cfg.learning.sources == ["C:/daten/verlaeufe"]
+
+
+def test_hud_defaults_are_phosphor_at_150_percent(tmp_path):
+    cfg = load_config(tmp_path / "missing.yaml")
+    assert cfg.ui.hud_style == "phosphor"
+    assert cfg.ui.hud_scale == 1.5
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("gun_barrel", "gun_barrel"),
+    ("  Klartext ", "klartext"),
+    ("gibtsnicht", "phosphor"),
+    ("", "phosphor"),
+    (None, "phosphor"),
+])
+def test_hud_style_unknown_falls_back_to_default(tmp_path, raw, expected):
+    yaml_file = tmp_path / "config.yaml"
+    value = "null" if raw is None else repr(raw)
+    yaml_file.write_text(f"ui:\n  hud_style: {value}\n", encoding="utf-8")
+    assert load_config(yaml_file).ui.hud_style == expected
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("1.0", 1.0), ("2", 2.0), ("0.1", 0.75), ("9", 3.0), ("'gross'", 1.5), (".nan", 1.5),
+])
+def test_hud_scale_is_bounded(tmp_path, raw, expected):
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text(f"ui:\n  hud_scale: {raw}\n", encoding="utf-8")
+    assert load_config(yaml_file).ui.hud_scale == expected

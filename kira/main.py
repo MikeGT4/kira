@@ -570,14 +570,22 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         tray.update_state(s)
         if popup is None:
             return
+        # Aufnahme-Anzeige (v0.4.1): Phasen statt Statustexte. Whisper-Text,
+        # polierter Text und Fehlergrund setzt KiraApp vor der Zustandsmeldung.
         if s == State.RECORDING:
-            popup.show("Recording…")
+            popup.set_phase("rec")
         elif s == State.TRANSCRIBING:
-            popup.update_status("Transcribing…")
+            popup.set_phase("trans")
         elif s == State.STYLING:
-            popup.update_status("Polishing…")
-        elif s in (State.IDLE, State.ERROR):
-            popup.hide()
+            popup.set_texts(raw=app.last_transcript)
+            popup.set_phase("polish")
+        elif s == State.INJECTING:
+            popup.set_texts(polished=app.last_polished)
+            popup.set_phase("done")
+        elif s == State.ERROR:
+            popup.set_phase("error", app.last_error)
+        elif s == State.IDLE:
+            popup.set_phase("idle")
 
     app = KiraApp(
         config=cfg, recorder=recorder, transcriber=transcriber,

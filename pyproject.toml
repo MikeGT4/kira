@@ -78,6 +78,10 @@ packages = ["kira"]
 "assets/digitalroots-logo.png" = "kira/_assets/digitalroots-logo.png"
 "assets/kira-splash.png" = "kira/_assets/kira-splash.png"
 "assets/wordlist-de.txt" = "kira/_assets/wordlist-de.txt"
+"assets/fonts/IBMPlexMono-Regular.ttf" = "kira/_assets/fonts/IBMPlexMono-Regular.ttf"
+"assets/fonts/IBMPlexMono-Medium.ttf" = "kira/_assets/fonts/IBMPlexMono-Medium.ttf"
+"assets/fonts/IBMPlexMono-SemiBold.ttf" = "kira/_assets/fonts/IBMPlexMono-SemiBold.ttf"
+"assets/fonts/OFL-IBMPlexMono.txt" = "kira/_assets/fonts/OFL-IBMPlexMono.txt"
 "prompts" = "kira/_prompts"
 # OllamaSetup.exe (~1.98 GB) wird BEWUSST NICHT ins wheel gepackt:
 #  - waere das Wheel ~2.1 GB statt ~50 KB

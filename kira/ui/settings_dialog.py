@@ -35,6 +35,7 @@ from kira.ui._dialog_style import (
 from kira import __version__, UPDATE_REPO
 from kira.config import default_config_path, effective_hotkey, load_config
 from kira.config_writer import update_scalars
+from kira.ui.hud import STYLE_LABELS
 
 log = logging.getLogger(__name__)
 from kira._resources import assets_dir as _assets_dir  # noqa: E402
@@ -451,6 +452,7 @@ class SettingsDialog(QDialog):
         right.setSpacing(12)
         right.addWidget(self._build_section_hotkeys())
         right.addWidget(self._build_section_injector())
+        right.addWidget(self._build_section_hud())
         right.addWidget(self._build_section_about())
         right.addStretch()
 
@@ -691,6 +693,25 @@ class SettingsDialog(QDialog):
             "Lange Diktate skalieren automatisch (~2 ms pro Zeichen ab 80 chars)."
         )
         card.add_row("Clipboard-Restore", self._restore_ms)
+
+        return card
+
+    def _build_section_hud(self) -> _SectionCard:
+        card = _SectionCard("Aufnahme-Anzeige", icon_emoji="\U0001F4FA")  # television emoji
+
+        # Stilwahl seit v0.4.1. Wirkt ab dem nächsten Diktat: die Anzeige
+        # prüft beim Drücken, ob sich die config.yaml geändert hat.
+        self._hud_style = QComboBox()
+        for key, label in STYLE_LABELS.items():
+            self._hud_style.addItem(label, userData=key)
+        index = self._hud_style.findData(self._cfg.ui.hud_style)
+        self._hud_style.setCurrentIndex(max(0, index))
+        self._hud_style.setToolTip(
+            "Wie die Anzeige am Mauszeiger aussieht, solange der Diktat-Hotkey\n"
+            "gehalten wird. Gilt ab dem nächsten Diktat, ohne Neustart.\n"
+            "Größe über ui.hud_scale in der Rohconfig (Standard 1.5)."
+        )
+        card.add_row("Stil", self._hud_style)
 
         return card
 
@@ -1010,6 +1031,7 @@ class SettingsDialog(QDialog):
             "injector.restore_clipboard_after_ms": int(self._restore_ms.value()),
             "hotkey.combo": self._hotkey.text().strip(),
             "hotkey.edit_combo": edit_hotkey_value,
+            "ui.hud_style": self._hud_style.currentData(),
         }
 
         self._cfg_path.parent.mkdir(parents=True, exist_ok=True)
