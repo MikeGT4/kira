@@ -1,6 +1,7 @@
 # © 2026 Mike Pollow, Digitalroots. Alle Rechte vorbehalten.
 """Tests für kira.learner."""
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta, timezone
 import pytest
 from kira.correction_source import SentMessage
@@ -305,3 +306,54 @@ def test_run_once_skips_a_failing_dictation(tmp_path, monkeypatch):
     r = _run(T0 + timedelta(minutes=40), hist, src, lex, state)
     assert r.processed == 2
     assert r.pairs == 1
+
+
+def test_history_entry_without_timezone_does_not_end_the_run(tmp_path):
+    hist, src, lex, state = _setup(tmp_path)
+    HistoryWriter(hist).append(HistoryRecord(
+        ts="2026-09-23T12:00:00", app=None, mode="terminal",
+        raw="ohne Zeitzone", text="ohne Zeitzone",
+    ))
+    _history(hist, T0, "wir deployen heute auf kuh bernetes")
+    _sent(src, T0 + timedelta(minutes=2), "Wir deployen heute auf Kubernetes")
+    r = _run(T0 + timedelta(minutes=40), hist, src, lex, state)
+    assert (r.processed, r.pairs) == (1, 1)
+
+
+def test_lexicon_is_saved_before_pruning(tmp_path, monkeypatch):
+    hist, src, lex, state = _setup(tmp_path)
+    _history(hist, T0, "wir deployen heute auf kuh bernetes")
+    _sent(src, T0 + timedelta(minutes=2), "Wir deployen heute auf Kubernetes")
+
+    def boom(directory, now):
+        raise OSError("gesperrt")
+
+    monkeypatch.setattr("kira.learner.prune", boom)
+    with pytest.raises(OSError):
+        _run(T0 + timedelta(minutes=30), hist, src, lex, state)
+    assert (tmp_path / "learned.json").exists()
+
+
+def test_bootstrap_logs_progress_every_500_dictations(tmp_path, caplog):
+    src = tmp_path / "src"
+    src.mkdir()
+    log_path = tmp_path / "kira.log"
+    line = f"{T0:%Y-%m-%d %H:%M:%S},000 INFO kira.app: Polish out (mode=plain, 5 chars): 'hallo'\n"
+    log_path.write_text(line * 1000, encoding="utf-8")
+    state = LearningState(started=(T0 + timedelta(days=1)).isoformat(timespec="seconds"))
+    with caplog.at_level(logging.INFO, logger="kira.learner"):
+        bootstrap(log_paths=[log_path], source_dirs=[src], lexicon=Lexicon(tmp_path / "learned.json"),
+                  words=WORDS, state=state)
+    progress = [r.getMessage() for r in caplog.records if "Erstbefüllung, " in r.getMessage()]
+    assert progress == [
+        "Lernen: Erstbefüllung, 500 von 1000 Diktaten",
+        "Lernen: Erstbefüllung, 1000 von 1000 Diktaten",
+    ]
+
+
+def test_parse_log_dictations_skips_lines_with_replacement_character(tmp_path):
+    log_path = tmp_path / "kira.log"
+    line = "2026-09-20 {}:00:00,000 INFO kira.app: Polish out (mode=plain, 4 chars): 'Müll'\n"
+    log_path.write_bytes(line.format("10").encode("cp1252") + line.format("11").encode("utf-8"))
+    items = parse_log_dictations([log_path])
+    assert [r.text for r, _ in items] == ["Müll"]

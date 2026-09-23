@@ -35,6 +35,7 @@ MAX_SPAN_WORDS = 3
 MIN_WRONG_LETTERS = 3
 WINDOW_BEFORE = timedelta(seconds=5)
 WINDOW_AFTER = timedelta(minutes=20)
+BOOTSTRAP_PROGRESS_EVERY = 500
 
 _TOKEN_RE = re.compile(r"\S+")
 _EDGE_RE = re.compile(r"^[^\w]+|[^\w]+$")
@@ -258,11 +259,13 @@ def run_once(
     since = datetime.fromisoformat(state.processed_until) if state.processed_until else started
     if until > since:
         for record in read_records(history_dir, since=since):
-            if record.time > until:
-                continue
-            result.processed += 1
-            counter = state.weeks.setdefault(week_key(record.time), _new_counter())
+            # Auch Zeitvergleich und Wochenschlüssel je Diktat: ein Eintrag
+            # ohne Zeitzone überspringt nur sich selbst.
             try:
+                if record.time > until:
+                    continue
+                result.processed += 1
+                counter = state.weeks.setdefault(week_key(record.time), _new_counter())
                 _learn_from(
                     record, truncated=False, messages=messages, times=times,
                     lexicon=lexicon, words=words, counter=counter, result=result,
@@ -274,9 +277,9 @@ def run_once(
     state.buffer = [
         b for b in state.buffer if datetime.fromisoformat(b["time"]) >= keep_from
     ]
-    prune(history_dir, now)
     if result.pairs:
         lexicon.save()
+    prune(history_dir, now)
     return result
 
 
@@ -291,6 +294,9 @@ def parse_log_dictations(paths: list[Path]) -> list[tuple[HistoryRecord, bool]]:
         with fh:
             for line in fh:
                 if "Polish out" not in line:
+                    continue
+                # Alte Zeilen in Windows-1252: der Text trägt Ersatzzeichen statt Umlauten.
+                if "\ufffd" in line:
                     continue
                 match = _LOG_LINE_RE.match(line.rstrip("\n"))
                 if not match:
@@ -331,7 +337,7 @@ def bootstrap(
         reader = SourceReader(source_dirs)
         messages = reader.read_new(modified_since=items[0][0].time)
         times = [m.time for m in messages]
-        for record, truncated in items:
+        for number, (record, truncated) in enumerate(items, start=1):
             result.processed += 1
             try:
                 _learn_from(
@@ -340,6 +346,8 @@ def bootstrap(
                 )
             except Exception:
                 log.exception("Lernen: Diktat vom %s übersprungen", record.ts)
+            if number % BOOTSTRAP_PROGRESS_EVERY == 0:
+                log.info("Lernen: Erstbefüllung, %d von %d Diktaten", number, len(items))
         if result.pairs:
             lexicon.save()
     state.baseline = baseline

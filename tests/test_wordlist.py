@@ -28,3 +28,11 @@ def test_missing_file_gives_empty_set_and_warning(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
         assert load_wordlist(tmp_path / "fehlt.txt") == frozenset()
     assert "Wortliste" in caplog.text
+
+
+def test_undecodable_file_gives_empty_set_and_warning(tmp_path, caplog):
+    path = tmp_path / "wordlist-de.txt"
+    path.write_bytes("Haus\nStraße\n".encode("cp1252"))
+    with caplog.at_level(logging.WARNING):
+        assert load_wordlist(path) == frozenset()
+    assert "Wortliste" in caplog.text

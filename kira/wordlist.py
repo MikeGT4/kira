@@ -20,7 +20,7 @@ _WORD_RE = re.compile(r"[^\W\d_]+")
 def load_wordlist(path: Path) -> frozenset[str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         log.warning("Wortliste nicht lesbar: %s", path)
         return frozenset()
     return frozenset(

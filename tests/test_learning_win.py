@@ -25,11 +25,11 @@ class Clock:
         return self.now
 
 
-def _service(tmp_path, clock, sources=True, words=frozenset({"wir", "auf"})):
+def _service(tmp_path, clock, sources=True, words=frozenset({"wir", "auf"}), extra_sources=()):
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
     return LearningService(
-        sources=[src] if sources else [],
+        sources=([src] if sources else []) + list(extra_sources),
         lexicon=Lexicon(tmp_path / "learned.json"),
         history_dir=tmp_path / "history",
         state_path=tmp_path / "state.json",
@@ -99,6 +99,41 @@ def test_failing_run_is_logged_not_raised(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.ERROR):
         svc.run_once()
     assert "Lauf fehlgeschlagen" in caplog.text
+
+
+def _saved_state(tmp_path):
+    return json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+
+
+def test_state_is_saved_right_after_bootstrap(tmp_path, monkeypatch):
+    svc = _service(tmp_path, Clock(T0))
+
+    def boom(**kwargs):
+        raise RuntimeError("kaputt")
+
+    monkeypatch.setattr("kira.learning_win.run_once", boom)
+    svc.run_once()
+    assert _saved_state(tmp_path)["bootstrapped"] is True
+
+
+def test_bootstrap_waits_while_a_source_is_unreachable(tmp_path, caplog):
+    missing = tmp_path / "nicht-verbunden"
+    clock = Clock(T0)
+    svc = _service(tmp_path, clock, extra_sources=[missing])
+    result = TranscriptionResult(text="wir deployen auf kuh bernetes", language="de")
+    clock.now = T0 + timedelta(minutes=1)
+    svc.after_inject(mode="terminal", transcription=result, text=result.text, duration_s=2.0)
+    _sent(tmp_path, T0 + timedelta(minutes=2), "Wir deployen auf Kubernetes")
+    clock.now = T0 + timedelta(minutes=40)
+    with caplog.at_level(logging.WARNING):
+        svc.run_once()
+    assert _saved_state(tmp_path)["bootstrapped"] is False
+    assert any(r.levelno == logging.WARNING and str(missing) in r.getMessage()
+               for r in caplog.records)
+    assert svc.pending_count() == 1
+    missing.mkdir()
+    svc.run_once()
+    assert _saved_state(tmp_path)["bootstrapped"] is True
 
 
 def test_prune_history_deletes_old_months(tmp_path, monkeypatch):

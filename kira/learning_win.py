@@ -120,15 +120,24 @@ class LearningService:
         try:
             now = self._clock()
             if self._sources and not self._state.bootstrapped:
-                log.info("Lernen: Erstbefüllung aus kira.log beginnt")
-                r = bootstrap(
-                    log_paths=self._log_paths, source_dirs=self._sources,
-                    lexicon=self.lexicon, words=self._words, state=self._state,
-                )
-                log.info(
-                    "Lernen: Erstbefüllung fertig: %d Diktate, %d zugeordnet, "
-                    "%d korrigiert, %d Paare", r.processed, r.matched, r.corrected, r.pairs,
-                )
+                # Die Erstbefüllung läuft nur einmal und braucht alle Quellen.
+                unreachable = [d for d in self._sources if not d.is_dir()]
+                if unreachable:
+                    log.warning(
+                        "Lernen: Erstbefüllung verschoben, Lernquelle nicht erreichbar: %s",
+                        ", ".join(str(d) for d in unreachable),
+                    )
+                else:
+                    log.info("Lernen: Erstbefüllung aus kira.log beginnt")
+                    r = bootstrap(
+                        log_paths=self._log_paths, source_dirs=self._sources,
+                        lexicon=self.lexicon, words=self._words, state=self._state,
+                    )
+                    self._state.save(self._state_path)
+                    log.info(
+                        "Lernen: Erstbefüllung fertig: %d Diktate, %d zugeordnet, "
+                        "%d korrigiert, %d Paare", r.processed, r.matched, r.corrected, r.pairs,
+                    )
             if self._sources:
                 reader = SourceReader(self._sources, self._state.offsets)
                 r = run_once(
