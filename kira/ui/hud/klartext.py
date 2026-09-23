@@ -81,6 +81,8 @@ class Klartext(HudStyle):
         super().__init__()
         self._cells: list[tuple[int, bool]] = []
         self._block = 0
+        self._flags_key: tuple[str, str] | None = None
+        self._flags: list[bool] = []
 
     def on_press(self, t: float, f: Frame) -> None:
         self.on_clear(f)
@@ -209,7 +211,10 @@ class Klartext(HudStyle):
                   line1: bool, line2: bool) -> None:
         """Übergabe: geänderte Wörter kurz verschlüsselt, dann hell; der Rest ruhig."""
         text = f.polished_text or f.raw_text
-        flags = changed_words(f.raw_text, text)
+        if self._flags_key != (f.raw_text, text):
+            self._flags_key = (f.raw_text, text)
+            self._flags = changed_words(f.raw_text, text)
+        flags = self._flags
         p.setFont(font)
         wi = 0
         for li, s in enumerate(wrap(text)):

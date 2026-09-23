@@ -191,8 +191,8 @@ class GunBarrel(HudStyle):
                     p.setPen(QPen(qc(mix(PATINA, LINE, 0.4), strength * (1 - q) ** 2 * 0.85), 1.3))
                     p.drawEllipse(QPointF(CX, CY), r, r)
         if self.mode == "error":
-            u = t - self.end_t
-            y = CY - RO + 2 * RO * EASE_OUT(prog(u, 0, 0.55))
+            u = 0.0 if f.reduced else t - self.end_t
+            y = CY + RO if f.reduced else CY - RO + 2 * RO * EASE_OUT(prog(u, 0, 0.55))
             wash = QLinearGradient(0, CY - RO, 0, max(y, CY - RO + 0.1))
             wash.setColorAt(0, QColor(110, 14, 20, 189))
             wash.setColorAt(1, QColor(229, 72, 77, 179))

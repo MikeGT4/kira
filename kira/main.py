@@ -567,7 +567,10 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
         tray = KiraMenubar(on_quit=_on_tray_quit)
 
     def handle_state(s: State) -> None:
-        tray.update_state(s)
+        try:
+            tray.update_state(s)
+        except Exception:
+            log.exception("Tray-Zustand %s nicht gesetzt; Anzeige läuft weiter", s)
         if popup is None:
             return
         # Aufnahme-Anzeige (v0.4.1): Phasen statt Statustexte. Whisper-Text,

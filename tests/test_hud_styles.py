@@ -130,6 +130,8 @@ def test_error_from_hidden_shows_reason_then_hides(qapp, key):
     d.run(0.3, amp=0.0)
     assert _ink(d.render()) > 2000
     d.run(1.3, amp=0.0)
+    d.style.abort(d.t)                # IDLE nach dem Fehler
+    d.run(0.2, amp=0.0)
     assert not d.style.visible
 
 
@@ -174,7 +176,7 @@ def test_gun_barrel_cinema_intro_only_when_flagged(qapp):
 
 def test_scale_150_percent_is_the_default_size(qapp, tmp_path):
     from kira.ui.hud_qt import PopupHUD
-    hud = PopupHUD(config_path=tmp_path / "fehlt.yaml")
+    hud = PopupHUD(config_path=tmp_path / "fehlt.yaml", state_dir=tmp_path)
     assert hud.style_key == "phosphor"
     assert (hud.width(), hud.height()) == (390, 120)
 
@@ -197,7 +199,7 @@ def test_host_reads_style_and_scale(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     _write_cfg(cfg, "klartext", 2.0)
-    hud = PopupHUD(config_path=cfg)
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     assert hud.style_key == "klartext"
     assert (hud.width(), hud.height()) == (520, 160)
@@ -207,7 +209,7 @@ def test_host_switches_style_on_next_press(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     _write_cfg(cfg, "phosphor")
-    hud = PopupHUD(config_path=cfg)
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     _write_cfg(cfg, "gun_barrel", bump=5)
     hud.set_phase("rec")
@@ -221,7 +223,7 @@ def test_host_full_cycle_ends_hidden(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     _write_cfg(cfg, "phosphor")
-    hud = PopupHUD(config_path=cfg)
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     hud.set_phase("rec")
     _feed(hud)
@@ -242,18 +244,21 @@ def test_host_error_while_hidden_shows_then_hides(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     _write_cfg(cfg, "zielerfassung")
-    hud = PopupHUD(config_path=cfg)
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     hud.set_phase("error", "Nichts markiert.|Erst Text markieren, dann erneut.")
     qtbot.waitUntil(lambda: hud.isVisible(), timeout=1000)
-    qtbot.waitUntil(lambda: not hud.isVisible(), timeout=3000)
+    qtbot.wait(300)
+    assert hud.isVisible()
+    hud.set_phase("idle")
+    qtbot.waitUntil(lambda: not hud.isVisible(), timeout=2000)
 
 
 def test_legacy_api_still_drives_the_hud(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     _write_cfg(cfg, "stimmabdruck")
-    hud = PopupHUD(config_path=cfg)
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     hud.show("Recording…")
     qtbot.waitUntil(lambda: hud.isVisible(), timeout=1000)
@@ -340,12 +345,12 @@ def test_host_retries_config_after_a_failed_read(qtbot, tmp_path):
     from kira.ui.hud_qt import PopupHUD
     cfg = tmp_path / "config.yaml"
     cfg.write_text("ui: [kaputt\n", encoding="utf-8")
+    failed_mtime = cfg.stat().st_mtime
     hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
     qtbot.addWidget(hud)
     assert hud.style_key == "phosphor"
     _write_cfg(cfg, "klartext")
-    st = cfg.stat()
-    os.utime(cfg, (st.st_atime, st.st_mtime))
+    os.utime(cfg, (failed_mtime, failed_mtime))   # dieselbe Änderungszeit wie beim misslungenen Lesen
     hud.set_phase("rec")
     qtbot.waitUntil(lambda: hud.isVisible(), timeout=2000)
     assert hud.style_key == "klartext"
@@ -374,4 +379,51 @@ def test_cinema_is_not_consumed_by_other_styles(qtbot, tmp_path):
     qtbot.addWidget(hud)
     assert hud._cinema_due() is False
     assert not (tmp_path / "hud-kino.txt").exists()
+
+
+# ---- Befunde der Endfassungs-Prüfung (Runde 2) ------------------------------------
+
+@pytest.mark.parametrize("key", [k for k in HUD_STYLES if k != "klassisch"])
+def test_error_stays_until_idle(qapp, key):
+    d = Driver(key)
+    d.style.error(d.t, "Verarbeitung fehlgeschlagen.|Details im Log.", d.f)
+    d.run(2.5, amp=0.0)
+    assert d.style.visible            # Kira nimmt 3 s lang kein F8 an; die Anzeige sagt warum
+    d.style.abort(d.t)                # IDLE
+    d.run(0.2, amp=0.0)
+    assert not d.style.visible
+
+
+def test_error_during_handover_starts_fresh(qapp):
+    d = Driver("klartext")
+    d.press()
+    d.run(1.0)
+    d.style.release(d.t, d.f)
+    d.f.raw_text = d.f.polished_text = "alter Text"
+    d.style.done(d.t, d.f)
+    d.run(0.1, amp=0.0)
+    d.style.error(d.t, "Nichts markiert.|Erst Text markieren, dann erneut.", d.f)
+    assert d.style.t0 == d.t and d.style._cells == []
+
+
+def test_gun_barrel_error_wash_is_still_with_reduced_motion(qapp):
+    d = Driver("gun_barrel", reduced=True)
+    d.style.error(d.t, "Verarbeitung fehlgeschlagen.|Details im Log.", d.f)
+    d.run(0.1, amp=0.0)
+    first = d.render()
+    d.t += 0.3
+    second = d.render()
+    x, y, w, h = (round(v * d.f.px) for v in (189, 9, 62, 62))
+    assert first.copy(x, y, w, h) == second.copy(x, y, w, h)
+
+
+def test_cinema_file_in_utf16_does_not_break_the_press(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(cfg, "gun_barrel")
+    (tmp_path / "hud-kino.txt").write_text("2000-01-01", encoding="utf-16")
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    assert hud._cinema_due() is True
+    assert hud._cinema_due() is False
 

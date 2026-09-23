@@ -89,6 +89,7 @@ class PopupHUD(QWidget):
         # Merkt den Tag des letzten Kino-Intros (Gun Barrel) über Neustarts hinweg.
         local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         self._cinema_path = (state_dir or Path(local) / "Kira") / "hud-kino.txt"
+        self._cinema_day = ""        # Rückfall, falls die Datei nicht schreibbar ist
 
         self._tap = SignalTap()
         self._an = SignalAnalysis()
@@ -167,7 +168,7 @@ class PopupHUD(QWidget):
         elif phase == "done":
             style.done(t, self._frame)
         elif phase == "error":
-            if not style.visible:
+            if not style.visible or style.mode == "done":
                 self._prepare(t)
             self._style.error(t, message or "Details im Log.", self._frame)
         elif phase == "idle":
@@ -191,10 +192,13 @@ class PopupHUD(QWidget):
         if self._style_key != "gun_barrel":
             return False
         today = datetime.date.today().isoformat()
+        if self._cinema_day == today:
+            return False
+        self._cinema_day = today
         try:
             if self._cinema_path.read_text(encoding="utf-8").strip() == today:
                 return False
-        except OSError:
+        except (OSError, ValueError):
             pass
         try:
             self._cinema_path.parent.mkdir(parents=True, exist_ok=True)

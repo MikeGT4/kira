@@ -281,7 +281,7 @@ class HudStyle:
     """Grundgerüst eines Stils: Modus, Zeiten, Statuswort, Abbruch-Ausblendung."""
 
     key = ""
-    ERROR_S = 1.45               # Fehler bleibt stehen, blendet dann aus
+    ERROR_MAX_S = 5.0            # Fehler steht, bis Kira wieder bereit ist (IDLE), höchstens so lange
     shows_errors = True          # Klassisch: Fehler wie bis v0.4.0 nur im Tray
 
     def __init__(self) -> None:
@@ -316,7 +316,8 @@ class HudStyle:
         if not self.shows_errors:
             self.mode = "hidden"
             return
-        if self.mode == "hidden":
+        if self.mode in ("hidden", "done"):
+            # Neu ansetzen, auch wenn die Übergabe des vorigen Diktats noch ausblendet.
             self.t0 = self.rel_t = t
             self.on_clear(f)
         elif self.mode == "rec":
@@ -328,8 +329,8 @@ class HudStyle:
         self.on_error(t, f)
 
     def abort(self, t: float) -> None:
-        """Kurzer Druck oder nichts erkannt: ohne Übergabe ausblenden."""
-        if self.mode in ("rec", "proc") and self.fade_t < 0:
+        """IDLE: kurzer Druck, nichts erkannt oder Fehler vorbei → ohne Übergabe ausblenden."""
+        if self.mode in ("rec", "proc", "error") and self.fade_t < 0:
             if self.mode == "rec":
                 self.rel_t = t
             self.fade_t = t
@@ -353,7 +354,7 @@ class HudStyle:
         if self.fade_t >= 0 and t - self.fade_t >= FADE_S:
             self.mode = "hidden"
             return
-        if self.mode == "error" and t - self.end_t > self.ERROR_S:
+        if self.mode == "error" and t - self.end_t > self.ERROR_MAX_S:
             self.mode = "hidden"
             return
         if self.mode != "hidden":
@@ -393,7 +394,7 @@ class HudStyle:
         return (t if self.mode == "rec" else self.rel_t) - self.t0
 
     def error_alpha(self, t: float) -> float:
-        return 1.0 - prog(t, self.end_t + self.ERROR_S - 0.2, 0.2)
+        return 1.0 - prog(t, self.end_t + self.ERROR_MAX_S - 0.2, 0.2)
 
     def message_lines(self) -> tuple[str, str]:
         first, _, second = self.msg.partition("|")
