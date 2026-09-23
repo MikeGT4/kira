@@ -168,7 +168,7 @@ class PopupHUD(QWidget):
         elif phase == "done":
             style.done(t, self._frame)
         elif phase == "error":
-            if not style.visible or style.mode == "done":
+            if not style.visible or style.leaving:
                 self._prepare(t)
             self._style.error(t, message or "Details im Log.", self._frame)
         elif phase == "idle":

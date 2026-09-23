@@ -427,3 +427,19 @@ def test_cinema_file_in_utf16_does_not_break_the_press(qtbot, tmp_path):
     assert hud._cinema_due() is True
     assert hud._cinema_due() is False
 
+
+@pytest.mark.parametrize("key", ["phosphor", "stimmabdruck", "klartext"])
+def test_error_during_abort_fade_starts_fresh(qapp, key):
+    d = Driver(key)
+    d.press()
+    d.run(0.4)
+    d.style.abort(d.t)                # kurzer Druck → IDLE
+    d.run(0.05, amp=0.0)
+    assert d.style.leaving
+    d.style.error(d.t, "Nichts markiert.|Erst Text markieren, dann erneut.", d.f)
+    assert d.style.t0 == d.t and d.style.fade_t < 0
+    if key == "phosphor":
+        assert _ink(d.style._img) == 0
+    elif key == "stimmabdruck":
+        assert int(d.style._buf[..., 3].max()) == 0
+

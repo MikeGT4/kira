@@ -316,8 +316,8 @@ class HudStyle:
         if not self.shows_errors:
             self.mode = "hidden"
             return
-        if self.mode in ("hidden", "done"):
-            # Neu ansetzen, auch wenn die Übergabe des vorigen Diktats noch ausblendet.
+        if self.mode in ("hidden", "done") or self.fade_t >= 0:
+            # Neu ansetzen, auch wenn das vorige Diktat noch aus- oder abblendet.
             self.t0 = self.rel_t = t
             self.on_clear(f)
         elif self.mode == "rec":
@@ -346,6 +346,11 @@ class HudStyle:
     @property
     def visible(self) -> bool:
         return self.mode != "hidden"
+
+    @property
+    def leaving(self) -> bool:
+        """Blendet gerade aus (Übergabe oder Abbruch); ein Fehler setzt dann neu an."""
+        return self.mode == "done" or self.fade_t >= 0
 
     def fade_alpha(self, t: float) -> float:
         return 1.0 if self.fade_t < 0 else 1.0 - prog(t, self.fade_t, FADE_S)
