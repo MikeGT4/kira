@@ -30,7 +30,7 @@ Kira is a push-to-talk voice-to-text app that runs entirely on your own machine.
 - **German and English**, detected automatically per dictation.
 - **Uncensored option.** The settings dialog offers an abliterated Qwen model as cleanup model. It is not tuned to refuse or lecture; it only cleans up what you said.
 - **Nothing leaves your PC.** Audio and text stay on the machine. Kira talks to Ollama on `127.0.0.1` only.
-- **Live HUD and branded tray icon.** Waveform while recording, status text during transcribe, polish and inject. Red dot on the tray icon while recording, orange-red on errors.
+- **Live HUD at the cursor, six styles.** The default is a phosphor oscilloscope with afterglow; Gun Barrel, target lock, voiceprint, terminal and the classic look can be picked in the settings. While you speak it warns about clipping (too close) and a dead microphone (no signal). Red dot on the tray icon while recording, orange-red on errors.
 - **Survives a missing microphone.** If the configured input device is not connected at start, Kira comes up anyway; pressing F8 turns the tray icon yellow for 3 seconds instead of crashing.
 - **Crash diagnostics.** `faulthandler`, threading exception hook, Qt message handler and a 60 second heartbeat all flow into `kira.log`.
 

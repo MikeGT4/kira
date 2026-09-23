@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.4.1 (2026-09-23)
+
+### Aufnahme-Anzeige: sechs Stile, 150 % groß, mit Warnungen
+
+Die Anzeige am Mauszeiger ist neu gebaut und um die Hälfte größer (390 × 120
+statt 260 × 80 px). Den Stil wählst du in den Einstellungen unter
+„Aufnahme-Anzeige“; er gilt ab dem nächsten Diktat, ohne Neustart.
+
+- **Phosphor** (Standard): Oszilloskop mit Nachleuchten und Trigger, die
+  Schwingung der Stimme steht still im Bild; nach dem Loslassen eine
+  Lissajous-Figur, zum Schluss geht die Röhre aus.
+- **Gun Barrel**: Blick durch einen Lauf mit sechs Zügen, das Licht folgt dem
+  Pegel; das lange Intro mit drei weißen Punkten nur beim ersten Diktat des
+  Tages.
+- **Zielerfassung**: Eckklammern rasten ein, sobald die Stimme anliegt, dazu
+  44 Frequenzbalken.
+- **Stimmabdruck**: Spektrogramm als Wasserfall mit Pegelbalken und
+  Zielbereich −9 bis −2 dBFS.
+- **Klartext**: Terminal, das den erkannten Text entschlüsselt und die Wörter
+  zeigt, die die Politur geändert hat.
+- **Klassisch**: die bisherige Anzeige.
+
+Alle neuen Stile warnen beim Sprechen: **ZU NAH**, wenn der Pegel 0 dBFS
+erreicht (im Log der letzten 30 Tage 7,7 % der Aufnahmen), und **KEIN SIGNAL**,
+wenn das Mikrofon nach 0,6 s digitale Stille liefert (27 Aufnahmen mit totem
+Mikrofon). Fehler stehen mit Grund an der Anzeige, etwa „Mikrofon nicht
+gefunden“ oder „Nichts markiert“. Ist unter Windows „Animationseffekte“
+ausgeschaltet, blendet die Anzeige nur ein und aus. Größe über `ui.hud_scale`
+in der Rohconfig (0,75 bis 3).
+
+Schrift der Anzeige: IBM Plex Mono (SIL Open Font License 1.1), mitgeliefert.
+
 ## v0.4.0 (2026-09-23)
 
 ### Kira lernt aus Korrekturen
