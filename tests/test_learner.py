@@ -234,6 +234,32 @@ def test_bootstrap_learns_from_log_and_sets_baseline(tmp_path):
     assert metrics_summary(state, local)["baseline"] == (1, 1)
 
 
+def test_repeated_bootstrap_counts_each_dictation_once(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    local = datetime(2026, 9, 20, 10, 0).astimezone()
+    log_path = tmp_path / "kira.log"
+    log_path.write_text(
+        f"{local:%Y-%m-%d %H:%M:%S},000 INFO kira.app: Polish out (mode=terminal, 35 chars): "
+        "'wir deployen heute auf kuh bernetes'\n",
+        encoding="utf-8",
+    )
+    _sent(src, local + timedelta(minutes=1), "Wir deployen heute auf Kubernetes")
+    started = (local + timedelta(days=1)).isoformat(timespec="seconds")
+
+    def counts(runs):
+        lex = Lexicon(tmp_path / f"learned-{runs}.json")
+        for _ in range(runs):
+            state = LearningState(started=started)
+            bootstrap(log_paths=[log_path], source_dirs=[src], lexicon=lex,
+                      words=WORDS, state=state)
+        return [(e.wrong, e.right, e.count, e.status) for e in lex.entries()], state.baseline
+
+    once = counts(1)
+    assert once[0] == [("kuh bernetes", "Kubernetes", 1, "pending")]
+    assert counts(2) == once
+
+
 def test_parse_log_dictations_skips_impossible_timestamps(tmp_path):
     log_path = tmp_path / "kira.log"
     log_path.write_text(

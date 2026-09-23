@@ -46,10 +46,40 @@ class Entry:
     first_seen: str
     last_seen: str
     example: str
+    # Zeitstempel der Diktate, die den Eintrag gezählt haben: jedes zählt einmal,
+    # auch wenn die Erstbefüllung wiederholt wird.
+    seen: tuple[str, ...] = ()
 
     @property
     def key(self) -> Key:
         return (self.wrong.casefold(), self.right.casefold())
+
+
+def _entry_from_json(raw) -> Entry:
+    """Ein Eintrag aus learned.json, jeder Wert geprüft. ValueError, wenn einer nicht passt."""
+    if not isinstance(raw, dict):
+        raise ValueError("Eintrag ist kein Objekt")
+    seen = raw.get("seen", [])
+    if not isinstance(seen, list) or not all(isinstance(s, str) for s in seen):
+        raise ValueError("ungültiges Feld: seen")
+    entry = Entry(**{**raw, "seen": tuple(seen)})
+    checks = {
+        "wrong": isinstance(entry.wrong, str) and entry.wrong != "",
+        "right": isinstance(entry.right, str) and entry.right != "",
+        "kind": entry.kind in (KIND_REPLACEMENT, KIND_GLOSSARY),
+        "status": entry.status in (STATUS_PENDING, STATUS_ACTIVE, STATUS_REJECTED),
+        "count": isinstance(entry.count, int) and not isinstance(entry.count, bool)
+        and entry.count >= 1,
+        "vocab": isinstance(entry.vocab, bool),
+        "confirmed": isinstance(entry.confirmed, bool),
+        "first_seen": isinstance(entry.first_seen, str),
+        "last_seen": isinstance(entry.last_seen, str),
+        "example": isinstance(entry.example, str),
+    }
+    bad = [name for name, ok in checks.items() if not ok]
+    if bad:
+        raise ValueError("ungültiges Feld: " + ", ".join(bad))
+    return entry
 
 
 def default_lexicon_path() -> Path:
@@ -69,17 +99,23 @@ class Lexicon:
 
     @classmethod
     def load(cls, path: Path) -> "Lexicon":
+        """Eine defekte Datei wird als .bak beiseitegelegt, das Lexikon beginnt
+        leer. Lesefehler und ein gescheitertes Beiseitelegen werden
+        weitergeworfen: Ein leeres Lexikon würde die Datei später überschreiben.
+        """
         if not path.exists():
             return cls(path)
+        raw = path.read_bytes()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            entries = [Entry(**raw) for raw in data["entries"]]
-        except (OSError, ValueError, KeyError, TypeError) as exc:
+            data = json.loads(raw.decode("utf-8"))
+            entries = [_entry_from_json(item) for item in data["entries"]]
+        except (ValueError, KeyError, TypeError) as exc:
             backup = path.with_name(path.name + ".bak")
             try:
                 os.replace(path, backup)
             except OSError:
-                log.exception("Lernen: %s ließ sich nicht beiseitelegen", path)
+                log.error("Lernen: %s unlesbar (%s) und nicht beiseitezulegen", path, exc)
+                raise
             log.warning(
                 "Lernen: %s unlesbar (%s), als %s gesichert, Lexikon beginnt leer",
                 path, exc, backup.name,
@@ -109,23 +145,27 @@ class Lexicon:
         self, wrong: str, right: str, *, kind: str, vocab: bool,
         example: str, when: datetime,
     ) -> Entry | None:
-        """Ein Auftreten aus einem Diktat verbuchen. None bei gesperrtem Paar."""
+        """Ein Auftreten aus einem Diktat verbuchen. None bei gesperrtem Paar
+        und wenn dieses Diktat (gleicher Zeitstempel) das Paar schon gezählt hat."""
         stamp = when.isoformat(timespec="seconds")
         key = (wrong.casefold(), right.casefold())
         with self._lock:
             current = self._entries.get(key)
-            if current is not None and current.status == STATUS_REJECTED:
+            if current is not None and (
+                current.status == STATUS_REJECTED or stamp in current.seen
+            ):
                 return None
             if current is None:
                 entry = Entry(
                     wrong=wrong, right=right, kind=kind, status=STATUS_PENDING,
                     count=1, vocab=vocab, confirmed=False, first_seen=stamp,
                     last_seen=stamp, example=example[:EXAMPLE_MAX_CHARS],
+                    seen=(stamp,),
                 )
             else:
                 entry = replace(
                     current, count=current.count + 1, last_seen=stamp,
-                    example=example[:EXAMPLE_MAX_CHARS],
+                    example=example[:EXAMPLE_MAX_CHARS], seen=current.seen + (stamp,),
                 )
             self._entries[key] = entry
             self._apply_rules(key[0])

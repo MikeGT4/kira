@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+import pytest
 from kira.lexicon import (
     KIND_GLOSSARY, KIND_REPLACEMENT, STATUS_ACTIVE, STATUS_PENDING,
     STATUS_REJECTED, Lexicon, build_initial_prompt,
@@ -106,6 +107,88 @@ def test_corrupt_file_is_set_aside_and_lexicon_starts_empty(tmp_path, caplog):
     assert lex.entries() == []
     assert (tmp_path / "learned.json.bak").read_text(encoding="utf-8") == "{kaputt"
     assert "unlesbar" in caplog.text
+
+
+def _raw_entry(**changes):
+    raw = {
+        "wrong": "kuh bernetes", "right": "Kubernetes", "kind": KIND_REPLACEMENT,
+        "status": STATUS_PENDING, "count": 1, "vocab": True, "confirmed": False,
+        "first_seen": "2026-09-01T10:00:00+00:00", "last_seen": "2026-09-01T10:00:00+00:00",
+        "example": "auf kuh bernetes",
+    }
+    raw.update(changes)
+    return raw
+
+
+def _write_lexicon(path, *entries):
+    path.write_text(json.dumps({"version": 1, "entries": list(entries)}), encoding="utf-8")
+
+
+def test_same_dictation_counts_once(tmp_path):
+    lex = Lexicon(tmp_path / "learned.json")
+    v0 = lex.version
+    _observe(lex, "kuh bernetes", "Kubernetes", T1)
+    assert _observe(lex, "kuh bernetes", "Kubernetes", T1) is None
+    assert [e.count for e in lex.entries()] == [1]
+    assert lex.version == v0 + 1
+    assert _observe(lex, "doku", "Docker", T1) is not None
+
+
+def test_seen_is_saved_as_list_and_still_counts_after_reload(tmp_path):
+    path = tmp_path / "learned.json"
+    lex = Lexicon(path)
+    _observe(lex, "kuh bernetes", "Kubernetes", T1)
+    lex.save()
+    stored = json.loads(path.read_text(encoding="utf-8"))["entries"][0]
+    assert stored["seen"] == [T1.isoformat(timespec="seconds")]
+    again = Lexicon.load(path)
+    assert _observe(again, "kuh bernetes", "Kubernetes", T1) is None
+    assert _observe(again, "kuh bernetes", "Kubernetes", T2).count == 2
+
+
+def test_old_file_without_seen_loads(tmp_path):
+    path = tmp_path / "learned.json"
+    _write_lexicon(path, _raw_entry())
+    lex = Lexicon.load(path)
+    assert [(e.wrong, e.count, e.seen) for e in lex.entries()] == [("kuh bernetes", 1, ())]
+    assert not (tmp_path / "learned.json.bak").exists()
+
+
+@pytest.mark.parametrize("field, value", [
+    ("count", "2"), ("wrong", None), ("right", ""), ("kind", "ersetzung"),
+    ("status", "aktiv"), ("count", True), ("count", 0), ("vocab", "ja"),
+    ("confirmed", 1), ("first_seen", None), ("last_seen", 5), ("example", ["x"]),
+    ("seen", "2026-09-01"), ("seen", [1]),
+])
+def test_wrong_value_sets_file_aside(tmp_path, caplog, field, value):
+    path = tmp_path / "learned.json"
+    _write_lexicon(path, _raw_entry(**{field: value}))
+    original = path.read_text(encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        lex = Lexicon.load(path)
+    assert lex.entries() == []
+    assert (tmp_path / "learned.json.bak").read_text(encoding="utf-8") == original
+    assert "unlesbar" in caplog.text
+
+
+def test_read_error_raises_and_sets_nothing_aside(tmp_path):
+    path = tmp_path / "learned.json"
+    path.mkdir()
+    with pytest.raises(OSError):
+        Lexicon.load(path)
+    assert path.is_dir()
+    assert not (tmp_path / "learned.json.bak").exists()
+
+
+def test_failed_set_aside_raises_and_keeps_file(tmp_path):
+    path = tmp_path / "learned.json"
+    path.write_text("{kaputt", encoding="utf-8")
+    blocker = tmp_path / "learned.json.bak"
+    blocker.mkdir()
+    (blocker / "belegt.txt").write_text("x", encoding="utf-8")
+    with pytest.raises(OSError):
+        Lexicon.load(path)
+    assert path.read_text(encoding="utf-8") == "{kaputt"
 
 
 def test_version_changes_on_every_mutation(tmp_path):
