@@ -9,6 +9,7 @@ Klartext da.
 """
 from __future__ import annotations
 
+import difflib
 import math
 
 import numpy as np
@@ -61,6 +62,18 @@ def wrap(text: str, n: int = LINE_CHARS) -> list[str]:
     return lines
 
 
+def changed_words(raw: str, polished: str) -> list[bool]:
+    """Je Wort der Politur: hat die Politur es geändert? Abgleich per Sequenz, nicht nach Position."""
+    a, b = raw.split(), polished.split()
+    flags = [True] * len(b)
+    matcher = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+    for tag, _i1, _i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for j in range(j1, j2):
+                flags[j] = False
+    return flags
+
+
 class Klartext(HudStyle):
     key = "klartext"
 
@@ -70,6 +83,9 @@ class Klartext(HudStyle):
         self._block = 0
 
     def on_press(self, t: float, f: Frame) -> None:
+        self.on_clear(f)
+
+    def on_clear(self, f: Frame) -> None:
         self._cells.clear()
         self._block = -1
 
@@ -151,7 +167,7 @@ class Klartext(HudStyle):
             else:
                 draw_text(p, X0, 65, "KANAL 08 · NUR FÜR M", tag, qc(LINE, 0.4))
         elif self.mode == "proc":
-            frame = int(t * 15)
+            frame = 0 if reduced else int(t * 15)
             if not f.polishing or not f.raw_text:
                 for li in range(2):
                     noise = "".join(GLYPHS[hash2(i + li * 50, frame) % len(GLYPHS)] for i in range(LINE_CHARS))
@@ -159,7 +175,7 @@ class Klartext(HudStyle):
             else:
                 self._resolve(p, t - f.polish_t, f, body, cw, frame)
         elif self.mode == "done":
-            self._handover(p, t - self.end_t, f, body, cw, int(t * 15), line1, line2)
+            self._handover(p, t - self.end_t, f, body, cw, 0 if reduced else int(t * 15), line1, line2)
         elif self.mode == "error":
             first, second = self.message_lines()
             msg = mono(11, 400, 0.2)
@@ -192,26 +208,27 @@ class Klartext(HudStyle):
     def _handover(self, p: QPainter, v: float, f: Frame, font, cw: float, frame: int,
                   line1: bool, line2: bool) -> None:
         """Übergabe: geänderte Wörter kurz verschlüsselt, dann hell; der Rest ruhig."""
-        raw_words = f.raw_text.split()
-        pol_words = (f.polished_text or f.raw_text).split()
+        text = f.polished_text or f.raw_text
+        flags = changed_words(f.raw_text, text)
         p.setFont(font)
         wi = 0
-        for li, s in enumerate(wrap(" ".join(pol_words))):
+        for li, s in enumerate(wrap(text)):
             show = line1 if li == 0 else line2
             x = X0
             for word in s.split(" "):
-                changed = (raw_words[wi] if wi < len(raw_words) else "") != word.rstrip("…")
+                changed = flags[wi] if wi < len(flags) else True
                 lock_t = 0.1 + (wi % 6) * 0.025
                 for j, ch in enumerate(word):
                     if not show:
                         continue
+                    glyph = ch
                     if changed and v < lock_t and not f.reduced:
-                        ch = GLYPHS[hash2(wi * 31 + j, frame) % len(GLYPHS)]
+                        glyph = GLYPHS[hash2(wi * 31 + j, frame) % len(GLYPHS)]
                         p.setPen(qc(PATINA, 0.7))
                     elif changed:
                         p.setPen(qc(mix(LINE, WHITE, 0.6), 1.0))
                     else:
                         p.setPen(qc(LINE, 0.8))
-                    p.drawText(QPointF(x + j * cw, 40 + li * 16), ch)
+                    p.drawText(QPointF(x + j * cw, 40 + li * 16), glyph)
                 x += (len(word) + 1) * cw
                 wi += 1

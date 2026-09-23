@@ -5,6 +5,7 @@ and Windows branches import the same module; behavior branches
 inside via sys.platform.
 """
 from __future__ import annotations
+import math
 import os
 import sys
 from pathlib import Path
@@ -144,7 +145,7 @@ class UIConfig(BaseModel):
             scale = float(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             return 1.5
-        if scale != scale:
+        if math.isnan(scale):
             return 1.5
         return min(3.0, max(0.75, scale))
 

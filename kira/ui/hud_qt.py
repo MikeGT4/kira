@@ -1,8 +1,8 @@
 """PyQt6-Aufnahme-Anzeige (HUD) am Mauszeiger, Windows.
 
 Host für die Stile aus ``kira.ui.hud`` (seit v0.4.1): rahmenlos,
-durchklickbar, ohne Fokus-Klau, immer oben. Zeichnet mit 60 Bildern je
-Sekunde, solange die Anzeige sichtbar ist. Stil und Größe kommen aus
+durchklickbar, ohne Fokus-Klau, immer oben. Zeichnet mit rund 60 Bildern je
+Sekunde (16-ms-Takt), solange die Anzeige sichtbar ist. Stil und Größe kommen aus
 ``ui.hud_style`` und ``ui.hud_scale`` (Standard: Phosphor, 150 % von
 260 × 80 px). Ändert sich die config.yaml, über die Einstellungen oder die
 Rohconfig, gilt der neue Stil ab dem nächsten Diktat, ohne Neustart.
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -66,7 +67,7 @@ class _HudSignals(QObject):
 class PopupHUD(QWidget):
     """Rahmenloses Overlay; der aktive Stil zeichnet, der Host liefert Takt und Signal."""
 
-    def __init__(self, config_path: Path | None = None) -> None:
+    def __init__(self, config_path: Path | None = None, state_dir: Path | None = None) -> None:
         super().__init__()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -83,12 +84,15 @@ class PopupHUD(QWidget):
         self._style_key = DEFAULT_HUD_STYLE
         self._scale = 1.5
         self._style = create_style(DEFAULT_HUD_STYLE)
+        self.setFixedSize(round(W * self._scale), round(H * self._scale))
         self._reload_config(force=True)
+        # Merkt den Tag des letzten Kino-Intros (Gun Barrel) über Neustarts hinweg.
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        self._cinema_path = (state_dir or Path(local) / "Kira") / "hud-kino.txt"
 
         self._tap = SignalTap()
         self._an = SignalAnalysis()
         self._frame = Frame()
-        self._cinema_day: datetime.date | None = None
         self._t_last = time.monotonic()
         self._paint_t = self._t_last
         self._failed = False
@@ -151,9 +155,7 @@ class PopupHUD(QWidget):
             self._prepare(t)
             self._frame.raw_text = ""
             self._frame.polished_text = ""
-            today = datetime.date.today()
-            self._frame.cinema = self._cinema_day != today
-            self._cinema_day = today
+            self._frame.cinema = self._cinema_due()
             self._tap.start()
             self._an.reset(t)
             self._style.press(t, self._frame)
@@ -184,6 +186,23 @@ class PopupHUD(QWidget):
         self._failed = False
         self._place_at_cursor()
 
+    def _cinema_due(self) -> bool:
+        """Kino-Intro nur beim ersten Diktat des Tages im Stil Gun Barrel."""
+        if self._style_key != "gun_barrel":
+            return False
+        today = datetime.date.today().isoformat()
+        try:
+            if self._cinema_path.read_text(encoding="utf-8").strip() == today:
+                return False
+        except OSError:
+            pass
+        try:
+            self._cinema_path.parent.mkdir(parents=True, exist_ok=True)
+            self._cinema_path.write_text(today, encoding="utf-8")
+        except OSError:
+            log.warning("Kino-Intro: Tag nicht speicherbar (%s)", self._cinema_path)
+        return True
+
     def _place_at_cursor(self) -> None:
         pos = QCursor.pos()
         w, h = self.width(), self.height()
@@ -208,17 +227,18 @@ class PopupHUD(QWidget):
             mtime = None
         if not force and mtime == self._cfg_mtime:
             return
-        self._cfg_mtime = mtime
         try:
             ui = load_config(self._cfg_path).ui
         except Exception:
             log.exception("config.yaml nicht lesbar, Anzeige bleibt bei %s", self._style_key)
             return
+        # Erst nach erfolgreichem Lesen merken: halb geschriebene Datei → nächster Druck liest neu.
+        self._cfg_mtime = mtime
         if ui.hud_style != self._style_key:
             log.info("Aufnahme-Anzeige: Stil %s → %s", self._style_key, ui.hud_style)
             self._style_key = ui.hud_style
             self._style = create_style(ui.hud_style)
-        if ui.hud_scale != self._scale or force:
+        if ui.hud_scale != self._scale:
             self._scale = ui.hud_scale
             self.setFixedSize(round(W * self._scale), round(H * self._scale))
 

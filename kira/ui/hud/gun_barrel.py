@@ -70,6 +70,11 @@ class GunBarrel(HudStyle):
     def on_release(self, t: float, f: Frame) -> None:
         self._frozen[:] = self._col
 
+    def on_clear(self, f: Frame) -> None:
+        self._rings.clear()
+        self._col[:] = 0.0
+        self._frozen[:] = 0.0
+
     def _envelope(self, tap) -> None:
         pos = tap.position
         rem = pos % COL_SAMPLES
@@ -100,7 +105,10 @@ class GunBarrel(HudStyle):
             target = 2.0
         else:
             target = 0.0
-        self._om += (target - self._om) * (1 - math.exp(-dt / 0.18))
+        if f.reduced:
+            self._om = 0.0
+        else:
+            self._om += (target - self._om) * (1 - math.exp(-dt / 0.18))
         self._rot += self._om * dt
 
     # -- Lauf ---------------------------------------------------------------------
@@ -116,7 +124,7 @@ class GunBarrel(HudStyle):
         elif self.mode == "rec":
             light = 0.25 + 0.75 * an.level
         else:
-            light = 0.55 + 0.2 * math.sin(t * 7.85)
+            light = 0.55 if f.reduced else 0.55 + 0.2 * math.sin(t * 7.85)
         wall = QRadialGradient(QPointF(CX, CY), RO, QPointF(CX, CY), R0 * 0.9)
         wall.setColorAt(0, QColor(int(26 + 46 * light), int(40 + 62 * light), int(44 + 64 * light)))
         wall.setColorAt(0.32, QColor(15, 24, 27))
@@ -125,7 +133,7 @@ class GunBarrel(HudStyle):
         p.fillRect(QRectF(CX - RO, CY - RO, RO * 2, RO * 2), wall)
 
         twist, groove, steps = 0.95, 0.3, 12
-        light_dir = -2.2 + 0.3 * math.sin(t * 0.7)
+        light_dir = -2.2 if f.reduced else -2.2 + 0.3 * math.sin(t * 0.7)
         for k in range(6):
             a0 = self._rot + k * math.pi / 3
             path = QPainterPath()
@@ -167,7 +175,7 @@ class GunBarrel(HudStyle):
             og.setColorAt(1, qc(TIEF, 0.5 + 0.4 * light))
         p.fillPath(opening, og)
         if silent:
-            frame = int(t * 24)
+            frame = 0 if f.reduced else int(t * 24)
             for i in range(70):
                 h = hash2(i, frame)
                 a = (h % 628) / 100
@@ -310,7 +318,7 @@ class GunBarrel(HudStyle):
             path = QPainterPath()
             path.addEllipse(QPointF(x, 68.5), 1.1, 1.1)
             p.fillPath(path, qc(LINE, 0.3))
-        if self.mode == "rec":
+        if self.mode == "rec" and not f.reduced:
             self._dot(p, X0 + elapsed * 8 - off, 68.5, 1.9, 4.5, 0.96)
         p.restore()
 
@@ -326,7 +334,7 @@ class GunBarrel(HudStyle):
         p.setClipRect(QRectF(X0, 24, 170, 34))
         xs = X0 + np.arange(COLS) - fr - 1
         if flat:
-            frame = int(t * 20)
+            frame = 0 if f.reduced else int(t * 20)
             path = QPainterPath(QPointF(float(xs[0]), WAVE_CY))
             for k in range(1, COLS):
                 path.lineTo(float(xs[k]), WAVE_CY + ((hash2(k, frame) % 3) - 1) * 0.35)

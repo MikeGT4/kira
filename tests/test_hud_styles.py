@@ -116,6 +116,8 @@ def test_full_cycle_draws_and_ends_hidden(qapp, key, reduced):
     assert d.style.visible
     d.f.polished_text = "Kannst du mir die Unterlagen bis Freitag schicken?"
     d.style.done(d.t, d.f)
+    d.run(0.05, amp=0.0)
+    d.style.abort(d.t)          # wie im Host: nach INJECTING folgt IDLE
     d.run(1.2, amp=0.0)
     assert not d.style.visible
 
@@ -259,3 +261,117 @@ def test_legacy_api_still_drives_the_hud(qtbot, tmp_path):
     hud.hide()
     qtbot.waitUntil(lambda: not hud.isVisible(), timeout=2000)
     assert not math.isnan(hud.scale)
+
+
+# ---- Befunde der Endfassungs-Prüfung (Runde 1) ------------------------------------
+
+def test_changed_words_follow_the_sequence_not_the_position():
+    from kira.ui.hud.klartext import changed_words
+    assert changed_words("äh ich schicke dir das morgen", "Ich schicke dir das morgen.") == [
+        True, False, False, False, True]
+    assert changed_words("a b c", "a b c") == [False, False, False]
+    assert changed_words("", "neu") == [True]
+
+
+def test_medium_and_semibold_are_real_weights(qapp):
+    from PyQt6.QtGui import QFontInfo
+    assert QFontInfo(hud_base.mono(11, 500)).weight() >= 500
+    assert QFontInfo(hud_base.mono(11, 600)).weight() >= 600
+    assert QFontInfo(hud_base.mono(11, 400)).weight() < 500
+
+
+@pytest.mark.parametrize("key", ["phosphor", "stimmabdruck"])
+def test_error_from_hidden_does_not_show_the_last_dictation(qapp, key):
+    d = Driver(key)
+    d.press()
+    d.run(0.4)
+    d.style.abort(d.t)
+    d.run(0.2, amp=0.0)
+    assert not d.style.visible
+    d.style.error(d.t, "Nichts markiert.|Erst Text markieren, dann erneut.", d.f)
+    if key == "phosphor":
+        assert _ink(d.style._img) == 0
+    else:
+        assert int(d.style._buf.max()) == 0
+
+
+@pytest.mark.parametrize("key", ["klartext", "gun_barrel", "zielerfassung"])
+def test_reduced_motion_keeps_decoration_still(qapp, key):
+    d = Driver(key, reduced=True)
+    d.press()
+    if key == "klartext":
+        d.run(0.5)
+        d.style.release(d.t, d.f)
+    else:
+        d.run(0.9, amp=0.0)
+    d.run(0.1, amp=0.0)
+    first = d.render()
+    d.t += 0.2
+    second = d.render()
+    # Zeitanzeige und Sekundenpunkte sind Inhalt; verglichen wird die Grafik darunter.
+    regions = {"klartext": (10, 24, 240, 46), "gun_barrel": (12, 22, 240, 38),
+               "zielerfassung": (14, 24, 232, 40)}
+    x, y, w, h = (round(v * d.f.px) for v in regions[key])
+    assert first.copy(x, y, w, h) == second.copy(x, y, w, h)
+
+
+def test_classic_stays_until_idle_and_keeps_drawing(qapp):
+    d = Driver("klassisch")
+    d.press()
+    d.run(0.5)
+    d.style.release(d.t, d.f)
+    before = len(d.style._wave)
+    d.run(0.5)
+    assert len(d.style._wave) == 240 or len(d.style._wave) > before
+    d.style.done(d.t, d.f)
+    assert d.style.visible
+    d.style.abort(d.t)
+    assert not d.style.visible
+
+
+def test_host_size_is_set_even_if_config_is_unreadable(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    hud = PopupHUD(config_path=tmp_path, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    assert (hud.width(), hud.height()) == (390, 120)
+
+
+def test_host_retries_config_after_a_failed_read(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("ui: [kaputt\n", encoding="utf-8")
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    assert hud.style_key == "phosphor"
+    _write_cfg(cfg, "klartext")
+    st = cfg.stat()
+    os.utime(cfg, (st.st_atime, st.st_mtime))
+    hud.set_phase("rec")
+    qtbot.waitUntil(lambda: hud.isVisible(), timeout=2000)
+    assert hud.style_key == "klartext"
+    hud.set_phase("idle")
+    qtbot.waitUntil(lambda: not hud.isVisible(), timeout=2000)
+
+
+def test_cinema_intro_once_per_day_across_restarts(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(cfg, "gun_barrel")
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    assert hud._cinema_due() is True
+    assert hud._cinema_due() is False
+    again = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(again)
+    assert again._cinema_due() is False
+
+
+def test_cinema_is_not_consumed_by_other_styles(qtbot, tmp_path):
+    from kira.ui.hud_qt import PopupHUD
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(cfg, "phosphor")
+    hud = PopupHUD(config_path=cfg, state_dir=tmp_path)
+    qtbot.addWidget(hud)
+    assert hud._cinema_due() is False
+    assert not (tmp_path / "hud-kino.txt").exists()
+

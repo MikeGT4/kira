@@ -83,6 +83,9 @@ class Phosphor(HudStyle):
         return self._img
 
     def on_press(self, t: float, f: Frame) -> None:
+        self.on_clear(f)
+
+    def on_clear(self, f: Frame) -> None:
         self._buffer(f).fill(Qt.GlobalColor.transparent)
         self._lph = 0.0
 

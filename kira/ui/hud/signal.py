@@ -26,6 +26,7 @@ CLIP_ONSET_GAP_S = 0.35          # höchstens knapp drei neue Warnungen pro Seku
 SILENT_AFTER_S = 0.6
 SILENT_RMS = 0.0004              # tote Mikros lagen bei 0,0001, Raumrauschen deutlich darüber
 SIGNAL_BACK_RMS = 0.0015
+STALL_S = 0.35                   # so lange ohne neue Blöcke gilt als Stillstand (Mikro weg)
 VOICE_RMS = 0.02
 VOICE_ON_S = 0.08
 VOICE_OFF_S = 1.2
@@ -50,6 +51,7 @@ class SignalTap:
         self._cap = capacity
         self.total = 0           # je empfangene Samples
         self._head = 0.0         # abgespielt bis hier (absolute Sample-Nummer)
+        self.stall = 0.0         # Sekunden, die der Kopf ohne neue Daten am Ende steht
 
     def push(self, block) -> None:
         a = np.asarray(block, dtype=np.float32).reshape(-1)
@@ -70,14 +72,18 @@ class SignalTap:
     def start(self) -> None:
         """Kopf beim Drücken auf 'neuester Stand minus Verzug' setzen."""
         self._head = float(max(0, self.total - PLAYBACK_DELAY))
+        self.stall = 0.0
 
     def advance(self, dt: float) -> None:
         self._head += dt * SAMPLE_RATE
         target = self.total - PLAYBACK_DELAY
         if self._head < target - CATCH_UP:
             self._head = float(target)
-        if self._head > self.total:
+        if self._head >= self.total:
             self._head = float(self.total)
+            self.stall += dt
+        else:
+            self.stall = 0.0
 
     @property
     def position(self) -> int:
@@ -151,9 +157,12 @@ class SignalAnalysis:
         self.clip = t < self._clip_until
 
         if recording:
-            if rec_elapsed > SILENT_AFTER_S and rms600 < SILENT_RMS:
+            # Totes Mikro zeigt sich zweifach: digitale Stille im Datenstrom
+            # oder gar keine Blöcke mehr (Gerät abgezogen, Stream steht).
+            stalled = tap.stall > STALL_S
+            if rec_elapsed > SILENT_AFTER_S and (rms600 < SILENT_RMS or stalled):
                 self.silent = True
-            if rms > SIGNAL_BACK_RMS:
+            if rms > SIGNAL_BACK_RMS and not stalled:
                 self.silent = False
         else:
             self.silent = False

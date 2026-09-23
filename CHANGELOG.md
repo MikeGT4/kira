@@ -22,10 +22,10 @@ statt 260 × 80 px). Den Stil wählst du in den Einstellungen unter
   zeigt, die die Politur geändert hat.
 - **Klassisch**: die bisherige Anzeige.
 
-Alle neuen Stile warnen beim Sprechen: **ZU NAH**, wenn der Pegel 0 dBFS
-erreicht (im Log der letzten 30 Tage 7,7 % der Aufnahmen), und **KEIN SIGNAL**,
-wenn das Mikrofon nach 0,6 s digitale Stille liefert (27 Aufnahmen mit totem
-Mikrofon). Fehler stehen mit Grund an der Anzeige, etwa „Mikrofon nicht
+Alle neuen Stile warnen beim Sprechen: **ZU NAH**, wenn eine Spitze 0,99
+erreicht, also knapp 0 dBFS (im Log der letzten 30 Tage 7,7 % der Aufnahmen),
+und **KEIN SIGNAL**, wenn das Mikrofon nach 0,6 s digitale Stille oder gar keine
+Daten mehr liefert (27 Aufnahmen mit totem Mikrofon). Fehler stehen mit Grund an der Anzeige, etwa „Mikrofon nicht
 gefunden“ oder „Nichts markiert“. Ist unter Windows „Animationseffekte“
 ausgeschaltet, blendet die Anzeige nur ein und aus. Größe über `ui.hud_scale`
 in der Rohconfig (0,75 bis 3).

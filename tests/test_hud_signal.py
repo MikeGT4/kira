@@ -195,3 +195,18 @@ def test_spectrum_peaks_at_the_tone_frequency():
     _run(an, sig, blocks, 0.45)
     assert an.at(1000) > an.at(3000) + 0.3
     assert an.band(900, 1100) == pytest.approx(an.spectrum.max(), abs=0.05)
+
+
+def test_silent_when_blocks_stop_arriving():
+    """Gerät abgezogen: keine Blöcke mehr → nach dem Verzug KEIN SIGNAL statt eingefrorenem Bild."""
+    sig, an = SignalTap(), SignalAnalysis()
+    sig.start()
+    an.reset(0.0)
+    t = _run(an, sig, [_tone(200, 0.3, phase0=k * BLOCK) for k in range(10)], 1.0)
+    assert not an.silent
+    t = _run(an, sig, [], 0.7, t0=t)
+    assert an.silent
+    assert sig.stall > 0.35
+    _run(an, sig, [_tone(200, 0.3) for _ in range(4)], 0.4, t0=t)
+    assert not an.silent
+    assert sig.stall < 0.35

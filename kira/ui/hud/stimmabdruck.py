@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QImage, QLinearGradient, QPainter, QPainterPath, QPen
 
 from kira.ui.hud.base import (
     AMBER,
@@ -87,6 +87,9 @@ class Stimmabdruck(HudStyle):
         self._acc = 0.0
 
     def on_press(self, t: float, f: Frame) -> None:
+        self.on_clear(f)
+
+    def on_clear(self, f: Frame) -> None:
         self._ensure(f)
         self._buf[:] = 0
         self._acc = 0.0
@@ -94,9 +97,10 @@ class Stimmabdruck(HudStyle):
     def on_error(self, t: float, f: Frame) -> None:
         if self._buf is None:
             return
-        rgb = self._buf[..., :3].astype(np.float32)
+        seen = self._buf[..., 3] > 0
+        rgb = self._buf[seen, :3].astype(np.float32)
         red = np.array(RED, dtype=np.float32)
-        self._buf[..., :3] = (rgb * 0.25 + red * 0.75).astype(np.uint8)
+        self._buf[seen, :3] = (rgb * 0.25 + red * 0.75).astype(np.uint8)
 
     def step(self, t: float, dt: float, f: Frame, tap, an) -> None:
         if self.mode == "done" and t - self.end_t > (0.4 if f.reduced else 0.46):

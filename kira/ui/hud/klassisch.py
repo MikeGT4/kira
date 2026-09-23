@@ -3,6 +3,8 @@
 
 Patina-Linie aus je 30 Spitzen pro 100-ms-Block, Statustext in Segoe UI,
 kein Ausblenden, keine Warnungen; Fehler zeigen sich wie bisher nur im Tray.
+Wie in v0.4.0 läuft die Kurve nach dem Loslassen weiter, und die Anzeige
+bleibt mit „Polishing…“ stehen, bis Kira wieder bereit ist.
 """
 from __future__ import annotations
 
@@ -32,13 +34,13 @@ class Klassisch(HudStyle):
         self._block = -1
 
     def done(self, t: float, f: Frame) -> None:
-        self.mode = "hidden"
+        """Beim Einfügen stehen bleiben; erst IDLE (abort) blendet aus."""
 
     def abort(self, t: float) -> None:
         self.mode = "hidden"
 
     def step(self, t: float, dt: float, f: Frame, tap, an) -> None:
-        if self.mode != "rec":
+        if self.mode not in ("rec", "proc"):
             return
         current = tap.position // BLOCK
         if self._block < 0:

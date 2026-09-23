@@ -162,6 +162,7 @@ def fmt_db(db: float) -> str:
 # ---- Schrift ----------------------------------------------------------------
 
 _FONT_FILES = {400: "IBMPlexMono-Regular.ttf", 500: "IBMPlexMono-Medium.ttf", 600: "IBMPlexMono-SemiBold.ttf"}
+_WEIGHTS = {400: QFont.Weight.Normal, 500: QFont.Weight.Medium, 600: QFont.Weight.DemiBold}
 _FAMILIES: dict[int, str] = {}
 _FALLBACK = "Cascadia Mono"
 
@@ -186,6 +187,9 @@ def mono(size: float, weight: int = 500, spacing: float = 0.5) -> QFont:
     """Monospace in Entwurfs-Pixeln (Punktgröße = Pixel × 0,75 bei 96 dpi)."""
     load_fonts()
     font = QFont(_FAMILIES.get(weight, _FALLBACK))
+    # Unter Windows melden alle drei Dateien dieselbe Familie; ohne Gewicht
+    # nähme Qt immer den Regular-Schnitt.
+    font.setWeight(_WEIGHTS.get(weight, QFont.Weight.Normal))
     font.setPointSizeF(size * 0.75)
     font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, spacing)
     font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
@@ -314,6 +318,7 @@ class HudStyle:
             return
         if self.mode == "hidden":
             self.t0 = self.rel_t = t
+            self.on_clear(f)
         elif self.mode == "rec":
             self.rel_t = t
         self.mode = "error"
@@ -330,6 +335,8 @@ class HudStyle:
             self.fade_t = t
 
     def on_press(self, t: float, f: Frame) -> None: ...
+    def on_clear(self, f: Frame) -> None:
+        """Reste des letzten Diktats verwerfen (Fehler aus dem verborgenen Zustand)."""
     def on_release(self, t: float, f: Frame) -> None: ...
     def on_done(self, t: float, f: Frame) -> None: ...
     def on_error(self, t: float, f: Frame) -> None: ...

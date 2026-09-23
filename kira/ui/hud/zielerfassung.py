@@ -188,7 +188,7 @@ class Zielerfassung(HudStyle):
         bcol, ba = LINE, 0.88
         if self.mode == "rec":
             if an.silent:
-                bcol, ba = AMBER, 0.55 + 0.35 * (0.5 + 0.5 * math.cos(2 * math.pi * t))
+                bcol, ba = AMBER, 0.75 if reduced else 0.55 + 0.35 * (0.5 + 0.5 * math.cos(2 * math.pi * t))
             elif not locked:
                 bcol, ba = PATINA, 0.7
             if an.clip:
