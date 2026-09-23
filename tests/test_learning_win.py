@@ -89,6 +89,11 @@ def test_run_without_sources_only_prunes(tmp_path):
     assert svc.pending_count() == 0
 
 
+def test_has_sources_follows_the_configuration(tmp_path):
+    assert _service(tmp_path, Clock(T0)).has_sources is True
+    assert _service(tmp_path, Clock(T0), sources=False).has_sources is False
+
+
 def test_failing_run_is_logged_not_raised(tmp_path, monkeypatch, caplog):
     svc = _service(tmp_path, Clock(T0))
 

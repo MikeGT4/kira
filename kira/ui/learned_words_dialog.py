@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 _ASSETS = assets_dir()
 KIND_LABELS = {"replacement": "Ersetzung", "glossary": "Glossar"}
 COLUMNS = ("Erkannt", "Richtig", "Art", "Anzahl", "Beispiel")
+NO_SOURCES_HINT = (
+    "Keine Lernquellen eingetragen (learning.sources in der Rohconfig). "
+    "Kira schreibt nur den Verlauf."
+)
 
 # Vorbild-Maßtabelle (Spec §5 „Oberfläche"): Knopf-Mindestbreite 120 px und
 # Abstand 8 px zwischen Knöpfen einer Reihe, nur in diesem Fenster. Die
@@ -210,12 +214,16 @@ class LearnedWordsDialog(QDialog):
         self._fill(self.pending_table, lexicon.pending())
         self._fill(self.active_table, lexicon.active())
         metrics = self._service.metrics()
-        self.metrics_label.setText(
+        text = (
             f"Korrekturquote diese Woche: {format_rate(metrics.get('this_week'))} · "
             f"Vorwoche: {format_rate(metrics.get('last_week'))} · "
             f"Ausgangswert: {format_rate(metrics.get('baseline'))}\n"
             f"Zuordnung diese Woche: {format_rate(metrics.get('coverage'))}"
         )
+        # Dienste ohne die Eigenschaft (ältere Test-Attrappen) gelten als mit Quellen.
+        if not getattr(self._service, "has_sources", True):
+            text += "\n" + NO_SOURCES_HINT
+        self.metrics_label.setText(text)
 
     def _selected_keys(self, table: QTableWidget) -> list[tuple[str, str]]:
         keys: list[tuple[str, str]] = []

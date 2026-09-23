@@ -172,6 +172,11 @@ class LearningService:
         thread.start()
         return thread
 
+    @property
+    def has_sources(self) -> bool:
+        """False ohne learning.sources: Kira schreibt dann nur den Verlauf."""
+        return bool(self._sources)
+
     def pending_count(self) -> int:
         return len(self.lexicon.pending())
 

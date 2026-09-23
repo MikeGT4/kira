@@ -69,3 +69,25 @@ def test_delete_rejects_active_entry(qtbot, tmp_path):
     dlg.delete_button.click()
     assert dlg.active_table.rowCount() == 0
     assert [e.status for e in lex.entries() if e.right == "Docker"] == [STATUS_REJECTED]
+
+
+def test_hint_without_learning_sources(qtbot, tmp_path):
+    from kira.ui.learned_words_dialog import LearnedWordsDialog
+    service = FakeService(_lexicon(tmp_path))
+    service.has_sources = False
+    dlg = LearnedWordsDialog(service)
+    qtbot.addWidget(dlg)
+    lines = dlg.metrics_label.text().split("\n")
+    assert lines[-1] == ("Keine Lernquellen eingetragen (learning.sources in der Rohconfig). "
+                         "Kira schreibt nur den Verlauf.")
+
+
+@pytest.mark.parametrize("has_sources", [True, None])
+def test_no_hint_with_sources_or_without_the_attribute(qtbot, tmp_path, has_sources):
+    from kira.ui.learned_words_dialog import LearnedWordsDialog
+    service = FakeService(_lexicon(tmp_path))
+    if has_sources is not None:
+        service.has_sources = has_sources
+    dlg = LearnedWordsDialog(service)
+    qtbot.addWidget(dlg)
+    assert "Lernquellen" not in dlg.metrics_label.text()
