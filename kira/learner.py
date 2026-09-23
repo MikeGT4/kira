@@ -40,6 +40,7 @@ BOOTSTRAP_PROGRESS_EVERY = 500
 _TOKEN_RE = re.compile(r"\S+")
 _EDGE_RE = re.compile(r"^[^\w]+|[^\w]+$")
 _NOT_LETTER_RE = re.compile(r"[^a-zäöüß]")
+_UMLAUT_ASCII = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 
 
 @dataclass(frozen=True)
@@ -107,13 +108,30 @@ def _glued(wrong: str, right: str) -> bool:
     """Die richtige Seite ist die falsche plus ein angeklebtes Nachbarwort.
 
     Diktate werden ohne Leerzeichen eingefügt; zwei Diktate hintereinander
-    oder Tippen plus Diktat kommen verklebt an („durchUnd“, „wegBei“).
-    Verglichen werden nur die Buchstaben, klein. Die Gegenrichtung bleibt
-    ein Paar, so sehen echte Fehlerkennungen aus („nass“ → „NAS“).
+    oder Tippen plus Diktat kommen verklebt an („durchUnd“, „durch.2“,
+    „wegBei“, „0Das“). Hinten Angehängtes zählt immer als angeklebt. Vorn
+    nur mit sichtbarer Naht (Ziffer, Satzzeichen, klein vor groß), sonst hat
+    Whisper den Wortanfang verschluckt („Lama“ → „Ollama“), und das ist ein
+    Paar. Die Gegenrichtung bleibt ebenfalls ein Paar („nass“ → „NAS“).
     """
     w = _NOT_LETTER_RE.sub("", wrong.casefold())
     r = _NOT_LETTER_RE.sub("", right.casefold())
-    return len(r) > len(w) and (r.startswith(w) or r.endswith(w))
+    if len(r) > len(w) and r.startswith(w):
+        return True
+    wl, rl = wrong.lower(), right.lower()
+    if len(wl) != len(wrong) or len(rl) != len(right) or len(rl) <= len(wl):
+        return False
+    if rl.startswith(wl):
+        return True
+    if not rl.endswith(wl):
+        return False
+    before, first = right[len(right) - len(wrong) - 1], right[len(right) - len(wrong)]
+    return not before.isalpha() or (before.islower() and first.isupper())
+
+
+def _spelling_only(wrong: str, right: str) -> bool:
+    """Nur Umlaute anders geschrieben („ändert“ → „aendert“), kein Hörfehler."""
+    return wrong.casefold().translate(_UMLAUT_ASCII) == right.casefold().translate(_UMLAUT_ASCII)
 
 
 def extract_pairs(dictated: str, sent: str) -> list[Pair]:
@@ -135,7 +153,7 @@ def extract_pairs(dictated: str, sent: str) -> list[Pair]:
             continue
         if sum(ch.isalpha() for ch in wrong) < MIN_WRONG_LETTERS:
             continue
-        if _glued(wrong, right):
+        if _glued(wrong, right) or _spelling_only(wrong, right):
             continue
         if sound_similarity(wrong, right) < PAIR_MIN_SOUND:
             continue
