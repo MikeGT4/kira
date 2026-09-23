@@ -501,8 +501,11 @@ def _run_windows(cfg, recorder, transcriber, styler, injector) -> None:
     # Lernschleife (v0.4.0): Diktat-Verlauf, gelernte Wörter, Lernlauf-Thread.
     # Ein Fehler hier darf den Start nie verhindern. Die Löschfrist des
     # Verlaufs gilt auch bei ausgeschaltetem Lernen.
-    from kira.learning_win import prune_history
-    prune_history()
+    try:
+        from kira.learning_win import prune_history
+        prune_history()
+    except Exception:
+        log.exception("Verlauf: Löschfrist konnte nicht laufen")
     learning = None
     if cfg.learning.enabled:
         try:

@@ -3,9 +3,9 @@
 
 Ein Eintrag ist ein Paar „falsch erkannt → richtig". Art ``replacement``
 ersetzt fest, Art ``glossary`` geht nur als Hinweis an die Politur. Status
-``pending`` wartet auf Mike, ``active`` wirkt, ``rejected`` ist dauerhaft
+``pending`` wartet auf Freigabe, ``active`` wirkt, ``rejected`` ist dauerhaft
 gesperrt. Auftreten in zwei verschiedenen Diktaten aktiviert ein Paar von
-selbst, außer dieselbe falsche Seite hat mehrere richtige Seiten. Von Mike
+selbst, außer dieselbe falsche Seite hat mehrere richtige Seiten. Von Hand
 bestätigte Einträge (``confirmed``) bleiben auch dann aktiv.
 """
 from __future__ import annotations
@@ -27,6 +27,8 @@ STATUS_PENDING = "pending"
 STATUS_ACTIVE = "active"
 STATUS_REJECTED = "rejected"
 AUTO_ACTIVATE_COUNT = 2
+# kira.log und Verlauf stempeln dasselbe Diktat um bis zu eine Sekunde versetzt.
+SAME_DICTATION_S = 2
 EXAMPLE_MAX_CHARS = 120
 PROMPT_TOKEN_BUDGET = 223
 _SCHEMA_VERSION = 1
@@ -82,6 +84,17 @@ def _entry_from_json(raw) -> Entry:
     return entry
 
 
+def _already_counted(seen: tuple[str, ...], when: datetime) -> bool:
+    """Hat ein Diktat höchstens ``SAME_DICTATION_S`` Sekunden entfernt schon gezählt?"""
+    for stamp in seen:
+        try:
+            if abs((when - datetime.fromisoformat(stamp)).total_seconds()) <= SAME_DICTATION_S:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
+
+
 def default_lexicon_path() -> Path:
     base = os.environ.get("APPDATA")
     root = Path(base) if base else Path.home() / "AppData" / "Roaming"
@@ -109,7 +122,7 @@ class Lexicon:
         try:
             data = json.loads(raw.decode("utf-8"))
             entries = [_entry_from_json(item) for item in data["entries"]]
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, RecursionError) as exc:
             backup = path.with_name(path.name + ".bak")
             try:
                 os.replace(path, backup)
@@ -146,13 +159,14 @@ class Lexicon:
         example: str, when: datetime,
     ) -> Entry | None:
         """Ein Auftreten aus einem Diktat verbuchen. None bei gesperrtem Paar
-        und wenn dieses Diktat (gleicher Zeitstempel) das Paar schon gezählt hat."""
+        und wenn dieses Diktat das Paar schon gezählt hat (Zeitstempel höchstens
+        ``SAME_DICTATION_S`` Sekunden entfernt)."""
         stamp = when.isoformat(timespec="seconds")
         key = (wrong.casefold(), right.casefold())
         with self._lock:
             current = self._entries.get(key)
             if current is not None and (
-                current.status == STATUS_REJECTED or stamp in current.seen
+                current.status == STATUS_REJECTED or _already_counted(current.seen, when)
             ):
                 return None
             if current is None:

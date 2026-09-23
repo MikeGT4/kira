@@ -6,7 +6,6 @@ Quelle ist ausschließlich der Logo-Ordner (``--logo-dir``):
 - assets/kira-splash.png und assets/readme-splash.jpg: bisheriges Bild, nur das
   Logo ersetzt. „digital“ stammt aus der weißen Datei, „roots“ und die
   Pixelmarke aus der Farbdatei; beide Dateien sind pixelgleich ausgerichtet.
-  Freigabe Mike 22.09.2026.
 
 Aufruf:
     python scripts/swap_logo.py --logo-dir <Ordner mit den Logo-Dateien>

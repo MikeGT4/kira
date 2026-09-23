@@ -3,7 +3,7 @@
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pytest
 from kira.lexicon import (
     KIND_GLOSSARY, KIND_REPLACEMENT, STATUS_ACTIVE, STATUS_PENDING,
@@ -229,3 +229,28 @@ def test_prompt_skips_too_long_term_but_keeps_shorter_ones():
 
 def test_prompt_skips_terms_already_in_base():
     assert build_initial_prompt("Kira, Docker.", ["docker"], _words) == "Kira, Docker."
+
+
+def test_same_dictation_stamped_one_second_apart_counts_once(tmp_path):
+    # kira.log und Verlauf stempeln dasselbe Diktat um bis zu eine Sekunde versetzt.
+    lex = Lexicon(tmp_path / "learned.json")
+    lex.observe("doku", "Docker", kind=KIND_REPLACEMENT, vocab=True, example="", when=T1)
+    again = lex.observe("doku", "Docker", kind=KIND_REPLACEMENT, vocab=True, example="",
+                        when=T1 + timedelta(seconds=1))
+    assert again is None
+    assert [e.count for e in lex.entries()] == [1]
+
+
+def test_separate_dictations_a_few_seconds_apart_count_twice(tmp_path):
+    lex = Lexicon(tmp_path / "learned.json")
+    lex.observe("doku", "Docker", kind=KIND_REPLACEMENT, vocab=True, example="", when=T1)
+    lex.observe("doku", "Docker", kind=KIND_REPLACEMENT, vocab=True, example="",
+                when=T1 + timedelta(seconds=5))
+    assert [e.count for e in lex.entries()] == [2]
+
+
+def test_deeply_nested_file_is_set_aside(tmp_path):
+    path = tmp_path / "learned.json"
+    path.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    assert Lexicon.load(path).entries() == []
+    assert (tmp_path / "learned.json.bak").exists()
