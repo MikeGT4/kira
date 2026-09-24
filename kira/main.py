@@ -828,6 +828,7 @@ def run() -> None:
     # VRAM-Tuning fuer den Ollama-Polish-Pfad persistent setzen (Windows-only +
     # idempotent, no-op auf Mac). Flash-Attention + q8-KV-Cache senken den
     # VRAM-Bedarf, statt die GPU-Platzierung mit num_gpu=999 zu erzwingen.
+    # Seit v0.4.2 zusätzlich der RAM-Prompt-Cache von llama-server aus.
     # Greift nach dem naechsten Ollama-Neustart; ein laufender Server wird
     # bewusst nicht neu gestartet (geteilt mit anderen Clients). S. ollama_env.
     if cfg.styler.provider == "ollama":

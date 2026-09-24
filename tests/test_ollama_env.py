@@ -9,6 +9,13 @@ from __future__ import annotations
 import kira.ollama_env as oe
 
 
+# ---- TUNING_ENV ------------------------------------------------------------
+
+def test_tuning_env_disables_llama_server_prompt_cache():
+    # Ollamas Runner llama-server hält sonst bis 8 GiB Prompt-Cache im RAM.
+    assert oe.TUNING_ENV["LLAMA_ARG_CACHE_RAM"] == "0"
+
+
 # ---- pending_changes (pure) ------------------------------------------------
 
 def test_pending_changes_empty_env_needs_all():
@@ -28,7 +35,8 @@ def test_pending_changes_wrong_value_is_pending():
 
 
 def test_pending_changes_partial_only_missing():
-    current = {"OLLAMA_FLASH_ATTENTION": "1"}  # einer da, einer fehlt
+    current = dict(oe.TUNING_ENV)
+    del current["OLLAMA_KV_CACHE_TYPE"]  # einer fehlt, die übrigen stimmen
     assert oe.pending_changes(current) == {
         "OLLAMA_KV_CACHE_TYPE": oe.TUNING_ENV["OLLAMA_KV_CACHE_TYPE"]
     }
@@ -71,7 +79,9 @@ def test_apply_noop_when_already_set(monkeypatch):
 
 def test_apply_writes_only_missing(monkeypatch):
     monkeypatch.setattr(oe.sys, "platform", "win32")
-    monkeypatch.setattr(oe, "_read_user_env", lambda: {"OLLAMA_FLASH_ATTENTION": "1"})
+    current = dict(oe.TUNING_ENV)
+    del current["OLLAMA_KV_CACHE_TYPE"]
+    monkeypatch.setattr(oe, "_read_user_env", lambda: current)
     writes: dict[str, str] = {}
     monkeypatch.setattr(oe, "_write_user_env", lambda n, v: writes.__setitem__(n, v))
     written = oe.apply_tuning_env()
@@ -91,7 +101,7 @@ def test_apply_returns_empty_when_read_fails(monkeypatch):
 
 
 def test_apply_skips_key_when_write_fails(monkeypatch):
-    """Ein einzelner Schreibfehler darf den zweiten Key nicht verhindern und
+    """Ein einzelner Schreibfehler darf die übrigen Keys nicht verhindern und
     nicht faelschlich als 'gesetzt' melden."""
     monkeypatch.setattr(oe.sys, "platform", "win32")
     monkeypatch.setattr(oe, "_read_user_env", lambda: {})
@@ -100,4 +110,5 @@ def test_apply_skips_key_when_write_fails(monkeypatch):
             raise OSError("access denied")
     monkeypatch.setattr(oe, "_write_user_env", selective_write)
     written = oe.apply_tuning_env()
-    assert written == ["OLLAMA_KV_CACHE_TYPE"]  # nur der erfolgreiche Key
+    # nur die erfolgreichen Keys
+    assert written == [k for k in oe.TUNING_ENV if k != "OLLAMA_FLASH_ATTENTION"]

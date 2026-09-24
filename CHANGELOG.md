@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.2 (2026-09-24)
+
+### Weniger Arbeitsspeicher für Ollama
+
+Ab Ollama 0.32 rechnet das Politur-Modell in `llama-server`. Dessen
+Prompt-Cache hält voreingestellt bis zu 8 GiB im Arbeitsspeicher, auch wenn das
+Modell komplett auf der Grafikkarte liegt. Gemessen waren an einem Vormittag
+7,9 GiB belegt, und bei 202 Anfragen sparte der Cache einmal Rechenzeit; Kiras
+Anfragen rechnet der Server ohnehin in 50 bis 100 ms neu.
+
+Kira setzt deshalb beim Start die Benutzervariable `LLAMA_ARG_CACHE_RAM=0`, so
+wie schon `OLLAMA_FLASH_ATTENTION` und `OLLAMA_KV_CACHE_TYPE`. Ollama reicht sie
+an `llama-server` weiter. Sie wirkt nach dem nächsten Neustart von Ollama und
+gilt für alle Programme, die denselben Ollama-Server nutzen.
+
 ## v0.4.1 (2026-09-23)
 
 ### Aufnahme-Anzeige: sechs Stile, 150 % groß, mit Warnungen

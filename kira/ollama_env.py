@@ -1,15 +1,23 @@
-"""Persistentes Ollama-VRAM-Tuning fuer den Polish-Pfad.
+"""Persistentes Ollama-Tuning (VRAM und RAM) für den Polish-Pfad.
 
-Setzt zwei serverseitige Ollama-Env-Vars dauerhaft in ``HKCU\\Environment``:
+Setzt drei serverseitige Env-Vars dauerhaft in ``HKCU\\Environment``:
 
     OLLAMA_FLASH_ATTENTION = 1       # Flash-Attention-Kernel
     OLLAMA_KV_CACHE_TYPE   = q8_0    # KV-Cache f16 -> q8_0 (~halbe Groesse)
+    LLAMA_ARG_CACHE_RAM    = 0       # Prompt-Cache von llama-server im RAM aus
 
 Wirkung: senkt den realen VRAM-Bedarf des Polish-Modells, statt seine
 GPU-Platzierung mit ``num_gpu=999`` zu erzwingen (das ist ab Ollama 0.30.x
 serverseitig wirkungslos, Regression GitHub #16610). Auf einer 32-GB-Karte
 bringt der gesparte Headroom das Modell zuverlaessig komplett in den VRAM,
 auch neben dem CUDA-Kontext von Whisper.
+
+``LLAMA_ARG_CACHE_RAM`` (seit v0.4.2): Ab Ollama 0.32 rechnet ``llama-server``,
+das Ollama mit seiner eigenen Umgebung startet. Dessen Prompt-Cache hält
+voreingestellt bis 8 GiB im Arbeitsspeicher; gemessen waren 7,9 GiB belegt,
+bei 202 Anfragen griff er einmal mit Gewinn. Kiras Prompts rechnet der Server
+ohnehin in 50 bis 100 ms neu. Die Einstellung gilt für alle Clients desselben
+Ollama-Servers.
 
 Wichtige Eigenschaften:
 
@@ -41,6 +49,7 @@ log = logging.getLogger(__name__)
 TUNING_ENV: dict[str, str] = {
     "OLLAMA_FLASH_ATTENTION": "1",
     "OLLAMA_KV_CACHE_TYPE": "q8_0",
+    "LLAMA_ARG_CACHE_RAM": "0",
 }
 
 #: HKEY_CURRENT_USER-Subkey, in dem Windows die User-Env-Vars haelt.
