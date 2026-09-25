@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.4.3 (2026-09-25)
+
+### Kein zweites Laden, wenn ein anderes Programm das Politur-Modell geladen hat
+
+Kira schickt bei der Politur kein `num_gpu=999` mehr mit. Ollama lädt ein
+Modell neu, sobald eine Anfrage ein anderes `num_gpu` verlangt als beim Laden.
+Hatte ein anderes Programm das Politur-Modell über denselben Ollama-Server
+geladen, wartete Kira, bis dessen Anfrage fertig war, und lud das Modell dann
+ein zweites Mal. Gemessen dauerte die Politur dadurch 8,1 und 24,8 Sekunden
+statt rund 0,3.
+
+Das Modell liegt weiter vollständig auf der Grafikkarte: Ollama 0.32 verteilt
+die Schichten selbst, mit und ohne die Angabe gleich (16.298 MiB).
+
+### Hinweis zu `styler.keep_alive` berichtigt
+
+Für ein dauerhaft geladenes Modell gilt `"-1m"`. Der bisher genannte Wert
+`"-1"` ohne Einheit lehnt Ollama ab, und jede Politur fiele auf den Rohtext
+zurück.
+
 ## v0.4.2 (2026-09-24)
 
 ### Weniger Arbeitsspeicher für Ollama

@@ -494,19 +494,18 @@ async def test_polish_observes_duration_via_finally(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# num_gpu=999 forciert alle Modell-Layer auf GPU (Fix fuer Polish-Latenz
-# 2026-05-23): Ollama 0.23.x entscheidet bei gemma3:12b auf einer 32GB-GPU
-# manchmal fehlerhaft, einen ~787 MiB Embedding-Tensor (Q4_K_M) auf CPU
-# zu lassen trotz reichlich freiem VRAM — Resultat: 14 tok/s statt 114
-# tok/s, Polish 5-15s statt <1s. Mit explizitem num_gpu=999 ("alle
-# Layer auf GPU") laedt Ollama 100% in VRAM. Hardcoded an allen 3 chat-
-# Sites, damit Ollama nicht zwischen Calls das Modell mit anderen Options
-# reloadet (ein Mix aus mit/ohne num_gpu wuerde bei jedem Wechsel einen
-# Model-Reload kosten ~7s).
+# Kein num_gpu in Kiras Anfragen (v0.4.3). Ollama lädt ein Modell neu, sobald
+# eine Anfrage ein anderes num_gpu verlangt als der geladene Runner
+# (server/sched.go, needsReload, v0.32.15). Lud Hermes vom Orin32 gemma4 ohne
+# num_gpu, erzwang Kiras num_gpu=999 ein zweites Laden und wartete dafür
+# Hermes' laufende Anfrage ab: Politur 8,1 s und 24,8 s am 25.09.2026. Die
+# Platzierung ändert num_gpu auf 0.32.15 nicht, llama-server legt alle
+# Schichten selbst auf die GPU (beide Ladungen 16.298 MiB). Ob das Modell im
+# VRAM liegt, prüft verify_gpu_placement.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_polish_forces_num_gpu_999():
+async def test_polish_sends_no_num_gpu():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
@@ -515,11 +514,11 @@ async def test_polish_forces_num_gpu_999():
 
     await styler.polish("text", mode="plain")
 
-    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
 
 
 @pytest.mark.asyncio
-async def test_warmup_forces_num_gpu_999():
+async def test_warmup_sends_no_num_gpu():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
@@ -528,11 +527,11 @@ async def test_warmup_forces_num_gpu_999():
 
     await styler.warmup()
 
-    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
 
 
 @pytest.mark.asyncio
-async def test_edit_command_forces_num_gpu_999():
+async def test_edit_command_sends_no_num_gpu():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
@@ -541,7 +540,7 @@ async def test_edit_command_forces_num_gpu_999():
 
     await styler.edit_command(selection="text", command="cmd")
 
-    assert fake_client.chat.call_args.kwargs["options"]["num_gpu"] == 999
+    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
 
 
 # ---------------------------------------------------------------------------

@@ -29,16 +29,12 @@ FORCE_FAST_DURATION_SEC = 5 * 60
 # Ollama“, und Kira fügte sechs Tage lang still den Rohtext ein.
 CONNECTION_FAIL_TRIGGER_COUNT = 3
 
-# Forciert alle Modell-Layer auf die GPU. Ollama 0.23.x trifft auf
-# Win11 + RTX 5090 bei gemma3:12b (Q4_K_M) gelegentlich die falsche
-# Auto-Layer-Decision und laesst ~787 MiB Embedding-Tensor auf CPU
-# trotz 28+ GiB freiem VRAM. Folge: jeder Token-Generate geht via
-# PCIe zum CPU-Speicher → 14 tok/s statt 114 tok/s, Polish 5-15s
-# statt <1s. Verifiziert 2026-05-23: identischer Call mit num_gpu=999
-# → 100% GPU, 8x speedup. Muss konsistent an allen 3 chat-Sites
-# stehen, sonst reloadet Ollama das Modell bei jedem Options-Wechsel
-# (~7s pro Reload).
-FORCE_ALL_LAYERS_ON_GPU = 999
+# Kein num_gpu in den Anfragen (bis v0.4.2 stand dort 999). Ollama lädt ein
+# Modell neu, sobald eine Anfrage ein anderes num_gpu verlangt als der geladene
+# Runner. Lädt ein anderer Client (Hermes) das Modell ohne num_gpu, kostete
+# Kiras 999 ein zweites Laden samt Warten auf dessen laufende Anfrage
+# (25.09.2026: Politur 8,1 s und 24,8 s). llama-server in Ollama 0.32 legt
+# alle Schichten selbst auf die GPU; verify_gpu_placement prüft das.
 
 # Anteil von `size`, der mindestens im VRAM liegen muss, damit ein Load als
 # „voll auf GPU" gilt. Bei 100%-GPU-Loads meldet Ollama size_vram == size;
@@ -299,7 +295,6 @@ class Styler:
                     options={
                         "temperature": 0.0,
                         "num_predict": 1,
-                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
                     },
                     keep_alive=keep_alive,
                     **_thinking_kwargs(model),
@@ -328,8 +323,8 @@ class Styler:
             model, keep_alive,
         )
         # Nach erfolgreichem Load pruefen, ob das Modell wirklich im VRAM
-        # liegt — num_gpu=999 ist ab Ollama 0.30.x serverseitig wirkungslos
-        # (s. verify_gpu_placement). Eigener Schutz: ein Fehler im Check darf
+        # liegt; Kira erzwingt die Platzierung nicht (kein num_gpu, s.
+        # verify_gpu_placement). Eigener Schutz: ein Fehler im Check darf
         # den erfolgreichen Warmup nicht nachtraeglich zum Fehler machen.
         try:
             await self.verify_gpu_placement()
@@ -340,7 +335,7 @@ class Styler:
         """Prueft nach dem Warmup via ``ollama.ps()``, ob das Polish-Modell
         im VRAM liegt oder komplett auf die CPU gefallen ist.
 
-        Hintergrund: ``num_gpu=999`` (FORCE_ALL_LAYERS_ON_GPU) ist ab
+        Hintergrund: ``num_gpu=999`` (bis v0.4.2 in jeder Anfrage) war ab
         Ollama 0.30.x serverseitig wirkungslos (Regression, GitHub #16610) —
         das Modell landet trotz freiem VRAM komplett auf CPU. Die alte
         Latenz-Heuristik (_observe_polish_duration) erkennt das unzuverlaessig,
@@ -471,7 +466,6 @@ class Styler:
                     messages=[{"role": "user", "content": prompt}],
                     options={
                         "temperature": temperature,
-                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
                     },
                     keep_alive=self._config.styler.keep_alive,
                     **_thinking_kwargs(model),
@@ -563,7 +557,6 @@ class Styler:
                     messages=[{"role": "user", "content": prompt}],
                     options={
                         "temperature": temperature,
-                        "num_gpu": FORCE_ALL_LAYERS_ON_GPU,
                     },
                     keep_alive=self._config.styler.keep_alive,
                     **_thinking_kwargs(model),
