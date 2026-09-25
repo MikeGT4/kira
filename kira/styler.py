@@ -385,9 +385,10 @@ class Styler:
                     "Abhilfe: Ollama neu starten — Kira setzt "
                     "OLLAMA_FLASH_ATTENTION=1 + OLLAMA_KV_CACHE_TYPE=q8_0 "
                     "persistent, das senkt den VRAM-Bedarf und bringt das "
-                    "Modell in den VRAM. Bleibt es auf CPU: num_gpu=999 ist ab "
-                    "Ollama 0.30.x wirkungslos (Regression GitHub #16610) -> "
-                    "Ollama auf 0.24.0 downgraden. Achtung: Haelt ein WSL-/"
+                    "Modell in den VRAM. Bleibt es auf CPU: Programme schließen, "
+                    "die Grafikspeicher belegen, oder ein kleineres Modell "
+                    "wählen; kein Downgrade, die gemma4-Modelle brauchen "
+                    "Ollama ab 0.30. Achtung: Haelt ein WSL-/"
                     "Docker-Ollama den Port 11434, gilt stattdessen die "
                     "Port-Diagnose-Zeile direkt nach dieser (Windows).",
                     model, int(size) / 1e9,
@@ -397,7 +398,9 @@ class Styler:
                         f"Polish-Modell {model} laeuft auf CPU statt GPU — "
                         f"stark verlangsamt. Ollama neu starten (Kira hat das "
                         f"VRAM-Tuning gesetzt, es greift nach dem Neustart). "
-                        f"Hilft das nicht: Ollama auf 0.24.0 downgraden."
+                        f"Hilft das nicht: Programme schließen, die "
+                        f"Grafikspeicher belegen, oder ein kleineres Modell "
+                        f"wählen."
                     )
                     try:
                         self._on_cpu_fallback_detected(msg)

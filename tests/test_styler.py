@@ -494,18 +494,21 @@ async def test_polish_observes_duration_via_finally(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Kein num_gpu in Kiras Anfragen (v0.4.3). Ollama lädt ein Modell neu, sobald
-# eine Anfrage ein anderes num_gpu verlangt als der geladene Runner
-# (server/sched.go, needsReload, v0.32.15). Lud Hermes vom Orin32 gemma4 ohne
-# num_gpu, erzwang Kiras num_gpu=999 ein zweites Laden und wartete dafür
-# Hermes' laufende Anfrage ab: Politur 8,1 s und 24,8 s am 25.09.2026. Die
-# Platzierung ändert num_gpu auf 0.32.15 nicht, llama-server legt alle
-# Schichten selbst auf die GPU (beide Ladungen 16.298 MiB). Ob das Modell im
-# VRAM liegt, prüft verify_gpu_placement.
+# Keine Runner-Optionen in Kiras Anfragen (v0.4.3). Ollama lädt ein Modell neu,
+# sobald eine Anfrage andere Runner-Optionen verlangt als der geladene Runner
+# (num_gpu, num_ctx, num_batch usw.; server/sched.go, needsReload, v0.32.15).
+# Lud Hermes vom Orin32 gemma4 ohne num_gpu, erzwang Kiras num_gpu=999 ein
+# zweites Laden und wartete dafür Hermes' laufende Anfrage ab: Politur 8,1 s
+# und 24,8 s am 25.09.2026. Die Platzierung ändert num_gpu auf 0.32.15 nicht,
+# llama-server legt alle Schichten selbst auf die GPU (beide Ladungen
+# 16.298 MiB). Ob das Modell im VRAM liegt, prüft verify_gpu_placement.
 # ---------------------------------------------------------------------------
 
+SAMPLING_OPTIONS = {"temperature", "num_predict"}
+
+
 @pytest.mark.asyncio
-async def test_polish_sends_no_num_gpu():
+async def test_polish_sends_only_sampling_options():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
@@ -514,24 +517,25 @@ async def test_polish_sends_no_num_gpu():
 
     await styler.polish("text", mode="plain")
 
-    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
+    assert set(fake_client.chat.call_args.kwargs["options"]) <= SAMPLING_OPTIONS
 
 
 @pytest.mark.asyncio
-async def test_warmup_sends_no_num_gpu():
+async def test_warmup_sends_only_sampling_options():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
     fake_client.chat = AsyncMock(return_value={"message": {"content": "ok"}})
+    fake_client.ps = AsyncMock(return_value=MagicMock(models=[]))
     styler._client = fake_client
 
     await styler.warmup()
 
-    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
+    assert set(fake_client.chat.call_args.kwargs["options"]) <= SAMPLING_OPTIONS
 
 
 @pytest.mark.asyncio
-async def test_edit_command_sends_no_num_gpu():
+async def test_edit_command_sends_only_sampling_options():
     cfg = Config()
     styler = Styler(cfg)
     fake_client = MagicMock()
@@ -540,7 +544,7 @@ async def test_edit_command_sends_no_num_gpu():
 
     await styler.edit_command(selection="text", command="cmd")
 
-    assert "num_gpu" not in fake_client.chat.call_args.kwargs["options"]
+    assert set(fake_client.chat.call_args.kwargs["options"]) <= SAMPLING_OPTIONS
 
 
 # ---------------------------------------------------------------------------
@@ -571,12 +575,14 @@ async def test_verify_gpu_placement_detects_cpu_fallback():
     assert result == "cpu"
     callback.assert_called_once()
     # Die Toast-Meldung muss den User handlungsfaehig machen: Modellname +
-    # primaerer Hinweis (Ollama neu starten, VRAM-Tuning greift) + Downgrade
-    # als Fallback.
+    # primaerer Hinweis (Ollama neu starten, VRAM-Tuning greift) + als
+    # Rückfall Grafikspeicher freiräumen. Kein Downgrade-Rat mehr: Die
+    # gemma4-Modelle brauchen Ollama ab 0.30 (seit v0.4.3).
     msg = callback.call_args.args[0]
     assert "gemma3:12b" in msg
     assert "neu starten" in msg.lower()
-    assert "0.24" in msg
+    assert "grafikspeicher" in msg.lower()
+    assert "0.24" not in msg
 
 
 @pytest.mark.asyncio

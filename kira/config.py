@@ -86,7 +86,9 @@ class StylerConfig(BaseModel):
     # Default "24h" prevents the 5-minute idle eviction that adds 1-2 s of
     # cold-start latency to the first dictation after a pause. Use "-1m" to
     # never unload (uses VRAM permanently); "0" to unload immediately. A
-    # negative value needs a unit: Ollama rejects "-1" with HTTP 400.
+    # negative value needs a unit: Ollama rejects "-1" with HTTP 400. Quote
+    # the value in config.yaml: the field is a string, and a bare number
+    # (0, -1) fails validation and Kira does not start.
     keep_alive: str = "24h"
     # Pre-load the model at app startup with a tiny warmup request so the
     # very first user dictation doesn't pay the cold-start cost either.
